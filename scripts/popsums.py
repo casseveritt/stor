@@ -26,10 +26,11 @@ def files_identical(a, b, check_contents = False):
 
 
 
-def walkdir(bkupdir, cur):
+def walkdir(bkupdir, con):
 
     needs_sum = []
 
+    cur = con.cursor()
     res = cur.execute("select relpath from b3sums")
     sumpaths = set()
     for result in res.fetchall():
@@ -51,6 +52,19 @@ def walkdir(bkupdir, cur):
 
     print(f"need to compute sums for {len(needssum)} files")
 
+    count = len(needssum)
+    for n in needssum:
+        print(count, n)
+        count -= 1
+        p = os.path.join(bkupdir, n)
+        b3sum = os.popen(f'b3sum "{p}"').read().split(' ')[0]
+        if len(b3sum) > 60:
+            cur.execute("insert into b3sums values (?, ?)", (b3sum, n,))
+            print(b3sum)
+            con.commit()
+
+
+
 
 if len(sys.argv) < 3:
     print("usage: popsums <db> <path>")
@@ -58,7 +72,6 @@ if len(sys.argv) < 3:
 
 
 con = sqlite3.connect(sys.argv[1])
-cur = con.cursor()
 
-walkdir(sys.argv[2], cur)
+walkdir(sys.argv[2], con)
 
