@@ -1,9 +1,14 @@
 #!/usr/bin/python
 
+import re
 import os
 import sys
 import shutil
 import sqlite3
+
+def escape_bash_special_chars(text):
+    t2 = re.sub(r"([\$])", r"\\\1", text)
+    return t2
 
 def files_identical(a, b, check_contents = False):
     if not os.path.exists(a) or not os.path.exists(b):
@@ -18,12 +23,13 @@ def files_identical(a, b, check_contents = False):
     if not check_contents:
         return True
 
-    a_b3 = os.popen(f'b3sum "{a}"').read().split(' ')[0]
-    b_b3 = os.popen(f'b3sum "{b}"').read().split(' ')[0]
+    ae = escape_bash_special_chars(a)
+    be = escape_bash_special_chars(b)
+
+    a_b3 = os.popen(f'b3sum "{ae}"').read().split(' ')[0]
+    b_b3 = os.popen(f'b3sum "{be}"').read().split(' ')[0]
 
     return a_b3 == b_b3
-
-
 
 
 def walkdir(bkupdir, con):
@@ -57,7 +63,8 @@ def walkdir(bkupdir, con):
         print(count, n)
         count -= 1
         p = os.path.join(bkupdir, n)
-        b3sum = os.popen(f'b3sum "{p}"').read().split(' ')[0]
+        pe = escape_bash_special_chars(p)
+        b3sum = os.popen(f'b3sum "{pe}"').read().split(' ')[0]
         if len(b3sum) > 60:
             cur.execute("insert into b3sums values (?, ?)", (b3sum, n,))
             print(b3sum)
