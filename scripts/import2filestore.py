@@ -9,16 +9,21 @@ def escape_bash_special_chars(text):
     t2 = re.sub(r"([\$])", r"\\\1", text)
     return t2
 
-def import2filestore(bkupdir, importdir):
+def import2filestore(bkupdir, importdir, relpathprefix):
+    
+    if not os.path.exists(bkupdir):
+        os.makedirs(bkupdir)
     
     con = sqlite3.connect(os.path.join(bkupdir, "db"))
 
-
     if importdir[-1] != '/':
         importdir += '/'
+        
+    if relpathprefix[-1] != '/':
+        relpathprefix += '/'
 
     cur = con.cursor()
-    cur.execute("create table if not exists b3sums (b3sum, relpath)")
+    cur.execute("create table if not exists b3sums (b3sum, relpath, created DATETIME DEFAULT CURRENT_TIMESTAMP)")
     con.commit()
     rows = cur.execute("select b3sum, relpath from b3sums").fetchall()
     
@@ -43,27 +48,33 @@ def import2filestore(bkupdir, importdir):
     for path, dirs, files in os.walk(importdir):
         relpath = path[len(importdir):]
         for f in files:
-            rfp = os.path.join(relpath, f)
+            rfp = os.path.join(relpathprefix, relpath, f)
             if rfp in relpath2b3sum.keys():
                 print(f"duplicate relpath can't be imported: {rfp}")
                 continue
-            to_link.append(rfp)
+            to_link.append(os.path.join(relpath, f))
 
     count = len(to_link)            
     try:
-        for rfp in to_link:
+        for prfp in to_link:
             count -= 1
-            ifp = os.path.join(importdir, rfp)
+            rfp = os.path.join(relpathprefix, prfp)
+            ifp = os.path.join(importdir, prfp)
             ifpe = escape_bash_special_chars(ifp)
             b3sum = os.popen(f'b3sum "{ifpe}"').read().split(' ')[0]
             
             fsfp = os.path.join(bkupdir, "files", b3sum[:2], b3sum)
             if not os.path.exists(fsfp):
+                if not os.path.exists(os.path.dirname(fsfp)):
+                    print(f"{count} making {os.path.dirname(fsfp)}")
+                    os.makedirs(os.path.dirname(fsfp))
                 print(f"{count} link {fsfp} <-> {rfp}")
                 os.link(ifp, fsfp)
             
-            cur.execute("insert into b3sums (b3sum, relpath) values (?, ?)", (b3sum, relpath))
-            os.unlink(ifp)
+            cur.execute("insert into b3sums (b3sum, relpath) values (?, ?)", (b3sum, rfp))
+            if (count % 1000) == 0:
+                con.commit()
+            
 
     except KeyboardInterrupt:
         print("caught keyboard interrupt, cleaning up...")
@@ -72,12 +83,21 @@ def import2filestore(bkupdir, importdir):
         print("calling con.commit()")
         con.commit()
 
-if len(sys.argv) != 3:
-    print("usage: import2filestore.py <bkupdir> <importdir>")
+if len(sys.argv) < 3 or len(sys.argv) > 4:
+    print("usage: import2filestore.py <bkupdir> <importdir> [relpathprefix]")
     sys.exit(0)
 
 bkupdir = sys.argv[1]
 importdir = sys.argv[2]
 
-import2filestore(bkupdir, importdir)
+if len(importdir) == 0 or importdir[0] == '/':
+    print("importdir must be a relative path")
+    sys.exit(1)
+
+if len(sys.argv) == 3:
+    relpathprefix = os.path.basename(os.path.join(".", importdir))
+else:
+    relpathprefix = sys.argv[3]
+    
+import2filestore(bkupdir, importdir, relpathprefix)
 
