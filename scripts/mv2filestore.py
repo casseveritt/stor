@@ -34,7 +34,7 @@ def files_identical(a, b, check_contents = False):
 
 def mv2filestore(bkupdir, con):
 
-    filestore = os.path.join(bkupdir, ".filestore")
+    filestore = os.path.join(bkupdir, "files")
 
     os.makedirs(filestore, exist_ok=True)
 

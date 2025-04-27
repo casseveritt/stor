@@ -57,7 +57,7 @@ for f in fetchlist:
     relpath = f["relpath"]
     asum = f["asum"]
     bsum = f["bsum"]
-    cmd = f"scp strkpi.local:/media/cass/stor/bkup/.filestore/{bsum[:2]}/{bsum} 'bkup/{relpath}'"
+    cmd = f"scp strkpi.local:/media/cass/stor/bkup/files/{bsum[:2]}/{bsum} 'bkup/{relpath}'"
     print(cmd)
     os.system(cmd)
     os.system(f"b3sum 'bkup/{relpath}'")
