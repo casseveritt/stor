@@ -6,7 +6,7 @@ import sys
 import sqlite3
 
 def escape_bash_special_chars(text):
-    t2 = re.sub(r"([\$])", r"\\\1", text)
+    t2 = re.sub(r"([\$\"])", r"\\\1", text)
     return t2
 
 def import2filestore(bkupdir, importdir, relpathprefix):
@@ -93,6 +93,9 @@ importdir = sys.argv[2]
 if len(importdir) == 0 or importdir[0] == '/':
     print("importdir must be a relative path")
     sys.exit(1)
+    
+if importdir[-1] == '/':
+    importdir = importdir[:-1]
 
 if len(sys.argv) == 3:
     relpathprefix = os.path.basename(os.path.join(".", importdir))
