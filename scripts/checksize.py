@@ -15,6 +15,7 @@ cur = con.cursor()
 
 rows = cur.execute("select distinct b3sum, size from b3sums where size > -1 order by b3sum").fetchall()
 
+total = 0
 count = len(rows)
 for r in rows:
     count -= 1
@@ -22,7 +23,8 @@ for r in rows:
     sz = r[1]
     fp = os.path.join(bkupdir, "files", b3sum[:2], b3sum)
     size = os.path.getsize(fp)    
+    total += size
     if sz != size:
         print(f"{count:9} {b3sum} db size: {sz:,} != actual size {size:,}")
 
-print(f"Checked {len(rows)} files sizes.")
+print(f"Checked {len(rows)} files sizes, total bytes:{total}.")
