@@ -21,6 +21,11 @@ for path, dirs, files in os.walk(bkupdir):
 file_list.sort()
 
 count = len(file_list)
+total = 0
 for f in file_list:
     count -= 1
     print(f) 
+    total += f[0]
+
+print()
+print(f"files: {len(file_list)}, bytes: {total}")
