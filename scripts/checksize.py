@@ -22,7 +22,5 @@ for r in rows:
     sz = r[1]
     fp = os.path.join(bkupdir, "files", b3sum[:2], b3sum)
     size = os.path.getsize(fp)    
-    if count % 1000 == 0:
-        print(f"{count:9}")
     if sz != size:
         print(f"{count:9} {b3sum} db size: {sz:,} != actual size {size:,}")
