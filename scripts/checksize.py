@@ -24,3 +24,5 @@ for r in rows:
     size = os.path.getsize(fp)    
     if sz != size:
         print(f"{count:9} {b3sum} db size: {sz:,} != actual size {size:,}")
+
+print(f"Checked {len(rows)} files sizes.")
