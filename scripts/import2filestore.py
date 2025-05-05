@@ -23,9 +23,9 @@ def import2filestore(bkupdir, importdir, relpathprefix):
         relpathprefix += '/'
 
     cur = con.cursor()
-    cur.execute("create table if not exists b3sums (b3sum, relpath, size INTEGER DEFAULT -1, created DATETIME DEFAULT CURRENT_TIMESTAMP)")
+    cur.execute("create table if not exists relpaths (b3sum, relpath, size INTEGER DEFAULT -1, created DATETIME DEFAULT CURRENT_TIMESTAMP)")
     con.commit()
-    rows = cur.execute("select b3sum, relpath from b3sums").fetchall()
+    rows = cur.execute("select b3sum, relpath from relpaths").fetchall()
     
     relpath2b3sum = {}
     b3sum2relpath = {}
@@ -71,7 +71,7 @@ def import2filestore(bkupdir, importdir, relpathprefix):
                 print(f"{count} link {fsfp} <-> {rfp}")
                 os.link(ifp, fsfp)
             size = os.path.getsize(fsfp)            
-            cur.execute("insert into b3sums (b3sum, relpath, size) values (?, ?, ?)", (b3sum, rfp, size))            
+            cur.execute("insert into relpaths (b3sum, relpath, size) values (?, ?, ?)", (b3sum, rfp, size))
 
     except KeyboardInterrupt:
         print("caught keyboard interrupt, cleaning up...")

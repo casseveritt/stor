@@ -15,7 +15,7 @@ linkdir = sys.argv[2]
 con = sqlite3.connect(os.path.join(bkupdir, "db"))
 cur = con.cursor()
 
-files = cur.execute("select b3sum, relpath from b3sums order by relpath").fetchall()
+files = cur.execute("select b3sum, relpath from relpaths order by relpath").fetchall()
 
 count = len(files)
 

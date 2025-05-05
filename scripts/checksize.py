@@ -13,7 +13,7 @@ bkupdir = sys.argv[1]
 con = sqlite3.connect(os.path.join(bkupdir, "db"))
 cur = con.cursor()
 
-rows = cur.execute("select distinct b3sum, size from b3sums where size > -1 order by b3sum").fetchall()
+rows = cur.execute("select distinct b3sum, size from relpaths where size > -1 order by b3sum").fetchall()
 
 total = 0
 count = len(rows)

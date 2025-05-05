@@ -13,7 +13,7 @@ bkupdir = sys.argv[1]
 con = sqlite3.connect(os.path.join(bkupdir, "db"))
 cur = con.cursor()
 
-rows = cur.execute("select b3sum, relpath from b3sums order by relpath").fetchall()
+rows = cur.execute("select b3sum, relpath from relpaths order by relpath").fetchall()
 
 count = len(rows)
 
