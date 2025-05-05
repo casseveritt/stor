@@ -13,7 +13,7 @@ bkupdir = sys.argv[1]
 con = sqlite3.connect(os.path.join(bkupdir, "db"))
 cur = con.cursor()
 
-rows = cur.execute("select b3sum, relpath from b3sums where size = -1 order by b3sum").fetchall()
+rows = cur.execute("select b3sum, relpath from relpaths where size = -1 order by b3sum").fetchall()
 
 sumset = set()
 for r in rows:
@@ -31,9 +31,9 @@ try:
         relpath = r[1]
         fp = os.path.join(bkupdir, "files", b3sum[:2], b3sum)
         size = os.path.getsize(fp)    
-        cur.execute("update b3sums set size = ? where b3sum = ?", (size, b3sum))
+        cur.execute("update relpaths set size = ? where b3sum = ?", (size, b3sum))
         print(f"{count:9} {b3sum} {size:,}")
-        #print(f"update b3sums set size = {size} where b3sum = '{b3sum}';")
+        #print(f"update relpaths set size = {size} where b3sum = '{b3sum}';")
 except KeyboardInterrupt:
     print("caught keyboard interrupt")
 finally:
