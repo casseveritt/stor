@@ -2,11 +2,15 @@
 
 import datetime
 import os
+import random
 import sys
+import time
 
 if len(sys.argv) != 1:
     print(f"usage: {sys.argv[0]}")
     sys.exit(0)
+
+time.sleep(random.randint(0, 1800))
 
 cmd = r"rsync -hav -f '- /bkup/local/***' -e 'ssh -p 23434' starkville.hopto.org:/stor0/bkup /stor0"
 result = os.popen(cmd).read()
