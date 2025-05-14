@@ -5,7 +5,7 @@ import sys
 import sqlite3
 
 if len(sys.argv) != 2:
-    print("usage: orphans.py <bkupdir>")
+    print(f"usage: {sys.argv[0]} <bkupdir>")
     sys.exit(0)
 
 bkupdir = sys.argv[1]

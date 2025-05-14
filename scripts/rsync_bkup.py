@@ -6,11 +6,18 @@ import random
 import sys
 import time
 
+flags = {}
+
+if "--now" in sys.argv:
+    flags["now"] = True
+    sys.argv.remove("--now")
+
 if len(sys.argv) != 1:
     print(f"usage: {sys.argv[0]}")
     sys.exit(0)
 
-time.sleep(random.randint(0, 1800))
+if "now" not in flags.keys() or not flags["now"]:
+    time.sleep(random.randint(0, 1800))
 
 cmd = r"rsync -hav -f '- /bkup/local/***' -e 'ssh -p 23434' starkville.hopto.org:/stor0/bkup /stor0"
 result = os.popen(cmd).read()

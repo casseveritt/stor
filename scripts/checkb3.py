@@ -8,7 +8,7 @@ def escape_bash_special_chars(text):
     return t2
 
 if len(sys.argv) != 2:
-    print("usage: sizelist.py <bkupdir>")
+    print(f"usage: {sys.argv[0]} <bkupdir>")
     sys.exit(0)
 
 bkupdir = sys.argv[1]
