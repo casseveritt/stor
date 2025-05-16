@@ -22,6 +22,9 @@ for r in rows:
     b3sum = r[0]
     sz = r[1]
     fp = os.path.join(bkupdir, "files", b3sum[:2], b3sum)
+    if not os.path.exists(fp):
+        print(f"{fp} does not exist")
+        continue
     size = os.path.getsize(fp)    
     total += size
     if sz != size:
