@@ -29,7 +29,7 @@ A node itself also has an identity, established by its keypair, used for node-to
 
 An **Asset** is the fundamental unit of content. It consists of:
 
-- **Content**: The raw bytes of the file (stored once, content-addressed by BLAKE3 hash). Immutable.
+- **Content**: The raw bytes of the file (stored once, content-addressed by a node-internal hash). Immutable.
 - **Metadata**: Descriptive information about the asset (see §3). Mutable.
 - **ACL**: The set of identities permitted to access this asset (see §4). Mutable.
 
@@ -100,7 +100,7 @@ The following fields are defined for all assets. Metadata is mutable; content (a
 |---|---|---|
 | `id` | Immutable | Stable identifier for the asset within its node |
 | `node` | Immutable | Address of the origin node |
-| `content_hash` | Immutable | BLAKE3 hash of the raw content |
+| `content_hash` | Immutable | Node-internal hash of the raw content. Opaque to clients; its meaning and algorithm are an implementation detail of the node. Used as a stable content identifier, not as a client-verifiable checksum. |
 | `media_type` | Immutable | MIME type of the content |
 | `size` | Immutable | Size of the raw content in bytes |
 | `created_at` | Immutable | Timestamp when the asset was first published |
@@ -174,7 +174,7 @@ Operations are defined abstractly. Concrete bindings map these to protocol-speci
 - Asset content (bytes), watermarked if the node has watermarking enabled for this asset
 - Content metadata (media type, size, `content_hash` of the pre-watermark original)
 
-**Behavior**: ACL checked first. If watermarking is enabled, it is applied before delivery. The `content_hash` always refers to the original un-watermarked content. If watermarking is enabled but fails, the node must return an error rather than serve un-watermarked content.
+**Behavior**: ACL checked first. If watermarking is enabled, it is applied before delivery. Because delivered content may be watermarked, clients cannot verify `content_hash` against what they receive — it is provided as a stable content identifier, not a transport integrity check. A node may optionally provide a separately-computed delivery hash (of a declared algorithm) for transport integrity verification; this is distinct from `content_hash`. If watermarking is enabled but fails, the node must return an error rather than serve un-watermarked content.
 
 ---
 

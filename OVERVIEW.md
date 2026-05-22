@@ -4,7 +4,7 @@
 
 ## Core Concepts
 
-- **Content-addressable storage**: Every file is stored by its `b3sum` (BLAKE3) hash under `files/<2-char-prefix>/<full-hash>`. Identical files are stored only once regardless of how many paths point to them.
+- **Content-addressable storage**: Every file is stored by a hash of its content under `files/<2-char-prefix>/<full-hash>`. Identical files are stored only once regardless of how many paths point to them. The current implementation uses BLAKE3 (`b3sum`), but this is an implementation detail — the protocol treats content hashes as opaque node-internal identifiers.
 - **SQLite index**: A database file (`db`) holds a `relpaths` table mapping `b3sum → relative path`. Multiple paths can map to the same hash, giving deduplication for free.
 - **Hard links**: Files are imported via hard links rather than copies, keeping disk usage minimal as long as source and store share the same filesystem.
 
