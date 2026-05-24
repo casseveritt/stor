@@ -1,4 +1,4 @@
-# stor Federation Protocol — Abstract Specification
+# contac Federation Protocol — Abstract Specification
 
 ## Status: Draft
 

@@ -1,4 +1,4 @@
-# stor Implementation Plan
+# contac Implementation Plan
 
 ## Approach
 
@@ -18,25 +18,80 @@ The existing `scripts/` and SQLite + `files/` storage layer are reused as-is. Th
 | Auth (early) | Signed static tokens | Gets auth into the architecture without OAuth ceremony |
 | Auth (later) | OAuth2/OIDC (SSO) | Replaces static tokens; Google et al. |
 | Watermarking | Pillow (images), FFmpeg (video) | Applied in delivery pipeline |
-| DB | SQLite (existing) | Schema extended incrementally per phase |
+| DB | SQLCipher | Encrypted SQLite (drop-in SQLite replacement); key derived from owner passphrase, held in process memory |
+| File encryption | AES-256-GCM | Per-file; random 12-byte nonce prepended to ciphertext |
+| Key derivation | Argon2id | Owner passphrase → 32-byte master key; Argon2id parameters + salt stored in node config; key never written to disk |
+| Key injection | Passphrase at startup | Interactive prompt or `--key-stdin` (for systemd/scripted starts); no env-var or file-based key persistence |
+
+---
+
+## Encryption Architecture
+
+All data at rest is encrypted. Decryption keys exist only in process memory for the lifetime of the running server. No key material is ever written to disk.
+
+### Master Key and Subkeys
+
+At node initialization the owner chooses a passphrase. A random 16-byte Argon2id salt is generated and stored in the node config file (plaintext — it is not secret). On every startup the passphrase is run through Argon2id with that salt to produce a 32-byte master key. Two subkeys are then derived via HKDF:
+
+- `db_key = HKDF(master_key, info="contac-db")`
+- `file_key = HKDF(master_key, info="contac-files")`
+
+The master key and both subkeys exist only in memory. If the server process stops, the keys are gone; the next startup requires the passphrase again.
+
+### Database Encryption
+
+The SQLite database is opened via SQLCipher using `db_key`. SQLCipher encrypts at the page level; the `.db` file on disk is opaque ciphertext without the key. Schema migrations operate on the live SQLCipher connection exactly as they would on unencrypted SQLite.
+
+### File Store Encryption
+
+Each file written into `files/<xx>/<hash>` is encrypted with AES-256-GCM under `file_key`. A randomly generated 12-byte nonce is prepended to the ciphertext:
+
+```
+[ 12-byte nonce | AES-256-GCM ciphertext | 16-byte auth tag ]
+```
+
+Files are decrypted into memory on read. The stored filename is still the BLAKE3 hash of the original plaintext (content-addressable semantics are preserved; the hash is computed before encryption). Watermarking (Phase 5) operates entirely in memory on the decrypted bytes; neither decrypted content nor watermarked output is written to disk.
+
+### Node Keypair
+
+The Ed25519 private key is generated once at initialization and stored encrypted (AES-256-GCM, `master_key` derived key) in the node config file. It is decrypted into memory at startup alongside the database key.
+
+### Startup Flow
+
+1. Server reads the Argon2id parameters and salt from the node config file.
+2. Owner provides the passphrase (interactive prompt, or piped via `--key-stdin` — never an env var or key file that could be logged or leaked).
+3. Master key and subkeys are derived and held in process memory.
+4. SQLCipher connection is opened with `db_key`; if the passphrase is wrong, the connection fails and the server does not start.
+5. Node private key is decrypted into memory.
+6. Server begins accepting requests.
+
+### Ownership Boundary
+
+The owner is the only party who can start the server (requires the passphrase), decrypt any data (all keys trace back to the passphrase), issue or revoke credentials (operations against the encrypted DB), or modify ACLs. Recipients authenticate to a running server and receive content in transit; they have no access to key material, the encrypted DB, or the raw files on disk.
 
 ---
 
 ## Phase 1 — Server Skeleton
 
-**Goal**: A running server with a node identity. Proves the stack works end-to-end before any real operations are added.
+**Goal**: A running server with a node identity and full encryption at rest. Proves the stack — including the encryption layer — works end-to-end before any real operations are added.
 
 **Deliverables**:
-- FastAPI app scaffolding with configuration (node address, keypair path, store path)
-- Node keypair generation utility (Ed25519)
+- Node initialization CLI: generates Argon2id salt, derives master key and subkeys, initializes SQLCipher DB, generates and stores encrypted Ed25519 keypair; prompts for owner passphrase
+- Startup passphrase handling: interactive prompt and `--key-stdin` flag; key derivation (Argon2id + HKDF) runs before any other startup step
+- FastAPI app scaffolding with configuration (node address, encrypted keypair path, store path)
+- SQLCipher connection setup; server refuses to start if passphrase is wrong
+- File store encryption helpers: encrypt-on-write, decrypt-on-read (AES-256-GCM)
 - Node metadata endpoint: returns node address, public key, watermarking policy declaration
 - Health/liveness endpoint
 - Basic logging
 
-**DB changes**: None.
+**DB changes**: SQLCipher-encrypted SQLite initialized with Argon2id-derived key.
 
 **Tests**:
-- Server starts cleanly against a temporary store
+- Server starts cleanly against a temporary store with correct passphrase
+- Server refuses to start with wrong passphrase
+- DB file on disk cannot be opened as plaintext SQLite
+- A file written through the encryption helper cannot be read back as plaintext
 - Node metadata endpoint returns valid JSON with required fields
 - Public key in response is valid Ed25519
 
@@ -239,6 +294,8 @@ stor/
 ## Guiding Principles
 
 - **Each phase is shippable**: don't start the next phase until the current one has passing tests.
-- **No mocking the storage layer in integration tests**: tests run against a real (temporary) SQLite store and `files/` directory.
+- **Encryption is in the architecture from Phase 1**: the SQLCipher DB and file encryption helpers are established before any data operations are added. No plaintext-first shortcuts.
+- **Keys never touch disk**: Argon2id salt and Argon2id parameters are not secret and may be stored. The derived master key, subkeys, and node private key are never written to any file, log, or env var.
+- **No mocking the storage layer in integration tests**: tests run against a real (temporary) SQLCipher store and encrypted `files/` directory.
 - **Auth is in the architecture from Phase 2 onward**: no "add auth later" shortcuts that require ripping things out.
 - **The spec is the contract**: if an implementation decision conflicts with `spec.md`, update the spec deliberately rather than quietly diverging.

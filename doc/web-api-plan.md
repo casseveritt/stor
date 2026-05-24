@@ -1,8 +1,8 @@
-# stor HTTP/REST Protocol Binding — Plan
+# contac HTTP/REST Protocol Binding — Plan
 
 ## Status: Stub
 
-This document will define the HTTP/REST expression of the abstract `stor` federation protocol. See [`spec.md`](spec.md) for the protocol-agnostic specification that this binding must conform to.
+This document will define the HTTP/REST expression of the abstract `contac` federation protocol. See [`spec.md`](spec.md) for the protocol-agnostic specification that this binding must conform to.
 
 ## Planned contents
 

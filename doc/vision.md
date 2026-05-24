@@ -1,4 +1,4 @@
-# stor — Broader Vision
+# contac — Broader Vision
 
 *This document captures aspirational directions that are out of scope for the current design phase but should inform how the system is architected. None of this is normative. The goal is to avoid making decisions today that would foreclose these possibilities tomorrow.*
 
@@ -28,7 +28,7 @@ A more ambitious direction: treating the node not just as a sharing system but a
 
 The scenario: a user wants an AI agent to help them with something that requires access to their email or chat history — summarizing a thread, finding a reference, drafting a reply in context. Today, this typically means giving the agent access to the entire account. That is an all-or-nothing grant that most people rightly find uncomfortable.
 
-A `stor`-style system could provide a different model:
+A `contac` node could provide a different model:
 
 - The user imports email and chat data into the node (or the node connects to live sources with read-only access).
 - When an agent needs access, it requests it via the same credential and ACL mechanism used for any other recipient.
@@ -44,4 +44,4 @@ This is a substantially different and harder problem than photo sharing, and it 
 
 What connects photo sharing, social media import, and agent-scoped data access is a single underlying concern: **a person should be able to decide, with appropriate granularity and ongoing judgment, what of their personal information is available to whom, under what conditions, and for how long.** The current tools — platform privacy settings, OAuth scopes, email forwarding — are too coarse, too permanent, and too opaque to support this well.
 
-`stor` is an attempt to build the substrate for something better, starting from the simplest case and leaving the architecture open enough to grow.
+`contac` is an attempt to build the substrate for something better, starting from the simplest case and leaving the architecture open enough to grow.

@@ -32,6 +32,10 @@
 4. **Reconstruct** files: `link2filestore.py <bkupdir> <linkdir>`
 5. **Maintain** the store: run `orphans.py`, `checkb3.py`, and `checksize.py` periodically to verify integrity
 
+## Relationship to contac
+
+The federated node network built on top of `stor` — including the federation protocol, node identity, ACLs, feeds, credentials, and watermarking — is a separate layer referred to as **contac**. `stor` is contac's storage backend. See `doc/spec.md` and related documents for the contac protocol.
+
 ## Directory Layout
 
 ```
