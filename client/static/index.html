@@ -269,6 +269,12 @@ function apiFetch(url, opts = {}) {
   return fetch(url, opts);
 }
 
+function clientTokenParam(hasExistingQuery) {
+  const t = getClientToken();
+  if (!t) return "";
+  return (hasExistingQuery ? "&" : "?") + "client_token=" + encodeURIComponent(t);
+}
+
 // ── client passphrase auth ─────────────────────────────────────────────────
 async function submitClientPassphrase() {
   const pw = document.getElementById("client-passphrase-input").value;
@@ -493,7 +499,7 @@ function makePostCard(post, idx) {
         // routed through client's proxy API
         const params = post._server_url !== CFG.own_server
           ? "?server=" + encodeURIComponent(post._server_url) : "";
-        img.src = "/api/assets/" + asset.id + "/thumb" + params;
+        img.src = "/api/assets/" + asset.id + "/thumb" + params + clientTokenParam(!!params);
         strip.appendChild(img);
       } else {
         const ic = document.createElement("div");
@@ -553,7 +559,7 @@ function renderPostBody(post) {
       const aid = m[1], a = assetMap[aid];
       const params = post._server_url !== CFG.own_server
         ? "?server=" + encodeURIComponent(post._server_url) : "";
-      const url = "/api/assets/" + aid + params;
+      const url = "/api/assets/" + aid + params + clientTokenParam(!!params);
       if (a && (a.media_type || "").startsWith("image/"))
         rendered += '<span class="asset-block"><img src="' + url + '" alt=""></span>';
       else if (a && (a.media_type || "").startsWith("video/"))

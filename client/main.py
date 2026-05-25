@@ -70,9 +70,10 @@ def create_app(config_path: str | Path) -> FastAPI:
         if not config.passphrase_hash:
             return  # open if no passphrase configured
         auth = request.headers.get("Authorization", "")
-        if not auth.startswith("Bearer "):
+        # fall back to query param so <img src> and <video src> requests work
+        t = auth[7:] if auth.startswith("Bearer ") else request.query_params.get("client_token", "")
+        if not t:
             raise HTTPException(status_code=401, detail="Client authentication required")
-        t = auth[7:]
         expiry = _sessions.get(t)
         if not expiry or time.time() > expiry:
             raise HTTPException(status_code=401, detail="Invalid or expired client session")
