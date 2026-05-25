@@ -23,7 +23,7 @@ def _get_asset_row(db, asset_id: str) -> dict | None:
                   (SELECT COUNT(*) FROM comments
                    WHERE comments.asset_id = assets.id
                      AND comments.parent_id IS NULL AND comments.deleted = 0) AS comment_count
-           FROM assets WHERE id = ?""",
+           FROM assets WHERE id = ? AND deleted = 0""",
         (asset_id,),
     ).fetchone()
     if row is None:

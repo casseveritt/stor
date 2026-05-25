@@ -36,11 +36,13 @@ def query_feed(
     limit: int = Query(default=50, ge=1, le=_PAGE_MAX),
     cursor: str | None = Query(default=None),
     include_superseded: bool = Query(default=False),
+    media_type: str | None = Query(default=None),
+    tags: list[str] = Query(default=[]),
 ):
     db = request.app.state.db
     until_ts = until if until is not None else time.time()
 
-    conditions = ["created_at <= ?"]
+    conditions = ["deleted = 0", "created_at <= ?"]
     params: list = [until_ts]
 
     if since is not None:
@@ -49,6 +51,14 @@ def query_feed(
 
     if not include_superseded:
         conditions.append("successor IS NULL")
+
+    if media_type is not None:
+        conditions.append("media_type = ?")
+        params.append(media_type)
+
+    for tag in tags:
+        conditions.append("EXISTS (SELECT 1 FROM json_each(assets.tags) WHERE value = ?)")
+        params.append(tag)
 
     last_rowid = _decode_cursor(cursor)
     if last_rowid is not None:
@@ -114,6 +124,8 @@ def query_feed(
         "since": since,
         "until": until_ts,
         "include_superseded": include_superseded,
+        **({"media_type": media_type} if media_type is not None else {}),
+        **({"tags": tags} if tags else {}),
         "assets": assets,
         **({"next_cursor": next_cursor} if next_cursor else {}),
     }

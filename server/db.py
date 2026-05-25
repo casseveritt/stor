@@ -30,9 +30,16 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             title        TEXT,
             tags         TEXT,
             predecessor  TEXT,
-            successor    TEXT
+            successor    TEXT,
+            deleted      INTEGER NOT NULL DEFAULT 0
         )
     """)
+    # migration for existing DBs that predate the deleted column
+    try:
+        con.execute("ALTER TABLE assets ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+        con.commit()
+    except Exception:
+        pass
     con.execute("""
         CREATE TABLE IF NOT EXISTS recipients (
             id           TEXT PRIMARY KEY,

@@ -18,13 +18,14 @@ def _body_hash(body: str) -> str:
 
 
 def _row_to_comment(row) -> dict:
-    id_, content_hash, asset_id, parent_id, author_id, body, created_at, pred, succ, deleted = row
+    id_, content_hash, asset_id, parent_id, author_id, body, created_at, pred, succ, deleted, author_identity = row
     return {
         "id": id_,
         "content_hash": content_hash,
         "asset_id": asset_id,
         "parent_id": parent_id,
         "author_recipient_id": author_id,
+        "author_identity": author_identity,
         "body": None if deleted else body,
         "deleted": bool(deleted),
         "created_at": created_at,
@@ -47,9 +48,12 @@ def fetch_comments(asset_id: str, request: Request, identity: AuthDep):
     db = request.app.state.db
     _require_asset_acl(db, asset_id, identity)
     rows = db.execute(
-        """SELECT id, content_hash, asset_id, parent_id, author_recipient_id,
-                  body, created_at, predecessor, successor, deleted
-           FROM comments WHERE asset_id = ? ORDER BY created_at ASC""",
+        """SELECT c.id, c.content_hash, c.asset_id, c.parent_id, c.author_recipient_id,
+                  c.body, c.created_at, c.predecessor, c.successor, c.deleted,
+                  r.identity AS author_identity
+           FROM comments c
+           LEFT JOIN recipients r ON r.id = c.author_recipient_id
+           WHERE c.asset_id = ? ORDER BY c.created_at ASC""",
         (asset_id,),
     ).fetchall()
     return {"asset_id": asset_id, "comments": [_row_to_comment(r) for r in rows]}
@@ -87,12 +91,19 @@ def post_comment(asset_id: str, payload: _PostCommentBody, request: Request, ide
     )
     db.commit()
 
+    author_identity = None
+    if author_id is not None:
+        row = db.execute("SELECT identity FROM recipients WHERE id = ?", (author_id,)).fetchone()
+        if row:
+            author_identity = row[0]
+
     return {
         "id": comment_id,
         "content_hash": content_hash,
         "asset_id": asset_id,
         "parent_id": payload.parent_id,
         "author_recipient_id": author_id,
+        "author_identity": author_identity,
         "body": payload.body,
         "deleted": False,
         "created_at": now,

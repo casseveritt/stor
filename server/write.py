@@ -177,6 +177,41 @@ def update_acl(asset_id: str, payload: _UpdateACLBody, request: Request, identit
     return {"asset_id": asset_id, "recipients": [r[0] for r in rows]}
 
 
+# ── read ACL ─────────────────────────────────────────────────────────────────
+
+@router.get("/assets/{asset_id}/acl")
+def get_acl(asset_id: str, request: Request, identity: OwnerDep):
+    db = request.app.state.db
+    if db.execute("SELECT id FROM assets WHERE id = ? AND deleted = 0", (asset_id,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    rows = db.execute(
+        """SELECT r.id, r.identity, r.display_name
+           FROM acl a JOIN recipients r ON r.id = a.recipient_id
+           WHERE a.asset_id = ?
+           ORDER BY r.display_name""",
+        (asset_id,),
+    ).fetchall()
+    return {
+        "asset_id": asset_id,
+        "recipients": [
+            {"id": r[0], "identity": r[1], "display_name": r[2]} for r in rows
+        ],
+    }
+
+
+# ── delete asset ──────────────────────────────────────────────────────────────
+
+@router.delete("/assets/{asset_id}", status_code=204)
+def delete_asset(asset_id: str, request: Request, identity: OwnerDep):
+    db = request.app.state.db
+    cur = db.execute(
+        "UPDATE assets SET deleted = 1 WHERE id = ? AND deleted = 0", (asset_id,)
+    )
+    db.commit()
+    if cur.rowcount == 0:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+
 # ── issue share token ─────────────────────────────────────────────────────────
 
 class _IssueShareTokenBody(BaseModel):
