@@ -1,19 +1,23 @@
 """Token authentication and ACL enforcement.
 
-Two token kinds coexist:
-  Owner tokens  — Ed25519-signed, self-verifying, no DB lookup required.
-                  Format: base64url(<32B id> | <8B expiry> | <64B sig>), 139 chars.
-  Recipient tokens — random 32B stored in the `tokens` table; revocable via DB.
-                  Format: base64url(<32B random>), 43 chars.
+Three token kinds:
+  Owner tokens   — Ed25519-signed, self-verifying, no DB lookup.
+                   Format: base64url(<32B id> | <8B expiry> | <64B sig>), 139 chars.
+  Recipient tokens — random 32B stored in `tokens` table; revocable via DB.
+                   Format: base64url(<32B random>), 43 chars.
+  Share tokens   — Ed25519-signed JSON payload, self-verifying, no DB lookup.
+                   Format: s1.<base64url payload>.<base64url sig>
+                   Carry a watermark identity and optional per-asset scope.
 
-The server tries owner verification first; if it fails it falls back to the DB.
+Verification order: share → owner → DB.
 """
 import base64
+import json
 import os
 import struct
 import time
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Annotated
 
 from cryptography.exceptions import InvalidSignature
@@ -32,10 +36,16 @@ OWNER_TOKEN_LEN = ID_LEN + EXPIRY_LEN + SIG_LEN  # 104 bytes raw
 @dataclass
 class TokenIdentity:
     is_owner: bool
-    recipient_id: str | None = None  # None when is_owner=True
+    recipient_id: str | None = None       # set for recipient tokens
+    share_identity: str | None = None     # set for share tokens (watermark label)
+    share_asset_ids: list[str] | None = None  # None = node-wide; list = scoped
+
+    @property
+    def is_share(self) -> bool:
+        return self.share_identity is not None
 
 
-# ── setup ──────────────────────────────────────────────────────────────────────
+# ── setup ─────────────────────────────────────────────────────────────────────
 
 def setup(private_key: Ed25519PrivateKey) -> None:
     global _public_key, _private_key
@@ -94,7 +104,51 @@ def revoke_token(db, token_id: str) -> bool:
     return cur.rowcount > 0
 
 
-# ── FastAPI dependency ────────────────────────────────────────────────────────
+# ── share token (Ed25519-signed, self-verifying) ──────────────────────────────
+
+def issue_share_token(
+    identity: str,
+    asset_ids: list[str] | None,
+    ttl_seconds: int = 86400 * 30,
+) -> str:
+    if _private_key is None:
+        raise RuntimeError("auth not initialised")
+    payload = {"v": 1, "identity": identity, "assets": asset_ids, "exp": int(time.time()) + ttl_seconds}
+    payload_b64 = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).rstrip(b"=").decode()
+    to_sign = f"s1.{payload_b64}".encode()
+    sig_b64 = base64.urlsafe_b64encode(_private_key.sign(to_sign)).rstrip(b"=").decode()
+    return f"s1.{payload_b64}.{sig_b64}"
+
+
+def _verify_share_token(token: str) -> TokenIdentity | None:
+    if not token.startswith("s1."):
+        return None
+    if _public_key is None:
+        return None
+    try:
+        parts = token.split(".", 2)
+        if len(parts) != 3:
+            return None
+        _, payload_b64, sig_b64 = parts
+        to_verify = f"s1.{payload_b64}".encode()
+        padding = "=" * (-len(sig_b64) % 4)
+        _public_key.verify(base64.urlsafe_b64decode(sig_b64 + padding), to_verify)
+        padding = "=" * (-len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64 + padding))
+        if payload.get("v") != 1:
+            return None
+        if time.time() > payload["exp"]:
+            return None
+        return TokenIdentity(
+            is_owner=False,
+            share_identity=payload["identity"],
+            share_asset_ids=payload.get("assets"),
+        )
+    except (InvalidSignature, Exception):
+        return None
+
+
+# ── FastAPI dependencies ──────────────────────────────────────────────────────
 
 def get_identity(
     request: Request,
@@ -103,6 +157,12 @@ def get_identity(
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing credentials")
     token = authorization.removeprefix("Bearer ")
+
+    if token.startswith("s1."):
+        identity = _verify_share_token(token)
+        if identity is None:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired share token")
+        return identity
 
     if _verify_owner_token(token):
         return TokenIdentity(is_owner=True)
@@ -124,11 +184,24 @@ def get_identity(
 AuthDep = Annotated[TokenIdentity, Depends(get_identity)]
 
 
+def require_owner(identity: AuthDep) -> TokenIdentity:
+    if not identity.is_owner:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner access required")
+    return identity
+
+
+OwnerDep = Annotated[TokenIdentity, Depends(require_owner)]
+
+
 # ── ACL helper ────────────────────────────────────────────────────────────────
 
 def check_acl(db, asset_id: str, identity: TokenIdentity) -> bool:
     if identity.is_owner:
         return True
+    if identity.is_share:
+        if identity.share_asset_ids is None:
+            return True  # node-wide share
+        return asset_id in identity.share_asset_ids
     row = db.execute(
         "SELECT 1 FROM acl WHERE asset_id = ? AND recipient_id = ?",
         (asset_id, identity.recipient_id),

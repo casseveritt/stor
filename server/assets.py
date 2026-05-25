@@ -54,13 +54,17 @@ def _require_acl(db, asset_id: str, identity):
 def _apply_watermark_if_needed(content: bytes, media_type: str, request: Request, identity) -> bytes:
     if not request.app.state.watermark_enabled or identity.is_owner:
         return content
-    row = request.app.state.db.execute(
-        "SELECT identity FROM recipients WHERE id = ?", (identity.recipient_id,)
-    ).fetchone()
-    if row is None:
-        return content
+    if identity.is_share:
+        wm_identity = identity.share_identity
+    else:
+        row = request.app.state.db.execute(
+            "SELECT identity FROM recipients WHERE id = ?", (identity.recipient_id,)
+        ).fetchone()
+        if row is None:
+            return content
+        wm_identity = row[0]
     try:
-        return watermark_module.apply(content, media_type, row[0])
+        return watermark_module.apply(content, media_type, wm_identity)
     except WatermarkError:
         raise HTTPException(status_code=500, detail="Watermarking failed")
 

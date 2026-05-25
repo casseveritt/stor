@@ -56,10 +56,17 @@ def query_feed(
         params.append(last_rowid)
 
     if not identity.is_owner:
-        conditions.append(
-            "EXISTS (SELECT 1 FROM acl WHERE asset_id = assets.id AND recipient_id = ?)"
-        )
-        params.append(identity.recipient_id)
+        if identity.is_share:
+            if identity.share_asset_ids is not None:
+                placeholders = ",".join("?" * len(identity.share_asset_ids))
+                conditions.append(f"id IN ({placeholders})")
+                params.extend(identity.share_asset_ids)
+            # else: node-wide share — no filter needed
+        else:
+            conditions.append(
+                "EXISTS (SELECT 1 FROM acl WHERE asset_id = assets.id AND recipient_id = ?)"
+            )
+            params.append(identity.recipient_id)
 
     params.append(limit + 1)
     where = " AND ".join(conditions)
