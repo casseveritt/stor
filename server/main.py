@@ -19,6 +19,7 @@ from . import auth_routes as auth_routes_module
 from . import sso as sso_module
 from . import comments as comments_module
 from . import write as write_module
+from . import admin as admin_module
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -70,6 +71,7 @@ def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
     app.include_router(auth_routes_module.router)
     app.include_router(comments_module.router)
     app.include_router(write_module.router)
+    app.include_router(admin_module.router)
 
     log.info("Node %s ready.", config.node_address)
     return app

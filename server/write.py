@@ -25,11 +25,32 @@ async def publish_asset(
     title: str | None = Form(default=None),
     tags: str = Form(default="[]"),
     predecessor: str | None = Form(default=None),
+    acl: str = Form(default="[]"),
 ):
     content = await file.read()
     media_type = file.content_type or "application/octet-stream"
 
     content_hash = hashlib.sha256(content).hexdigest()
+
+    try:
+        tags_list = json.loads(tags)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=422, detail="tags must be a JSON array")
+
+    try:
+        acl_list = json.loads(acl)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=422, detail="acl must be a JSON array")
+
+    db = request.app.state.db
+
+    if predecessor is not None:
+        if db.execute("SELECT id FROM assets WHERE id = ?", (predecessor,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail="Predecessor asset not found")
+
+    for recipient_id in acl_list:
+        if db.execute("SELECT id FROM recipients WHERE id = ?", (recipient_id,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail=f"Recipient {recipient_id} not found")
 
     store_path: Path = request.app.state.store_path
     file_dir = store_path / "files" / content_hash[:2]
@@ -39,19 +60,8 @@ async def publish_asset(
         file_key = request.app.state.file_key
         file_path.write_bytes(encrypt_bytes(content, file_key))
 
-    try:
-        tags_list = json.loads(tags)
-    except json.JSONDecodeError:
-        raise HTTPException(status_code=422, detail="tags must be a JSON array")
-
-    db = request.app.state.db
     asset_id = str(uuid.uuid4())
     now = time.time()
-
-    if predecessor is not None:
-        prev = db.execute("SELECT id FROM assets WHERE id = ?", (predecessor,)).fetchone()
-        if prev is None:
-            raise HTTPException(status_code=404, detail="Predecessor asset not found")
 
     db.execute(
         """INSERT INTO assets (id, content_hash, media_type, size, created_at, title, tags, predecessor, successor)
@@ -61,6 +71,8 @@ async def publish_asset(
     )
     if predecessor is not None:
         db.execute("UPDATE assets SET successor = ? WHERE id = ?", (asset_id, predecessor))
+    for recipient_id in acl_list:
+        db.execute("INSERT OR IGNORE INTO acl (asset_id, recipient_id) VALUES (?, ?)", (asset_id, recipient_id))
     db.commit()
 
     return {
@@ -73,6 +85,7 @@ async def publish_asset(
         "tags": tags_list,
         "predecessor": predecessor,
         "successor": None,
+        "comment_count": 0,
     }
 
 
@@ -107,10 +120,14 @@ def update_metadata(asset_id: str, payload: _UpdateMetaBody, request: Request, i
     db.commit()
 
     row = db.execute(
-        "SELECT id, content_hash, media_type, size, created_at, title, tags, predecessor, successor FROM assets WHERE id = ?",
+        """SELECT id, content_hash, media_type, size, created_at, title, tags, predecessor, successor,
+                  (SELECT COUNT(*) FROM comments
+                   WHERE comments.asset_id = assets.id
+                     AND comments.parent_id IS NULL AND comments.deleted = 0) AS comment_count
+           FROM assets WHERE id = ?""",
         (asset_id,),
     ).fetchone()
-    id_, content_hash, media_type, size, created_at, title, tags_json, pred, succ = row
+    id_, content_hash, media_type, size, created_at, title, tags_json, pred, succ, comment_count = row
     return {
         "id": id_,
         "content_hash": content_hash,
@@ -121,6 +138,7 @@ def update_metadata(asset_id: str, payload: _UpdateMetaBody, request: Request, i
         "tags": json.loads(tags_json) if tags_json else [],
         "predecessor": pred,
         "successor": succ,
+        "comment_count": comment_count,
     }
 
 

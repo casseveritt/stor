@@ -19,13 +19,16 @@ THUMB_SIZE = (256, 256)
 def _get_asset_row(db, asset_id: str) -> dict | None:
     row = db.execute(
         """SELECT id, content_hash, media_type, size, created_at,
-                  title, tags, predecessor, successor
+                  title, tags, predecessor, successor,
+                  (SELECT COUNT(*) FROM comments
+                   WHERE comments.asset_id = assets.id
+                     AND comments.parent_id IS NULL AND comments.deleted = 0) AS comment_count
            FROM assets WHERE id = ?""",
         (asset_id,),
     ).fetchone()
     if row is None:
         return None
-    id_, content_hash, media_type, size, created_at, title, tags_json, predecessor, successor = row
+    id_, content_hash, media_type, size, created_at, title, tags_json, predecessor, successor, comment_count = row
     return {
         "id": id_,
         "content_hash": content_hash,
@@ -36,6 +39,7 @@ def _get_asset_row(db, asset_id: str) -> dict | None:
         "tags": json.loads(tags_json) if tags_json else [],
         "predecessor": predecessor,
         "successor": successor,
+        "comment_count": comment_count,
     }
 
 
