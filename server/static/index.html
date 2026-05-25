@@ -228,6 +228,9 @@
     <div class="file-list" id="file-list"></div>
     <div class="compose-fields">
       <input type="text" id="compose-tags" placeholder="Tags — space-separated">
+      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:#aaa;cursor:pointer">
+        <input type="checkbox" id="compose-public"> Publish (visible to recipients)
+      </label>
     </div>
     <div class="upload-progress" id="compose-progress"></div>
     <div style="display:flex;gap:0.5rem;justify-content:flex-end">
@@ -416,9 +419,11 @@ function makePostCard(post, idx) {
   ).join("");
   const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleDateString() : "";
   const cc = post.comment_count || 0;
+  const vis = post.public ? '<span title="Published">&#x1F310;</span>' : '<span title="Private" style="color:#555">&#x1F512;</span>';
   foot.innerHTML = tagHtml
     + '<span class="post-date" style="margin-left:auto">' + dateFmt + '</span>'
-    + (cc ? '<span class="post-comment-count">&#x1F4AC; ' + cc + '</span>' : '');
+    + (cc ? '<span class="post-comment-count">&#x1F4AC; ' + cc + '</span>' : '')
+    + (IS_OWNER ? vis : '');
   div.appendChild(foot);
   return div;
 }
@@ -514,7 +519,9 @@ function startEditPost() {
   tagsDiv.innerHTML = '<input type="text" id="edit-tags" style="width:100%;margin-top:0.4rem" '
     + 'value="' + esc((post.tags || []).join(" ")) + '" placeholder="Tags — space-separated">';
   actions.innerHTML =
-    '<button class="btn btn-primary btn-sm" onclick="saveEditPost()">Save</button>'
+    '<label style="display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;color:#aaa;cursor:pointer">'
+    + '<input type="checkbox" id="edit-public"' + (post.public ? ' checked' : '') + '> Published</label>'
+    + '<button class="btn btn-primary btn-sm" onclick="saveEditPost()">Save</button>'
     + '<button class="btn btn-muted btn-sm" onclick="cancelEditPost()">Cancel</button>';
   document.getElementById("edit-body").focus();
 }
@@ -525,10 +532,11 @@ async function saveEditPost() {
   const actions = document.getElementById("post-actions");
   actions.innerHTML = '<span style="font-size:0.82rem;color:#777">Saving…</span>';
 
+  const isPublic = document.getElementById("edit-public") && document.getElementById("edit-public").checked;
   const r = await fetch("/posts/" + currentPostId, {
     method: "PATCH",
     headers: {...authHeaders(), "Content-Type": "application/json"},
-    body: JSON.stringify({body, tags}),
+    body: JSON.stringify({body, tags, public: isPublic}),
   });
   if (r.ok) {
     const updated = await r.json();
@@ -654,6 +662,7 @@ function openCompose() {
   pendingFiles = []; renderFileList();
   document.getElementById("compose-body").value = "";
   document.getElementById("compose-tags").value = "";
+  document.getElementById("compose-public").checked = false;
   document.getElementById("compose-progress").innerHTML = "";
   document.getElementById("compose-submit").disabled = false;
   document.getElementById("compose-overlay").hidden = false;
@@ -679,9 +688,11 @@ async function submitPost() {
   document.getElementById("compose-submit").disabled = true;
   prog.innerHTML = '<div class="progress-item">Posting…</div>';
 
+  const isPublic = document.getElementById("compose-public").checked;
   const fd = new FormData();
   fd.append("body", bodyText);
-  if (tags.length) fd.append("tags", JSON.stringify(tags));
+  fd.append("tags", JSON.stringify(tags));
+  fd.append("public", isPublic ? "true" : "false");
   for (const f of pendingFiles) fd.append("files", f);
 
   try {
