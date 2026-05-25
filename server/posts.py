@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 
-from .auth import AuthDep, OwnerDep
+from .auth import AuthDep, OptionalAuthDep, OwnerDep
 from .crypto import encrypt_bytes
 
 router = APIRouter()
@@ -64,13 +64,14 @@ def _comment_count(db, post_id: str) -> int:
 
 
 def _post_dict(row, db) -> dict:
-    id_, body, created_at, tags_json, deleted = row
+    id_, body, created_at, tags_json, is_public, deleted = row
     assets = _get_post_assets(db, id_, body)
     return {
         "id": id_,
         "body": body,
         "tags": json.loads(tags_json) if tags_json else [],
         "created_at": created_at,
+        "public": bool(is_public),
         "assets": assets,
         "comment_count": _comment_count(db, id_),
         "deleted": bool(deleted),
@@ -85,6 +86,7 @@ async def create_post(
     identity: OwnerDep,
     body: str = Form(default=""),
     tags: str = Form(default="[]"),
+    public: str = Form(default="false"),
     files: list[UploadFile] = File(default=[]),
 ):
     try:
@@ -92,6 +94,7 @@ async def create_post(
     except json.JSONDecodeError:
         raise HTTPException(status_code=422, detail="tags must be a JSON array")
 
+    is_public = public.lower() in ("true", "1", "yes")
     db = request.app.state.db
     post_id = str(uuid.uuid4())
     now = time.time()
@@ -124,8 +127,8 @@ async def create_post(
     # record all referenced assets in post_assets
     all_ids = _asset_ids_in_order(body)
     db.execute(
-        "INSERT INTO posts (id, body, created_at, tags, deleted) VALUES (?, ?, ?, ?, 0)",
-        (post_id, body, now, json.dumps(tags_list)),
+        "INSERT INTO posts (id, body, created_at, tags, is_public, deleted) VALUES (?, ?, ?, ?, ?, 0)",
+        (post_id, body, now, json.dumps(tags_list), int(is_public)),
     )
     for aid in all_ids:
         db.execute("INSERT OR IGNORE INTO post_assets (post_id, asset_id) VALUES (?, ?)", (post_id, aid))
@@ -134,7 +137,7 @@ async def create_post(
     db.commit()
 
     row = db.execute(
-        "SELECT id, body, created_at, tags, deleted FROM posts WHERE id = ?", (post_id,)
+        "SELECT id, body, created_at, tags, is_public, deleted FROM posts WHERE id = ?", (post_id,)
     ).fetchone()
     return _post_dict(row, db)
 
@@ -144,7 +147,7 @@ async def create_post(
 @router.get("/posts")
 def get_posts(
     request: Request,
-    identity: AuthDep,
+    identity: OptionalAuthDep,
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str = Query(default=""),
     tags: list[str] = Query(default=[]),
@@ -153,6 +156,9 @@ def get_posts(
     db = request.app.state.db
     params: list = []
     conditions = ["p.deleted = 0"]
+
+    if not identity.is_owner:
+        conditions.append("p.is_public = 1")
 
     if q:
         conditions.append("p.body LIKE ?")
@@ -176,7 +182,7 @@ def get_posts(
 
     where = " AND ".join(conditions)
     rows = db.execute(
-        f"""SELECT p.id, p.body, p.created_at, p.tags, p.deleted
+        f"""SELECT p.id, p.body, p.created_at, p.tags, p.is_public, p.deleted
             FROM posts p WHERE {where}
             ORDER BY p.created_at DESC LIMIT ?""",
         [*params, limit + 1],
@@ -193,20 +199,23 @@ def get_posts(
 # ── get / update / delete post ────────────────────────────────────────────────
 
 @router.get("/posts/{post_id}")
-def get_post(post_id: str, request: Request, identity: AuthDep):
+def get_post(post_id: str, request: Request, identity: OptionalAuthDep):
     db = request.app.state.db
     row = db.execute(
-        "SELECT id, body, created_at, tags, deleted FROM posts WHERE id = ? AND deleted = 0",
+        "SELECT id, body, created_at, tags, is_public, deleted FROM posts WHERE id = ? AND deleted = 0",
         (post_id,),
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
+    if not identity.is_owner and not row[4]:  # is_public column
+        raise HTTPException(status_code=403, detail="Access denied")
     return _post_dict(row, db)
 
 
 class _UpdatePostBody(BaseModel):
     body: str | None = None
     tags: list[str] | None = None
+    public: bool | None = None
 
 
 @router.patch("/posts/{post_id}")
@@ -222,6 +231,9 @@ def update_post(post_id: str, payload: _UpdatePostBody, request: Request, identi
     if payload.tags is not None:
         updates.append("tags = ?")
         params.append(json.dumps(payload.tags))
+    if payload.public is not None:
+        updates.append("is_public = ?")
+        params.append(int(payload.public))
 
     if not updates:
         raise HTTPException(status_code=422, detail="No fields to update")
@@ -242,7 +254,7 @@ def update_post(post_id: str, payload: _UpdatePostBody, request: Request, identi
 
     db.commit()
     row = db.execute(
-        "SELECT id, body, created_at, tags, deleted FROM posts WHERE id = ?", (post_id,)
+        "SELECT id, body, created_at, tags, is_public, deleted FROM posts WHERE id = ?", (post_id,)
     ).fetchone()
     return _post_dict(row, db)
 
@@ -258,11 +270,18 @@ def delete_post(post_id: str, request: Request, identity: OwnerDep):
 
 # ── post comments ─────────────────────────────────────────────────────────────
 
-@router.get("/posts/{post_id}/comments")
-def fetch_post_comments(post_id: str, request: Request, identity: AuthDep):
-    db = request.app.state.db
-    if db.execute("SELECT id FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone() is None:
+def _require_post_access(db, post_id: str, identity) -> None:
+    row = db.execute("SELECT is_public FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone()
+    if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
+    if not identity.is_owner and not row[0]:
+        raise HTTPException(status_code=403, detail="Access denied")
+
+
+@router.get("/posts/{post_id}/comments")
+def fetch_post_comments(post_id: str, request: Request, identity: OptionalAuthDep):
+    db = request.app.state.db
+    _require_post_access(db, post_id, identity)
     rows = db.execute(
         """SELECT c.id, c.content_hash, c.post_id, c.parent_id, c.author_recipient_id,
                   c.body, c.created_at, c.predecessor, c.successor, c.deleted,
@@ -290,10 +309,9 @@ class _CommentBody(BaseModel):
 
 
 @router.post("/posts/{post_id}/comments", status_code=201)
-def post_comment(post_id: str, payload: _CommentBody, request: Request, identity: AuthDep):
+def post_comment(post_id: str, payload: _CommentBody, request: Request, identity: OptionalAuthDep):
     db = request.app.state.db
-    if db.execute("SELECT id FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone() is None:
-        raise HTTPException(status_code=404, detail="Post not found")
+    _require_post_access(db, post_id, identity)
 
     if payload.parent_id:
         if db.execute(

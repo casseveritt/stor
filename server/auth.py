@@ -150,26 +150,17 @@ def _verify_share_token(token: str) -> TokenIdentity | None:
 
 # ── FastAPI dependencies ──────────────────────────────────────────────────────
 
-def get_identity(
-    request: Request,
-    authorization: Annotated[str | None, Header()] = None,
-) -> TokenIdentity:
-    if authorization and authorization.startswith("Bearer "):
-        token = authorization.removeprefix("Bearer ")
-    else:
-        token = request.query_params.get("token")
-        if not token:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing credentials")
+_GUEST = TokenIdentity(is_owner=False)
 
+
+def _identity_from_token(request: Request, token: str) -> TokenIdentity:
     if token.startswith("s1."):
         identity = _verify_share_token(token)
         if identity is None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid or expired share token")
         return identity
-
     if _verify_owner_token(token):
         return TokenIdentity(is_owner=True)
-
     db = request.app.state.db
     row = db.execute(
         "SELECT recipient_id, expiry, revoked FROM tokens WHERE id = ?", (token,)
@@ -184,7 +175,37 @@ def get_identity(
     return TokenIdentity(is_owner=recipient_id is None, recipient_id=recipient_id)
 
 
+def get_identity(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> TokenIdentity:
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ")
+    else:
+        token = request.query_params.get("token")
+        if not token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing credentials")
+    return _identity_from_token(request, token)
+
+
 AuthDep = Annotated[TokenIdentity, Depends(get_identity)]
+
+
+def get_identity_optional(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> TokenIdentity:
+    """Returns a guest identity when no credentials are provided."""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ")
+    else:
+        token = request.query_params.get("token")
+        if not token:
+            return _GUEST
+    return _identity_from_token(request, token)
+
+
+OptionalAuthDep = Annotated[TokenIdentity, Depends(get_identity_optional)]
 
 
 def require_owner(identity: AuthDep) -> TokenIdentity:
