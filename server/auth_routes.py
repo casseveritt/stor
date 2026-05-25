@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from . import sso as sso_module
+from .auth import AuthDep
 from .sso import SSOError, UnknownIdentityError
 
 router = APIRouter(prefix="/auth")
@@ -55,3 +56,20 @@ def callback(request: Request, code: str, state: str):
         raise HTTPException(status_code=400, detail=str(e))
 
     return RedirectResponse(url=f"/#token={token}", status_code=302)
+
+
+@router.get("/me")
+def me(request: Request, identity: AuthDep):
+    """Return the current user's role and identity."""
+    if identity.is_owner:
+        return {"role": "owner", "identity": "owner"}
+    if identity.is_share:
+        return {"role": "share", "identity": identity.share_identity}
+    db = request.app.state.db
+    row = db.execute(
+        "SELECT identity, display_name FROM recipients WHERE id = ?",
+        (identity.recipient_id,),
+    ).fetchone()
+    if row:
+        return {"role": "recipient", "identity": row[0], "display_name": row[1]}
+    return {"role": "recipient", "identity": None}
