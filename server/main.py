@@ -15,6 +15,8 @@ from . import node as node_module
 from . import auth as auth_module
 from . import feed as feed_module
 from . import assets as assets_module
+from . import auth_routes as auth_routes_module
+from . import sso as sso_module
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -52,11 +54,18 @@ def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
     app.state.store_path = store_path
     app.state.watermark_enabled = config.watermark_enabled
 
+    app.state.sso_config = {
+        "google_client_id": config.sso_google_client_id,
+        "google_client_secret": config.sso_google_client_secret,
+    }
+    app.state.sso_exchange_google = sso_module.exchange_google_code
+
     node_module.setup(config.node_address, private_key, config.watermark_enabled)
     auth_module.setup(private_key)
     app.include_router(node_module.router)
     app.include_router(feed_module.router)
     app.include_router(assets_module.router)
+    app.include_router(auth_routes_module.router)
 
     log.info("Node %s ready.", config.node_address)
     return app

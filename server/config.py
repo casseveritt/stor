@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -13,11 +14,15 @@ class NodeConfig:
     argon2_parallelism: int
     encrypted_private_key: str  # base64: 12-byte nonce + AES-256-GCM ciphertext
     watermark_enabled: bool
+    sso_google_client_id: str | None = None
+    sso_google_client_secret: str | None = None
 
     @classmethod
     def load(cls, path: str | Path) -> "NodeConfig":
         with open(path) as f:
-            return cls(**json.load(f))
+            data = json.load(f)
+        known = {f.name for f in dataclasses.fields(cls)}
+        return cls(**{k: v for k, v in data.items() if k in known})
 
     def save(self, path: str | Path) -> None:
         with open(path, "w") as f:

@@ -55,5 +55,18 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             revoked      INTEGER NOT NULL DEFAULT 0
         )
     """)
-    con.execute("INSERT OR IGNORE INTO schema_version VALUES (3)")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS identity_mappings (
+            identity     TEXT PRIMARY KEY,
+            recipient_id TEXT NOT NULL
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS sso_states (
+            state    TEXT PRIMARY KEY,
+            provider TEXT NOT NULL,
+            expiry   REAL NOT NULL
+        )
+    """)
+    con.execute("INSERT OR IGNORE INTO schema_version VALUES (4)")
     con.commit()
