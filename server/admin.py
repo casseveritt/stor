@@ -1,4 +1,6 @@
 """Recipient, identity-mapping, and token management endpoints (owner only)."""
+import base64
+import json
 import time
 import uuid
 
@@ -9,6 +11,20 @@ from .auth import OwnerDep, revoke_token
 from .comments import approve_edit, reject_edit
 
 router = APIRouter()
+
+
+def _decode_cursor(cursor: str | None) -> int | None:
+    if cursor is None:
+        return None
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        return json.loads(base64.urlsafe_b64decode(cursor + padding))
+    except Exception:
+        return None
+
+
+def _encode_cursor(rowid: int) -> str:
+    return base64.urlsafe_b64encode(json.dumps(rowid).encode()).rstrip(b"=").decode()
 
 
 # ── recipients ────────────────────────────────────────────────────────────────
@@ -413,3 +429,97 @@ def reject_edit_endpoint(request_id: str, request: Request, identity: OwnerDep):
         return reject_edit(db, request_id)
     except ValueError as e:
         raise HTTPException(status_code=404 if "not found" in str(e).lower() else 409, detail=str(e))
+
+
+# ── tag enumeration ───────────────────────────────────────────────────────────
+
+@router.get("/tags")
+def list_tags(request: Request, identity: OwnerDep):
+    db = request.app.state.db
+    rows = db.execute(
+        """SELECT je.value AS tag, COUNT(*) AS count
+           FROM assets a, json_each(a.tags) je
+           WHERE a.deleted = 0
+           GROUP BY je.value
+           ORDER BY count DESC, je.value ASC"""
+    ).fetchall()
+    return {"tags": [{"tag": r[0], "count": r[1]} for r in rows]}
+
+
+# ── recipient feed preview ────────────────────────────────────────────────────
+
+@router.get("/recipients/{recipient_id}/feed")
+def get_recipient_feed(
+    recipient_id: str,
+    request: Request,
+    identity: OwnerDep,
+    since: float | None = Query(default=None),
+    until: float | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    cursor: str | None = Query(default=None),
+    include_superseded: bool = Query(default=False),
+):
+    db = request.app.state.db
+    row = db.execute(
+        "SELECT id, identity FROM recipients WHERE id = ?", (recipient_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Recipient not found")
+    _, rec_identity = row
+
+    until_ts = until if until is not None else time.time()
+    conditions = [
+        "deleted = 0", "created_at <= ?",
+        "EXISTS (SELECT 1 FROM acl WHERE asset_id = assets.id AND recipient_id = ?)",
+    ]
+    params: list = [until_ts, recipient_id]
+
+    if since is not None:
+        conditions.append("created_at >= ?")
+        params.append(since)
+    if not include_superseded:
+        conditions.append("successor IS NULL")
+
+    last_rowid = _decode_cursor(cursor)
+    if last_rowid is not None:
+        conditions.append("rowid < ?")
+        params.append(last_rowid)
+
+    params.append(limit + 1)
+    where = " AND ".join(conditions)
+
+    rows = db.execute(
+        f"""SELECT rowid, id, content_hash, media_type, size, created_at,
+                   title, tags, predecessor, successor,
+                   (SELECT COUNT(*) FROM comments
+                    WHERE comments.asset_id = assets.id
+                      AND comments.parent_id IS NULL AND comments.deleted = 0) AS comment_count
+            FROM assets WHERE {where}
+            ORDER BY rowid DESC LIMIT ?""",
+        params,
+    ).fetchall()
+
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+
+    node_url = str(request.base_url).rstrip("/")
+    assets = [
+        {
+            "id": r[1], "node": node_url, "content_hash": r[2],
+            "media_type": r[3], "size": r[4], "created_at": r[5],
+            "title": r[6], "tags": json.loads(r[7]) if r[7] else [],
+            "predecessor": r[8], "successor": r[9], "comment_count": r[10],
+        }
+        for r in rows
+    ]
+    next_cursor = _encode_cursor(rows[-1][0]) if has_more and rows else None
+
+    return {
+        "recipient_id": recipient_id,
+        "recipient_identity": rec_identity,
+        "since": since,
+        "until": until_ts,
+        "include_superseded": include_superseded,
+        "assets": assets,
+        **({"next_cursor": next_cursor} if next_cursor else {}),
+    }

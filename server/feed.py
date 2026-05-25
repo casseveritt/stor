@@ -38,6 +38,7 @@ def query_feed(
     include_superseded: bool = Query(default=False),
     media_type: str | None = Query(default=None),
     tags: list[str] = Query(default=[]),
+    q: str | None = Query(default=None),
 ):
     db = request.app.state.db
     until_ts = until if until is not None else time.time()
@@ -59,6 +60,10 @@ def query_feed(
     for tag in tags:
         conditions.append("EXISTS (SELECT 1 FROM json_each(assets.tags) WHERE value = ?)")
         params.append(tag)
+
+    if q is not None:
+        conditions.append("title LIKE ?")
+        params.append(f"%{q}%")
 
     last_rowid = _decode_cursor(cursor)
     if last_rowid is not None:
@@ -124,6 +129,7 @@ def query_feed(
         "since": since,
         "until": until_ts,
         "include_superseded": include_superseded,
+        **({"q": q} if q is not None else {}),
         **({"media_type": media_type} if media_type is not None else {}),
         **({"tags": tags} if tags else {}),
         "assets": assets,

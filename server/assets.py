@@ -17,6 +17,48 @@ router = APIRouter(prefix="/assets")
 THUMB_SIZE = (256, 256)
 
 
+def _build_history_chain(db, asset_id: str) -> list[dict]:
+    """Follow predecessor and successor links to build the full version chain."""
+    def fetch(id_):
+        row = db.execute(
+            """SELECT id, content_hash, media_type, size, created_at,
+                      title, tags, predecessor, successor, deleted
+               FROM assets WHERE id = ?""",
+            (id_,),
+        ).fetchone()
+        if row is None:
+            return None
+        id_, ch, mt, sz, ca, t, tj, pred, succ, del_ = row
+        return {
+            "id": id_, "content_hash": ch, "media_type": mt, "size": sz,
+            "created_at": ca, "title": t, "tags": json.loads(tj) if tj else [],
+            "predecessor": pred, "successor": succ, "deleted": bool(del_),
+        }
+
+    current = fetch(asset_id)
+    if current is None:
+        return []
+
+    chain = [current]
+    visited = {asset_id}
+
+    while chain[0]["predecessor"] and chain[0]["predecessor"] not in visited:
+        prev = fetch(chain[0]["predecessor"])
+        if prev is None:
+            break
+        visited.add(prev["id"])
+        chain.insert(0, prev)
+
+    while chain[-1]["successor"] and chain[-1]["successor"] not in visited:
+        nxt = fetch(chain[-1]["successor"])
+        if nxt is None:
+            break
+        visited.add(nxt["id"])
+        chain.append(nxt)
+
+    return chain
+
+
 def _get_asset_row(db, asset_id: str) -> dict | None:
     row = db.execute(
         """SELECT id, content_hash, media_type, size, created_at,
@@ -146,3 +188,22 @@ def fetch_asset(asset_id: str, request: Request, identity: AuthDep):
         media_type=asset["media_type"],
         headers={"X-Content-Hash": asset["content_hash"]},
     )
+
+
+@router.get("/{asset_id}/history")
+def fetch_asset_history(asset_id: str, request: Request, identity: AuthDep):
+    db = request.app.state.db
+    asset = _get_asset_row(db, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    _require_acl(db, asset_id, identity)
+
+    chain = _build_history_chain(db, asset_id)
+    return {
+        "asset_id": asset_id,
+        "count": len(chain),
+        "history": [
+            {**entry, "is_current": entry["id"] == asset_id}
+            for entry in chain
+        ],
+    }
