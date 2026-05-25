@@ -20,8 +20,8 @@ from server.config import NodeConfig
 
 
 CADDYFILE_TEMPLATE = """\
-{domain} {{
-    reverse_proxy localhost:{port}
+{site_address} {{
+    reverse_proxy localhost:{bind_port}
     encode gzip
     log {{
         output stderr
@@ -69,6 +69,7 @@ contac deployment setup for {node_address}
    sudo cp {out_dir}/Caddyfile /etc/caddy/Caddyfile
    sudo systemctl reload caddy
    # Caddy will auto-obtain a Let's Encrypt certificate for {domain}
+   # Make sure port {https_port} is open on your router / firewall and forwarded to this machine
 
 3. Create the secrets file (stores passphrase — keep this private):
 
@@ -103,7 +104,9 @@ Node will be available at: {node_address}
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate contac deployment artifacts")
     parser.add_argument("--config", required=True, help="Path to node_config.json")
-    parser.add_argument("--port", type=int, default=8765, help="Local bind port (default: 8765)")
+    parser.add_argument("--port", type=int, default=8765, help="Local bind port for contac (default: 8765)")
+    parser.add_argument("--https-port", type=int, default=443,
+                        help="External HTTPS port Caddy listens on (default: 443; use 8443 if 443 is taken)")
     parser.add_argument("--out", default="deploy", help="Output directory (default: deploy/)")
     parser.add_argument("--node-address", default="",
                         help="Override and persist node_address in config (e.g. https://starkville.hopto.org)")
@@ -142,7 +145,9 @@ def main() -> None:
     secrets_dir = home / ".config" / "contac"
     secrets_file = secrets_dir / "secrets"
 
-    caddyfile = CADDYFILE_TEMPLATE.format(domain=domain, port=args.port)
+    # Caddy uses "domain:port" in the site address only when port != 443
+    site_address = domain if args.https_port == 443 else f"{domain}:{args.https_port}"
+    caddyfile = CADDYFILE_TEMPLATE.format(site_address=site_address, bind_port=args.port)
     (out_dir / "Caddyfile").write_text(caddyfile)
 
     service = SERVICE_TEMPLATE.format(
@@ -157,6 +162,7 @@ def main() -> None:
     instructions = INSTRUCTIONS_TEMPLATE.format(
         node_address=config.node_address,
         domain=domain,
+        https_port=args.https_port,
         out_dir=out_dir,
         secrets_dir=secrets_dir,
         secrets_file=secrets_file,

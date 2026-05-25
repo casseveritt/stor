@@ -105,3 +105,22 @@ class TestSetupDeploy:
         r, _ = _run(node_config, out_dir=tmp_path / "deploy")
         assert "Caddy" in r.stdout
         assert "systemctl" in r.stdout
+
+    def test_https_port_443_no_port_in_caddyfile_address(self, node_config, tmp_path):
+        r, out_dir = _run(node_config, extra=["--https-port", "443"],
+                          out_dir=tmp_path / "deploy")
+        content = (out_dir / "Caddyfile").read_text()
+        # site address should be just the domain, no :443
+        first_line = content.split("\n")[0]
+        assert ":443" not in first_line
+
+    def test_https_port_8443_in_caddyfile_address(self, node_config, tmp_path):
+        r, out_dir = _run(node_config, extra=["--https-port", "8443"],
+                          out_dir=tmp_path / "deploy")
+        content = (out_dir / "Caddyfile").read_text()
+        assert ":8443" in content.split("\n")[0]
+
+    def test_https_port_in_instructions(self, node_config, tmp_path):
+        r, _ = _run(node_config, extra=["--https-port", "8443"],
+                    out_dir=tmp_path / "deploy")
+        assert "8443" in r.stdout
