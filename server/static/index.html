@@ -41,11 +41,29 @@
     .modal h3 { color: #fff; margin-bottom: 1rem; font-weight: 400; }
 
     /* asset detail */
-    #detail-modal img { max-width: 100%; max-height: 70vh; display: block; border-radius: 4px; }
+    #detail-modal img { max-width: 100%; max-height: 60vh; display: block; border-radius: 4px; }
     .modal-meta { margin-top: 0.75rem; font-size: 0.85rem; color: #999; }
     .modal-title { font-size: 1.1rem; color: #e0e0e0; margin-bottom: 0.4rem; }
-    .modal-actions { margin-top: 0.75rem; display: flex; gap: 0.5rem; }
+    .modal-actions { margin-top: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
     .tag { display: inline-block; background: #2a2a2a; color: #aaa; padding: 2px 9px; border-radius: 12px; font-size: 0.75rem; margin: 2px; }
+
+    /* comments */
+    .comments { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #2a2a2a; }
+    .comments-header { font-size: 0.85rem; color: #777; margin-bottom: 0.75rem; }
+    .comment { padding: 0.5rem 0; border-bottom: 1px solid #1a1a1a; }
+    .comment:last-of-type { border-bottom: none; }
+    .comment-author { font-size: 0.73rem; color: #666; margin-bottom: 0.2rem; }
+    .comment-body { font-size: 0.88rem; color: #ccc; white-space: pre-wrap; word-break: break-word; }
+    .comment-foot { font-size: 0.72rem; color: #555; margin-top: 0.2rem; display: flex; gap: 0.75rem; }
+    .comment-foot button { background: none; border: none; color: #555; cursor: pointer; font-size: 0.72rem; padding: 0; }
+    .comment-foot button:hover { color: #aaa; }
+    .comment-replies { margin-left: 1rem; padding-left: 0.75rem; border-left: 2px solid #2a2a2a; }
+    .comment-deleted { color: #444; font-style: italic; font-size: 0.82rem; }
+    .reply-banner { background: #1a2a1a; border-radius: 4px; padding: 0.3rem 0.5rem; font-size: 0.78rem; color: #6cbe6c; margin-bottom: 0.4rem; display: flex; justify-content: space-between; }
+    .comment-form { margin-top: 0.75rem; }
+    .comment-form textarea { background: #222; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; padding: 0.5rem; width: 100%; font-size: 0.88rem; resize: vertical; min-height: 60px; outline: none; font-family: inherit; }
+    .comment-form textarea:focus { border-color: #4285f4; }
+    .comment-form-footer { display: flex; justify-content: flex-end; margin-top: 0.4rem; }
 
     /* upload modal */
     #upload-modal { min-width: min(90vw, 420px); }
@@ -258,7 +276,14 @@
   }
 
   // ── detail modal ─────────────────────────────────────────────────────────────
+  let currentAssetId = null;
+  let replyToId = null;
+  let replyToLabel = null;
+
   async function openDetail(asset) {
+    currentAssetId = asset.id;
+    replyToId = null;
+    replyToLabel = null;
     const body = document.getElementById("detail-body");
     const isImg = (asset.media_type || "").startsWith("image/");
     const tagHtml = (asset.tags || []).map(t => '<span class="tag">' + esc(t) + '</span>').join("");
@@ -278,11 +303,105 @@
       + '</div>'
       + '<div class="modal-actions">'
       + '<a class="btn btn-muted btn-sm" href="' + assetUrl + '" download="' + esc(asset.title || asset.id) + '">Download</a>'
-      + '</div>';
+      + '</div>'
+      + '<div id="comments-section" class="comments"><div class="comments-header">Loading comments…</div></div>';
     document.getElementById("detail-overlay").hidden = false;
+    loadComments(asset.id);
   }
 
-  function closeDetail() { document.getElementById("detail-overlay").hidden = true; }
+  function closeDetail() {
+    document.getElementById("detail-overlay").hidden = true;
+    currentAssetId = null; replyToId = null;
+  }
+
+  // ── comments ──────────────────────────────────────────────────────────────────
+  async function loadComments(assetId) {
+    const r = await fetch("/assets/" + assetId + "/comments", { headers: authHeaders() });
+    const section = document.getElementById("comments-section");
+    if (!section || currentAssetId !== assetId) return;
+    if (!r.ok) { section.innerHTML = ""; return; }
+    const data = await r.json();
+    renderComments(assetId, data.comments);
+  }
+
+  function renderComments(assetId, comments) {
+    const section = document.getElementById("comments-section");
+    if (!section) return;
+    const live = comments.filter(c => !c.deleted);
+    const byParent = {};
+    for (const c of live) {
+      const key = c.parent_id || "__root__";
+      (byParent[key] = byParent[key] || []).push(c);
+    }
+
+    function renderOne(c, depth) {
+      const author = esc(c.author_identity || "owner");
+      const replies = byParent[c.id] || [];
+      return '<div class="comment">'
+        + '<div class="comment-author">' + author + '</div>'
+        + '<div class="comment-body">' + esc(c.body) + '</div>'
+        + '<div class="comment-foot">'
+        + '<span>' + fmtDate(c.created_at) + '</span>'
+        + (depth < 3 ? '<button onclick="setReplyTo(\'' + c.id + '\',\'' + author + '\')">Reply</button>' : '')
+        + '</div>'
+        + (replies.length ? '<div class="comment-replies">' + replies.map(r => renderOne(r, depth+1)).join("") + '</div>' : '')
+        + '</div>';
+    }
+
+    const roots = byParent["__root__"] || [];
+    const count = live.length;
+    section.innerHTML =
+      '<div class="comments-header">' + count + ' comment' + (count !== 1 ? 's' : '') + '</div>'
+      + roots.map(c => renderOne(c, 0)).join("")
+      + '<div class="comment-form">'
+      + '<div id="reply-banner" hidden class="reply-banner">'
+      + '<span id="reply-label"></span>'
+      + '<button onclick="clearReplyTo()">&#x2715;</button>'
+      + '</div>'
+      + '<textarea id="comment-input" placeholder="Add a comment…"></textarea>'
+      + '<div class="comment-form-footer">'
+      + '<button class="btn btn-primary btn-sm" onclick="submitComment()">Post</button>'
+      + '</div></div>';
+  }
+
+  function setReplyTo(id, label) {
+    replyToId = id;
+    replyToLabel = label;
+    const banner = document.getElementById("reply-banner");
+    if (banner) {
+      document.getElementById("reply-label").textContent = "Replying to " + label;
+      banner.hidden = false;
+      document.getElementById("comment-input").focus();
+    }
+  }
+
+  function clearReplyTo() {
+    replyToId = null;
+    const banner = document.getElementById("reply-banner");
+    if (banner) banner.hidden = true;
+  }
+
+  async function submitComment() {
+    const input = document.getElementById("comment-input");
+    const body = input ? input.value.trim() : "";
+    if (!body || !currentAssetId) return;
+    const payload = { body };
+    if (replyToId) payload.parent_id = replyToId;
+    const r = await fetch("/assets/" + currentAssetId + "/comments", {
+      method: "POST",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    if (r.ok) {
+      replyToId = null;
+      loadComments(currentAssetId);
+    }
+  }
+
+  function fmtDate(ts) {
+    if (!ts) return "";
+    return new Date(ts * 1000).toLocaleString(undefined, { dateStyle: "short", timeStyle: "short" });
+  }
 
   // ── upload modal ─────────────────────────────────────────────────────────────
   function openUpload() {
