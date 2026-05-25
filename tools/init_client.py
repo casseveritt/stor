@@ -32,7 +32,7 @@ def main() -> None:
     print(f"Client config written to {config_path}")
     print(f"Own server: {config.own_server}")
     print(f"\nStart with:")
-    print(f"  python -m client.main {config_path} --port 7654")
+    print(f"  python -m client.main {config_path} --port 9865")
 
 
 if __name__ == "__main__":
