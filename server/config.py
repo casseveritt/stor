@@ -16,6 +16,7 @@ class NodeConfig:
     watermark_enabled: bool
     sso_google_client_id: str | None = None
     sso_google_client_secret: str | None = None
+    sso_owner_identity: str | None = None
 
     @classmethod
     def load(cls, path: str | Path) -> "NodeConfig":

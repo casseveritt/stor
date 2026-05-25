@@ -1,0 +1,277 @@
+"""Phase 35: client app + return_to auth flow + owner identity."""
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+
+PYTHON = sys.executable
+ROOT = Path(__file__).parent.parent
+
+
+# ── server-side: return_to in auth flow ───────────────────────────────────
+
+class TestReturnTo:
+    def test_generate_state_stores_return_to(self, tmp_path):
+        from tests.conftest import _make_store, TEST_PASSPHRASE
+        from server.main import create_app
+        from server import sso as sso_module
+
+        store = _make_store(tmp_path)
+        app = create_app(store / "node_config.json", TEST_PASSPHRASE)
+        db = app.state.db
+        state = sso_module.generate_state(db, "google", return_to="https://client.example.com/")
+        provider, return_to = sso_module.consume_state(db, state)
+        assert provider == "google"
+        assert return_to == "https://client.example.com/"
+
+    def test_generate_state_default_return_to_empty(self, tmp_path):
+        from tests.conftest import _make_store, TEST_PASSPHRASE
+        from server.main import create_app
+        from server import sso as sso_module
+
+        store = _make_store(tmp_path)
+        app = create_app(store / "node_config.json", TEST_PASSPHRASE)
+        db = app.state.db
+        state = sso_module.generate_state(db, "google")
+        _, return_to = sso_module.consume_state(db, state)
+        assert return_to == ""
+
+    def test_login_endpoint_passes_return_to_in_state(self, tmp_path):
+        from tests.conftest import _make_store, TEST_PASSPHRASE
+        from server.main import create_app
+        from server import sso as sso_module
+        from fastapi.testclient import TestClient
+
+        store = _make_store(tmp_path)
+        app = create_app(store / "node_config.json", TEST_PASSPHRASE)
+        app.state.sso_config["google_client_id"] = "test-client-id"
+        client = TestClient(app)
+
+        r = client.get("/auth/login?provider=google&return_to=https://client.test/")
+        assert r.status_code == 200
+        state_val = r.json()["state"]
+        _, return_to = sso_module.consume_state(app.state.db, state_val)
+        assert return_to == "https://client.test/"
+
+    def test_callback_redirects_to_return_to(self, tmp_path):
+        from tests.conftest import _make_store, TEST_PASSPHRASE
+        from server.main import create_app
+        from server import sso as sso_module
+        from fastapi.testclient import TestClient
+
+        store = _make_store(tmp_path)
+        app = create_app(store / "node_config.json", TEST_PASSPHRASE)
+        app.state.sso_config["google_client_id"] = "cid"
+        app.state.sso_config["google_client_secret"] = "csecret"
+
+        db = app.state.db
+        db.execute("INSERT INTO recipients (id, identity, display_name) VALUES ('r1','google:user@test.com','User')")
+        db.commit()
+        state = sso_module.generate_state(db, "google", return_to="https://client.test/")
+
+        def mock_exchange(code, redirect_uri, client_id, client_secret):
+            return {"email": "user@test.com", "email_verified": True}
+
+        app.state.sso_exchange_google = mock_exchange
+        client = TestClient(app, follow_redirects=False)
+        r = client.get(f"/auth/callback?code=testcode&state={state}")
+        assert r.status_code == 302
+        assert r.headers["location"].startswith("https://client.test/")
+        assert "#token=" in r.headers["location"]
+
+    def test_callback_without_return_to_redirects_to_root(self, tmp_path):
+        from tests.conftest import _make_store, TEST_PASSPHRASE
+        from server.main import create_app
+        from server import sso as sso_module
+        from fastapi.testclient import TestClient
+
+        store = _make_store(tmp_path)
+        app = create_app(store / "node_config.json", TEST_PASSPHRASE)
+        app.state.sso_config["google_client_id"] = "cid"
+        app.state.sso_config["google_client_secret"] = "csecret"
+
+        db = app.state.db
+        db.execute("INSERT INTO recipients (id, identity, display_name) VALUES ('r2','google:other@test.com','Other')")
+        db.commit()
+        state = sso_module.generate_state(db, "google")
+
+        app.state.sso_exchange_google = lambda *a, **k: {"email": "other@test.com"}
+        client = TestClient(app, follow_redirects=False)
+        r = client.get(f"/auth/callback?code=testcode&state={state}")
+        assert r.status_code == 302
+        assert r.headers["location"].startswith("/#token=")
+
+
+# ── server-side: owner identity ───────────────────────────────────────────
+
+class TestOwnerIdentity:
+    def test_owner_identity_gets_owner_token(self, tmp_path):
+        from tests.conftest import _make_store, TEST_PASSPHRASE
+        from server.main import create_app
+        from server import sso as sso_module
+        from server.auth import _verify_owner_token
+        from fastapi.testclient import TestClient
+
+        store = _make_store(tmp_path)
+        app = create_app(store / "node_config.json", TEST_PASSPHRASE)
+        app.state.sso_config["google_client_id"] = "cid"
+        app.state.sso_config["google_client_secret"] = "csecret"
+        app.state.owner_identity = "google:owner@test.com"
+
+        db = app.state.db
+        state = sso_module.generate_state(db, "google")
+        app.state.sso_exchange_google = lambda *a, **k: {"email": "owner@test.com"}
+
+        client = TestClient(app, follow_redirects=False)
+        r = client.get(f"/auth/callback?code=testcode&state={state}")
+        assert r.status_code == 302
+        token = r.headers["location"].split("#token=")[1]
+        assert _verify_owner_token(token)
+
+    def test_non_owner_identity_gets_recipient_token(self, tmp_path):
+        from tests.conftest import _make_store, TEST_PASSPHRASE
+        from server.main import create_app
+        from server import sso as sso_module
+        from server.auth import _verify_owner_token
+        from fastapi.testclient import TestClient
+
+        store = _make_store(tmp_path)
+        app = create_app(store / "node_config.json", TEST_PASSPHRASE)
+        app.state.sso_config["google_client_id"] = "cid"
+        app.state.sso_config["google_client_secret"] = "csecret"
+        app.state.owner_identity = "google:owner@test.com"
+
+        db = app.state.db
+        db.execute("INSERT INTO recipients (id, identity, display_name) VALUES ('r3','google:user@test.com','User')")
+        db.commit()
+        state = sso_module.generate_state(db, "google")
+        app.state.sso_exchange_google = lambda *a, **k: {"email": "user@test.com"}
+
+        client = TestClient(app, follow_redirects=False)
+        r = client.get(f"/auth/callback?code=testcode&state={state}")
+        assert r.status_code == 302
+        token = r.headers["location"].split("#token=")[1]
+        assert not _verify_owner_token(token)
+
+
+# ── client config ─────────────────────────────────────────────────────────
+
+class TestClientConfig:
+    def test_save_and_load(self, tmp_path):
+        from client.config import ClientConfig, ContactEntry
+        cfg = ClientConfig(
+            own_server="https://node.example.com",
+            contacts=[ContactEntry(name="Alice", url="https://alice.example.com")],
+        )
+        path = tmp_path / "client_config.json"
+        cfg.save(path)
+        loaded = ClientConfig.load(path)
+        assert loaded.own_server == "https://node.example.com"
+        assert len(loaded.contacts) == 1
+        assert loaded.contacts[0].name == "Alice"
+
+    def test_tokens_persist(self, tmp_path):
+        from client.config import ClientConfig, load_tokens, save_tokens
+        path = tmp_path / "client_config.json"
+        ClientConfig(own_server="https://node.example.com").save(path)
+        save_tokens(path, {"https://node.example.com": "tok123"})
+        loaded = load_tokens(path)
+        assert loaded["https://node.example.com"] == "tok123"
+
+    def test_init_client_creates_config(self, tmp_path):
+        config_path = tmp_path / "client" / "client_config.json"
+        r = subprocess.run(
+            [PYTHON, str(ROOT / "tools/init_client.py"),
+             "--config", str(config_path),
+             "--own-server", "https://node.example.com"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0, r.stderr
+        assert config_path.exists()
+        data = json.loads(config_path.read_text())
+        assert data["own_server"] == "https://node.example.com"
+
+    def test_init_client_fails_if_exists(self, tmp_path):
+        config_path = tmp_path / "client_config.json"
+        config_path.write_text("{}")
+        r = subprocess.run(
+            [PYTHON, str(ROOT / "tools/init_client.py"),
+             "--config", str(config_path),
+             "--own-server", "https://node.example.com"],
+            capture_output=True, text=True,
+        )
+        assert r.returncode != 0
+
+
+# ── client app ────────────────────────────────────────────────────────────
+
+@pytest.fixture
+def client_app(tmp_path):
+    from client.config import ClientConfig
+    from client.main import create_app
+    from fastapi.testclient import TestClient
+
+    config_path = tmp_path / "client_config.json"
+    ClientConfig(own_server="https://node.example.com").save(config_path)
+    app = create_app(config_path)
+    return TestClient(app)
+
+
+class TestClientApp:
+    def test_root_returns_html(self, client_app):
+        r = client_app.get("/")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+
+    def test_callback_returns_html(self, client_app):
+        r = client_app.get("/auth/callback")
+        assert r.status_code == 200
+        assert "text/html" in r.headers["content-type"]
+
+    def test_api_config(self, client_app):
+        r = client_app.get("/api/config")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["own_server"] == "https://node.example.com"
+        assert isinstance(data["servers"], list)
+
+    def test_api_login_url(self, client_app):
+        r = client_app.get("/api/auth/login-url")
+        assert r.status_code == 200
+        url = r.json()["auth_url"]
+        assert "https://node.example.com/auth/login" in url
+        assert "return_to" in url
+
+    def test_api_store_token(self, tmp_path):
+        from client.config import ClientConfig, load_tokens
+        from client.main import create_app
+        from fastapi.testclient import TestClient
+
+        config_path = tmp_path / "client_config.json"
+        ClientConfig(own_server="https://node.example.com").save(config_path)
+        app = create_app(config_path)
+        client = TestClient(app)
+
+        r = client.post("/api/auth/token",
+                        json={"token": "tok-abc", "server": "https://node.example.com"})
+        assert r.status_code == 200
+        tokens = load_tokens(config_path)
+        assert tokens.get("https://node.example.com") == "tok-abc"
+
+    def test_api_clear_token(self, tmp_path):
+        from client.config import ClientConfig, save_tokens, load_tokens
+        from client.main import create_app
+        from fastapi.testclient import TestClient
+
+        config_path = tmp_path / "client_config.json"
+        ClientConfig(own_server="https://node.example.com").save(config_path)
+        save_tokens(config_path, {"https://node.example.com": "tok-abc"})
+        app = create_app(config_path)
+        client = TestClient(app)
+
+        r = client.delete("/api/auth/token?server=https://node.example.com")
+        assert r.status_code == 200
+        tokens = load_tokens(config_path)
+        assert "https://node.example.com" not in tokens

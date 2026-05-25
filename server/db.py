@@ -76,11 +76,17 @@ def init_schema(con: sqlcipher3.Connection) -> None:
     """)
     con.execute("""
         CREATE TABLE IF NOT EXISTS sso_states (
-            state    TEXT PRIMARY KEY,
-            provider TEXT NOT NULL,
-            expiry   REAL NOT NULL
+            state     TEXT PRIMARY KEY,
+            provider  TEXT NOT NULL,
+            expiry    REAL NOT NULL,
+            return_to TEXT NOT NULL DEFAULT ''
         )
     """)
+    try:
+        con.execute("ALTER TABLE sso_states ADD COLUMN return_to TEXT NOT NULL DEFAULT ''")
+        con.commit()
+    except Exception:
+        pass
     con.execute("""
         CREATE TABLE IF NOT EXISTS posts (
             id         TEXT PRIMARY KEY,

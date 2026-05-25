@@ -7,6 +7,7 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from cryptography.exceptions import InvalidTag
@@ -56,10 +57,17 @@ def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
     log.info("Database opened.")
 
     app = FastAPI(title="contac node")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.state.db = db_con
     app.state.file_key = file_key
     app.state.store_path = store_path
     app.state.watermark_enabled = config.watermark_enabled
+    app.state.owner_identity = config.sso_owner_identity
 
     app.state.sso_config = {
         "google_client_id": config.sso_google_client_id,

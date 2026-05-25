@@ -35,6 +35,11 @@ def main() -> None:
         default=os.environ.get("CONTAC_GOOGLE_CLIENT_SECRET", ""),
         help="Google OAuth2 client secret (env: CONTAC_GOOGLE_CLIENT_SECRET)",
     )
+    parser.add_argument(
+        "--owner-identity",
+        default="",
+        help="Google identity that receives owner tokens (e.g. google:you@gmail.com)",
+    )
     parser.add_argument("--clear", action="store_true", help="Remove all SSO credentials")
     args = parser.parse_args()
 
@@ -48,6 +53,7 @@ def main() -> None:
     if args.clear:
         config.sso_google_client_id = None
         config.sso_google_client_secret = None
+        config.sso_owner_identity = None
         config.save(config_path)
         print("SSO credentials cleared.")
         return
@@ -62,10 +68,14 @@ def main() -> None:
 
     config.sso_google_client_id = args.google_client_id
     config.sso_google_client_secret = args.google_client_secret
+    if args.owner_identity:
+        config.sso_owner_identity = args.owner_identity
     config.save(config_path)
 
     print(f"Google SSO configured for node at {config.node_address}")
     print(f"Client ID: {args.google_client_id}")
+    if config.sso_owner_identity:
+        print(f"Owner identity: {config.sso_owner_identity}")
     print("Restart the server for changes to take effect.")
 
 

@@ -1,0 +1,682 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>contac</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #111; color: #e0e0e0; min-height: 100vh; }
+
+    /* ── login ── */
+    #login-view { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 1.25rem; }
+    #login-view h1 { font-size: 2rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; }
+    #login-server { font-size: 0.82rem; color: #555; }
+    .divider { color: #555; font-size: 0.85rem; }
+    .token-row { display: flex; gap: 0.5rem; }
+
+    /* ── chrome ── */
+    header { background: #1a1a1a; padding: 0.6rem 1rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2a2a2a; position: sticky; top: 0; z-index: 20; gap: 0.5rem; }
+    .header-left  { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
+    .header-right { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+    .logo { font-size: 1.1rem; font-weight: 500; color: #fff; }
+    #identity-badge { font-size: 0.75rem; color: #666; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    #search-wrap { flex: 1; min-width: 0; }
+    #search-input { width: 100%; padding: 0.4rem 0.7rem; border-radius: 4px; border: 1px solid #333; background: #222; color: #e0e0e0; font-size: 0.88rem; outline: none; }
+    #search-input:focus { border-color: #4285f4; }
+
+    /* ── layout ── */
+    #feed-view { display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+    #body-wrap { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── sidebar ── */
+    #sidebar { width: 200px; flex-shrink: 0; background: #161616; border-right: 1px solid #242424; overflow-y: auto; padding: 0.75rem; display: flex; flex-direction: column; gap: 0.75rem; }
+    .sidebar-section { display: flex; flex-direction: column; gap: 0.25rem; }
+    .sidebar-head { font-size: 0.72rem; color: #555; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 0.25rem; }
+    .server-btn { background: none; border: none; text-align: left; cursor: pointer; padding: 0.3rem 0.5rem; border-radius: 4px; font-size: 0.82rem; display: flex; justify-content: space-between; align-items: center; gap: 0.4rem; color: #888; width: 100%; }
+    .server-btn:hover { background: #222; color: #ccc; }
+    .server-btn.active { background: #1e2d4a; color: #6aa3f5; }
+    .server-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+    .server-dot.ok   { background: #4caf50; }
+    .server-dot.err  { background: #e06c6c; }
+    .server-dot.wait { background: #555; }
+    #tag-list { display: flex; flex-direction: column; gap: 0.25rem; }
+    .tag-btn { background: none; border: none; text-align: left; cursor: pointer; padding: 0.3rem 0.5rem; border-radius: 4px; font-size: 0.82rem; color: #888; display: flex; justify-content: space-between; align-items: center; }
+    .tag-btn:hover { background: #222; color: #ccc; }
+    .tag-btn.active { background: #1e2d4a; color: #6aa3f5; }
+    .tag-btn .tc { font-size: 0.72rem; color: #555; }
+    #clear-tags-btn { font-size: 0.75rem; color: #4285f4; background: none; border: none; cursor: pointer; padding: 0.2rem 0.5rem; text-align: left; }
+    #clear-tags-btn:hover { text-decoration: underline; }
+
+    /* ── timeline ── */
+    #main-area { flex: 1; overflow-y: auto; padding: 1rem; }
+    #timeline { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 0.75rem; }
+    #feed-status { font-size: 0.8rem; color: #555; margin-bottom: 0.5rem; max-width: 680px; margin-left: auto; margin-right: auto; }
+    .more-row { text-align: center; padding: 1rem; max-width: 680px; margin: 0 auto; }
+    .empty { color: #555; text-align: center; padding: 3rem; }
+
+    /* ── post card ── */
+    .post-card { background: #1e1e1e; border-radius: 8px; padding: 1rem; cursor: pointer; transition: background 0.1s; border: 2px solid transparent; }
+    .post-card:hover { background: #232323; }
+    .post-card.active-card { border-color: #4285f4; }
+    .post-source { font-size: 0.72rem; color: #555; margin-bottom: 0.4rem; }
+    .post-body-preview { font-size: 0.92rem; color: #ccc; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+      display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+    .post-thumbs { display: flex; gap: 4px; margin-top: 0.6rem; overflow-x: auto; }
+    .post-thumb { width: 100px; height: 100px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: #2a2a2a; }
+    .post-thumb-icon { width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; font-size: 2rem; background: #2a2a2a; border-radius: 4px; flex-shrink: 0; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .post-thumb.loading { animation: pulse 1.4s ease-in-out infinite; }
+    .post-foot { margin-top: 0.6rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: 0.76rem; color: #555; }
+    .post-date { flex-shrink: 0; }
+
+    /* ── overlays ── */
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88); display: flex; align-items: center; justify-content: center; z-index: 50; }
+    .modal { background: #1e1e1e; border-radius: 8px; max-width: min(90vw, 720px); width: 100%; max-height: 90vh; overflow: auto; padding: 1.25rem; position: relative; }
+    .modal-close { position: absolute; top: 0.6rem; right: 0.75rem; background: none; border: none; color: #aaa; font-size: 1.4rem; cursor: pointer; line-height: 1; }
+    .modal-close:hover { color: #fff; }
+    .modal h3 { color: #fff; margin-bottom: 1rem; font-weight: 400; }
+    .modal-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.5); border: none; color: #aaa; font-size: 1.8rem; cursor: pointer; padding: 0.5rem 0.7rem; border-radius: 4px; line-height: 1; }
+    .modal-nav:hover { color: #fff; background: rgba(0,0,0,0.75); }
+    #nav-prev { left: -3rem; }
+    #nav-next { right: -3rem; }
+    .post-detail-body { font-size: 0.95rem; color: #ddd; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
+    .post-detail-body .asset-block { display: block; margin: 0.75rem 0; white-space: normal; }
+    .post-detail-body .asset-block img { max-width: 100%; border-radius: 6px; display: block; }
+    .post-detail-body .asset-block video { max-width: 100%; border-radius: 6px; display: block; }
+    .post-detail-body .asset-block .asset-file { display: inline-flex; align-items: center; gap: 0.5rem; background: #2a2a2a; padding: 0.4rem 0.75rem; border-radius: 4px; font-size: 0.85rem; color: #aaa; text-decoration: none; }
+    .post-detail-body .asset-block .asset-file:hover { background: #333; color: #eee; }
+    .modal-meta { margin-top: 0.75rem; font-size: 0.85rem; color: #888; }
+    .tag-chip { display: inline-block; background: #2a2a2a; color: #aaa; padding: 2px 9px; border-radius: 12px; font-size: 0.75rem; margin: 2px; cursor: pointer; border: none; }
+    .tag-chip:hover { background: #1e2d4a; color: #6aa3f5; }
+    .tag-chip.active { background: #1e2d4a; color: #6aa3f5; }
+
+    /* ── comments ── */
+    .comments { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #2a2a2a; }
+    .comments-header { font-size: 0.85rem; color: #777; margin-bottom: 0.75rem; }
+    .comment { padding: 0.5rem 0; border-bottom: 1px solid #1a1a1a; }
+    .comment:last-of-type { border-bottom: none; }
+    .comment-author { font-size: 0.73rem; color: #666; margin-bottom: 0.2rem; }
+    .comment-body { font-size: 0.88rem; color: #ccc; white-space: pre-wrap; word-break: break-word; }
+    .comment-foot { font-size: 0.72rem; color: #555; margin-top: 0.2rem; }
+    .comment-replies { margin-left: 1rem; padding-left: 0.75rem; border-left: 2px solid #2a2a2a; }
+    .comment-form { margin-top: 0.75rem; }
+    .comment-form textarea { background: #222; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; padding: 0.5rem; width: 100%; font-size: 0.88rem; resize: vertical; min-height: 60px; outline: none; font-family: inherit; }
+    .comment-form textarea:focus { border-color: #4285f4; }
+    .comment-form-footer { display: flex; justify-content: flex-end; margin-top: 0.4rem; }
+
+    /* ── compose ── */
+    #compose-modal { min-width: min(90vw, 560px); }
+    #compose-body { background: #222; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; padding: 0.6rem; width: 100%; font-size: 0.95rem; resize: vertical; min-height: 100px; outline: none; font-family: inherit; margin-bottom: 0.75rem; }
+    #compose-body:focus { border-color: #4285f4; }
+    .drop-zone { border: 2px dashed #444; border-radius: 6px; padding: 1.25rem 1rem; text-align: center; cursor: pointer; color: #777; transition: border-color 0.15s; }
+    .drop-zone:hover, .drop-zone.over { border-color: #4285f4; color: #aaa; }
+    .drop-zone-icon { font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .file-list { margin: 0.6rem 0; max-height: 100px; overflow-y: auto; }
+    .file-item { font-size: 0.82rem; padding: 0.2rem 0; color: #aaa; display: flex; justify-content: space-between; }
+    .compose-fields { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.6rem 0; }
+    .upload-progress { font-size: 0.85rem; color: #aaa; min-height: 1.4em; margin: 0.5rem 0; }
+    .progress-item { padding: 0.15rem 0; }
+    .progress-ok { color: #6cbe6c; }
+    .progress-err { color: #e06c6c; }
+
+    /* ── shared ── */
+    .btn { padding: 0.42rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.88rem; }
+    .btn-primary { background: #4285f4; color: #fff; }
+    .btn-primary:hover { background: #3a78e8; }
+    .btn-muted { background: #2a2a2a; color: #ccc; }
+    .btn-muted:hover { background: #333; }
+    .btn-sm { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+    input[type=text] { padding: 0.42rem 0.7rem; border-radius: 4px; border: 1px solid #333; background: #222; color: #e0e0e0; font-size: 0.88rem; outline: none; }
+    input[type=text]:focus { border-color: #4285f4; }
+    [hidden] { display: none !important; }
+
+    @media (max-width: 600px) {
+      #sidebar { width: 100%; height: auto; flex-direction: row; flex-wrap: wrap; border-right: none; border-bottom: 1px solid #242424; padding: 0.5rem; }
+      #body-wrap { flex-direction: column; }
+      #nav-prev { left: 0.25rem; }
+      #nav-next { right: 0.25rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── login ──────────────────────────────────────────────────────────────── -->
+<div id="login-view">
+  <h1>contac</h1>
+  <div id="login-server" class="login-server"></div>
+  <button class="btn btn-primary" onclick="loginGoogle()">Sign in with Google</button>
+  <span class="divider">— or paste a token —</span>
+  <div class="token-row">
+    <input type="text" id="token-input" placeholder="Owner or recipient token" style="width:280px">
+    <button class="btn btn-primary" onclick="loginWithToken()">Go</button>
+  </div>
+  <div id="login-error" style="color:#e06c6c;font-size:0.85rem"></div>
+</div>
+
+<!-- ── feed ───────────────────────────────────────────────────────────────── -->
+<div id="feed-view" hidden>
+  <header>
+    <div class="header-left">
+      <span class="logo">contac</span>
+      <span id="identity-badge"></span>
+    </div>
+    <div id="search-wrap">
+      <input type="text" id="search-input" placeholder="Search posts…" oninput="scheduleSearch(this.value)">
+    </div>
+    <div class="header-right">
+      <button id="compose-btn" class="btn btn-primary btn-sm" onclick="openCompose()" hidden>+ Post</button>
+      <button class="btn btn-muted btn-sm" onclick="logout()">Sign out</button>
+    </div>
+  </header>
+  <div id="body-wrap">
+    <nav id="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-head">Servers</div>
+        <div id="server-list"></div>
+      </div>
+      <div class="sidebar-section">
+        <div class="sidebar-head">Tags</div>
+        <div id="tag-list"></div>
+        <button id="clear-tags-btn" onclick="clearTagFilter()" hidden>Clear filter</button>
+      </div>
+    </nav>
+    <div id="main-area">
+      <div id="feed-status"></div>
+      <div id="timeline"></div>
+      <div id="empty-msg" class="empty" hidden>No posts yet.</div>
+      <div class="more-row">
+        <button id="load-more-btn" class="btn btn-muted" onclick="loadMore()" hidden>Load more</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── detail modal ───────────────────────────────────────────────────────── -->
+<div id="detail-overlay" class="overlay" hidden onclick="maybeClose('detail-overlay',event)">
+  <div class="modal" id="detail-modal">
+    <button class="modal-close" onclick="closeDetail()">&#x2715;</button>
+    <button class="modal-nav" id="nav-prev" onclick="navigatePost(-1)">&#x2039;</button>
+    <button class="modal-nav" id="nav-next" onclick="navigatePost(1)">&#x203A;</button>
+    <div id="detail-body"></div>
+  </div>
+</div>
+
+<!-- ── compose modal ──────────────────────────────────────────────────────── -->
+<div id="compose-overlay" class="overlay" hidden onclick="maybeClose('compose-overlay',event)">
+  <div class="modal" id="compose-modal">
+    <button class="modal-close" onclick="closeCompose()">&#x2715;</button>
+    <h3>New post</h3>
+    <textarea id="compose-body" placeholder="What's on your mind?"></textarea>
+    <div class="drop-zone" id="drop-zone"
+         onclick="document.getElementById('file-picker').click()"
+         ondragover="dzOver(event)" ondragleave="dzOut(event)" ondrop="dzDrop(event)">
+      <div class="drop-zone-icon">&#x1F4CE;</div>
+      <div>Attach files — click or drag here</div>
+    </div>
+    <input type="file" id="file-picker" multiple hidden onchange="pickFiles(this.files);this.value=''">
+    <div class="file-list" id="file-list"></div>
+    <div class="compose-fields">
+      <input type="text" id="compose-tags" placeholder="Tags — space-separated">
+      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:#aaa;cursor:pointer">
+        <input type="checkbox" id="compose-public"> Publish (visible to recipients)
+      </label>
+    </div>
+    <div class="upload-progress" id="compose-progress"></div>
+    <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+      <button class="btn btn-muted" onclick="closeCompose()">Cancel</button>
+      <button class="btn btn-primary" id="compose-submit" onclick="submitPost()">Post</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── state ──────────────────────────────────────────────────────────────────
+let CFG = null;
+let activeServer = null;   // null = own_server
+let activeTags = new Set();
+let allPosts = [];
+let currentIdx = -1;
+let nextCursor = null, currentSearch = null, searchTimer = null;
+let pendingFiles = [];
+let IS_OWNER = false;
+let serverStatuses = {};   // url -> "ok"|"err"|"wait"
+
+// ── init ───────────────────────────────────────────────────────────────────
+(async function init() {
+  CFG = await fetch("/api/config").then(r => r.json()).catch(() => null);
+  if (!CFG) { document.getElementById("login-error").textContent = "Could not load config."; showView("login"); return; }
+
+  document.getElementById("login-server").textContent = CFG.own_server;
+
+  // check if authenticated
+  const status = CFG.servers.find(s => s.url === CFG.own_server);
+  if (status && status.authenticated) {
+    await loadFeed();
+  } else {
+    showView("login");
+  }
+})();
+
+// ── auth ───────────────────────────────────────────────────────────────────
+async function loginGoogle() {
+  const r = await fetch("/api/auth/login-url");
+  if (!r.ok) { document.getElementById("login-error").textContent = "Login unavailable."; return; }
+  window.location.href = (await r.json()).auth_url;
+}
+
+async function loginWithToken() {
+  const t = document.getElementById("token-input").value.trim();
+  if (!t) return;
+  const r = await fetch("/api/auth/token", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({token: t}),
+  });
+  if (r.ok) {
+    const ok = await loadFeed();
+    if (!ok) document.getElementById("login-error").textContent = "Token rejected.";
+  }
+}
+
+async function logout() {
+  await fetch("/api/auth/token", {method: "DELETE"});
+  CFG = null;
+  showView("login");
+  location.reload();
+}
+
+async function loadIdentity() {
+  const r = await fetch("/api/auth/me");
+  if (!r.ok) return;
+  const d = await r.json();
+  IS_OWNER = d.role === "owner";
+  document.getElementById("compose-btn").hidden = !IS_OWNER;
+  document.getElementById("identity-badge").textContent =
+    d.role === "owner" ? "owner" : (d.display_name || d.identity || "");
+}
+
+// ── views ──────────────────────────────────────────────────────────────────
+function showView(name) {
+  document.getElementById("login-view").hidden = name !== "login";
+  document.getElementById("feed-view").hidden  = name !== "feed";
+}
+
+// ── server sidebar ─────────────────────────────────────────────────────────
+function renderServerList() {
+  const list = document.getElementById("server-list");
+  list.innerHTML = (CFG.servers || []).map((s, i) => {
+    const status = serverStatuses[s.url] || (s.authenticated ? "wait" : "err");
+    return '<button class="server-btn' + (activeServer === s.url ? " active" : "") + '" onclick="setActiveServer(' + i + ')">'
+      + '<span>' + esc(s.name) + '</span>'
+      + '<span class="server-dot ' + status + '"></span>'
+      + '</button>';
+  }).join("");
+}
+
+function setActiveServer(i) {
+  const url = CFG.servers[i].url;
+  activeServer = (activeServer === url) ? null : url;
+  renderServerList();
+  resetFeed();
+}
+
+// ── tag sidebar ────────────────────────────────────────────────────────────
+async function loadTagSidebar() {
+  const r = await fetch("/api/tags");
+  if (!r.ok) return;
+  const data = await r.json();
+  const list = document.getElementById("tag-list");
+  list.innerHTML = (data.tags || []).map(({tag, count}) =>
+    '<button class="tag-btn' + (activeTags.has(tag) ? " active" : "") + '" onclick="toggleTag(\'' + esc(tag) + '\')">'
+    + '<span>' + esc(tag) + '</span><span class="tc">' + count + '</span></button>'
+  ).join("");
+}
+
+function toggleTag(tag) {
+  if (activeTags.has(tag)) activeTags.delete(tag); else activeTags.add(tag);
+  document.getElementById("clear-tags-btn").hidden = activeTags.size === 0;
+  document.querySelectorAll(".tag-btn").forEach(b => {
+    b.classList.toggle("active", activeTags.has(b.querySelector("span:first-child").textContent));
+  });
+  resetFeed();
+}
+function clearTagFilter() {
+  activeTags.clear();
+  document.getElementById("clear-tags-btn").hidden = true;
+  document.querySelectorAll(".tag-btn").forEach(b => b.classList.remove("active"));
+  resetFeed();
+}
+
+// ── feed ───────────────────────────────────────────────────────────────────
+function scheduleSearch(val) {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { currentSearch = val.trim() || null; resetFeed(); }, 350);
+}
+
+async function loadFeed() {
+  showView("feed");
+  renderServerList();
+  const ok = await resetFeed();
+  if (!ok) { showView("login"); return false; }
+  loadIdentity();
+  loadTagSidebar();
+  return true;
+}
+
+async function resetFeed() {
+  nextCursor = null; allPosts = []; currentIdx = -1;
+  document.getElementById("timeline").innerHTML = "";
+  document.getElementById("empty-msg").hidden = true;
+  document.getElementById("feed-status").textContent = "";
+  return await loadMore();
+}
+
+async function loadMore() {
+  let url = "/api/feed?limit=20";
+  if (activeServer) url += "&server=" + encodeURIComponent(activeServer);
+  if (nextCursor) url += "&cursor=" + encodeURIComponent(nextCursor);
+  if (currentSearch) url += "&q=" + encodeURIComponent(currentSearch);
+  for (const t of activeTags) url += "&tags=" + encodeURIComponent(t);
+
+  const r = await fetch(url);
+  if (r.status === 401) { showView("login"); return false; }
+  if (!r.ok) return false;
+
+  const data = await r.json();
+  const src = activeServer || CFG.own_server;
+  serverStatuses[src] = "ok";
+  renderServerList();
+
+  const timeline = document.getElementById("timeline");
+  for (const post of data.posts) {
+    allPosts.push(post);
+    timeline.appendChild(makePostCard(post, allPosts.length - 1));
+  }
+  nextCursor = data.next_cursor || null;
+  document.getElementById("load-more-btn").hidden = !nextCursor;
+  const n = allPosts.length;
+  document.getElementById("feed-status").textContent = n
+    ? n + (nextCursor ? "+" : "") + " post" + (n !== 1 ? "s" : "") : "";
+  document.getElementById("empty-msg").hidden = n > 0;
+  return true;
+}
+
+// ── post card ──────────────────────────────────────────────────────────────
+function makePostCard(post, idx) {
+  const div = document.createElement("div");
+  div.className = "post-card";
+  div.dataset.idx = idx;
+  div.onclick = () => openDetail(idx);
+
+  if (post._server_name && post._server_name !== "me") {
+    const src = document.createElement("div");
+    src.className = "post-source";
+    src.textContent = post._server_name;
+    div.appendChild(src);
+  }
+
+  const previewText = (post.body || "").replace(/\[asset:[0-9a-f-]+\]/g, "").trim();
+  if (previewText) {
+    const p = document.createElement("div");
+    p.className = "post-body-preview";
+    p.textContent = previewText;
+    div.appendChild(p);
+  }
+
+  if (post.assets && post.assets.length) {
+    const strip = document.createElement("div");
+    strip.className = "post-thumbs";
+    for (const asset of post.assets) {
+      if ((asset.media_type || "").startsWith("image/")) {
+        const img = document.createElement("img");
+        img.className = "post-thumb loading";
+        img.onload = img.onerror = () => img.classList.remove("loading");
+        img.alt = ""; img.loading = "lazy";
+        // routed through client's proxy API
+        const params = post._server_url !== CFG.own_server
+          ? "?server=" + encodeURIComponent(post._server_url) : "";
+        img.src = "/api/assets/" + asset.id + "/thumb" + params;
+        strip.appendChild(img);
+      } else {
+        const ic = document.createElement("div");
+        ic.className = "post-thumb-icon";
+        ic.textContent = mimeIcon(asset.media_type);
+        strip.appendChild(ic);
+      }
+    }
+    div.appendChild(strip);
+  }
+
+  const foot = document.createElement("div");
+  foot.className = "post-foot";
+  const tagHtml = (post.tags || []).map(t =>
+    '<span class="tag-chip' + (activeTags.has(t) ? " active" : "") + '">' + esc(t) + '</span>'
+  ).join("");
+  const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleDateString() : "";
+  foot.innerHTML = tagHtml + '<span class="post-date" style="margin-left:auto">' + dateFmt + '</span>';
+  div.appendChild(foot);
+  return div;
+}
+
+// ── keyboard nav ───────────────────────────────────────────────────────────
+document.addEventListener("keydown", e => {
+  if (!document.getElementById("detail-overlay").hidden) {
+    if (e.key === "Escape") { closeDetail(); return; }
+    if (e.key === "ArrowLeft"  || e.key === "ArrowUp")   { e.preventDefault(); navigatePost(-1); }
+    if (e.key === "ArrowRight" || e.key === "ArrowDown")  { e.preventDefault(); navigatePost(1);  }
+  }
+  if (!document.getElementById("compose-overlay").hidden && e.key === "Escape") closeCompose();
+});
+
+function navigatePost(delta) {
+  const next = currentIdx + delta;
+  if (next < 0 || next >= allPosts.length) return;
+  openDetail(next);
+  if (next >= allPosts.length - 3 && nextCursor) loadMore();
+}
+
+function highlightCard(idx) {
+  document.querySelectorAll(".post-card.active-card").forEach(c => c.classList.remove("active-card"));
+  const card = document.querySelector(".post-card[data-idx='" + idx + "']");
+  if (card) card.classList.add("active-card");
+}
+
+// ── detail modal ───────────────────────────────────────────────────────────
+let currentPostId = null, currentPostServer = null;
+
+function renderPostBody(post) {
+  const assetMap = {};
+  for (const a of (post.assets || [])) assetMap[a.id] = a;
+  const parts = (post.body || "").split(/(\[asset:[0-9a-f-]+\])/);
+  let rendered = "";
+  for (const part of parts) {
+    const m = part.match(/^\[asset:([0-9a-f-]+)\]$/);
+    if (m) {
+      const aid = m[1], a = assetMap[aid];
+      const params = post._server_url !== CFG.own_server
+        ? "?server=" + encodeURIComponent(post._server_url) : "";
+      const url = "/api/assets/" + aid + params;
+      if (a && (a.media_type || "").startsWith("image/"))
+        rendered += '<span class="asset-block"><img src="' + url + '" alt=""></span>';
+      else if (a && (a.media_type || "").startsWith("video/"))
+        rendered += '<span class="asset-block"><video src="' + url + '" controls></video></span>';
+      else {
+        const label = (a && a.title) ? a.title : aid.slice(0, 8) + "…";
+        rendered += '<span class="asset-block"><a class="asset-file" href="' + url + '" download>' + mimeIcon(a && a.media_type) + ' ' + esc(label) + '</a></span>';
+      }
+    } else { rendered += esc(part); }
+  }
+  return rendered;
+}
+
+function openDetail(idx) {
+  currentIdx = idx;
+  const post = allPosts[idx];
+  currentPostId = post.id;
+  currentPostServer = post._server_url;
+  highlightCard(idx);
+  renderDetail(post);
+  document.getElementById("nav-prev").hidden = idx <= 0;
+  document.getElementById("nav-next").hidden = idx >= allPosts.length - 1;
+  document.getElementById("detail-overlay").hidden = false;
+  loadComments(post);
+}
+
+function renderDetail(post) {
+  const tagHtml = (post.tags || []).map(t =>
+    '<button class="tag-chip' + (activeTags.has(t) ? " active" : "") + '" onclick="toggleTag(\'' + esc(t) + '\')">' + esc(t) + '</button>'
+  ).join("");
+  const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleString(undefined, {dateStyle:"short",timeStyle:"short"}) : "";
+  const srcLine = post._server_name && post._server_name !== "me"
+    ? '<div style="font-size:0.78rem;color:#555;margin-bottom:0.4rem">' + esc(post._server_name) + '</div>'
+    : "";
+  document.getElementById("detail-body").innerHTML =
+    srcLine
+    + '<div class="post-detail-body">' + renderPostBody(post) + '</div>'
+    + '<div class="modal-meta">'
+    + (tagHtml ? '<div style="margin-top:0.4rem">' + tagHtml + '</div>' : '')
+    + '<div style="margin-top:0.4rem">' + dateFmt + '</div>'
+    + '</div>'
+    + '<div id="comments-section" class="comments"><div class="comments-header" style="color:#555">Loading…</div></div>';
+}
+
+function closeDetail() {
+  document.getElementById("detail-overlay").hidden = true;
+  highlightCard(-1);
+  currentIdx = -1; currentPostId = null; currentPostServer = null;
+}
+
+// ── comments ───────────────────────────────────────────────────────────────
+async function loadComments(post) {
+  const params = post._server_url !== CFG.own_server
+    ? "?server=" + encodeURIComponent(post._server_url) : "";
+  const r = await fetch("/api/posts/" + post.id + "/comments" + params);
+  const section = document.getElementById("comments-section");
+  if (!section || currentPostId !== post.id) return;
+  if (!r.ok) { section.innerHTML = ""; return; }
+  renderComments(post, (await r.json()).comments);
+}
+
+function renderComments(post, comments) {
+  const section = document.getElementById("comments-section");
+  if (!section) return;
+  const live = comments.filter(c => !c.deleted);
+  const byParent = {};
+  for (const c of live) { const k = c.parent_id || "__root__"; (byParent[k] = byParent[k] || []).push(c); }
+  function renderOne(c, depth) {
+    const replies = byParent[c.id] || [];
+    return '<div class="comment">'
+      + '<div class="comment-author">' + esc(c.author_identity || "owner") + '</div>'
+      + '<div class="comment-body">' + esc(c.body) + '</div>'
+      + '<div class="comment-foot">' + fmtDate(c.created_at) + '</div>'
+      + (replies.length ? '<div class="comment-replies">' + replies.map(r => renderOne(r, depth+1)).join("") + '</div>' : '')
+      + '</div>';
+  }
+  const roots = byParent["__root__"] || [];
+  const count = live.length;
+  const serverParam = post._server_url !== CFG.own_server
+    ? "?server=" + encodeURIComponent(post._server_url) : "";
+  section.innerHTML =
+    '<div class="comments-header">' + count + ' comment' + (count !== 1 ? 's' : '') + '</div>'
+    + roots.map(c => renderOne(c, 0)).join("")
+    + '<div class="comment-form">'
+    + '<textarea id="comment-input" placeholder="Add a comment…"></textarea>'
+    + '<div class="comment-form-footer"><button class="btn btn-primary btn-sm" onclick="submitComment(\'' + post.id + '\',\'' + esc(post._server_url) + '\')">Post</button></div>'
+    + '</div>';
+}
+
+async function submitComment(postId, serverUrl) {
+  const input = document.getElementById("comment-input");
+  const body = input ? input.value.trim() : "";
+  if (!body) return;
+  const params = serverUrl !== CFG.own_server ? "?server=" + encodeURIComponent(serverUrl) : "";
+  const r = await fetch("/api/posts/" + postId + "/comments" + params, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({body}),
+  });
+  if (r.ok) { loadComments(allPosts[currentIdx]); }
+}
+
+// ── compose ────────────────────────────────────────────────────────────────
+function openCompose() {
+  pendingFiles = [];
+  document.getElementById("compose-body").value = "";
+  document.getElementById("compose-tags").value = "";
+  document.getElementById("compose-public").checked = false;
+  document.getElementById("compose-progress").innerHTML = "";
+  document.getElementById("compose-submit").disabled = false;
+  document.getElementById("file-list").innerHTML = "";
+  document.getElementById("compose-overlay").hidden = false;
+  document.getElementById("compose-body").focus();
+}
+function closeCompose() { document.getElementById("compose-overlay").hidden = true; }
+function dzOver(e) { e.preventDefault(); document.getElementById("drop-zone").classList.add("over"); }
+function dzOut()   { document.getElementById("drop-zone").classList.remove("over"); }
+function dzDrop(e) { e.preventDefault(); dzOut(); addFiles(e.dataTransfer.files); }
+function pickFiles(files) { addFiles(files); }
+function addFiles(files) {
+  for (const f of files) pendingFiles.push(f);
+  document.getElementById("file-list").innerHTML = pendingFiles.map(f =>
+    '<div class="file-item"><span>' + esc(f.name) + '</span><span>' + fmtSize(f.size) + '</span></div>'
+  ).join("");
+}
+
+async function submitPost() {
+  const bodyText = document.getElementById("compose-body").value.trim();
+  if (!bodyText && !pendingFiles.length) return;
+  const tags = document.getElementById("compose-tags").value.trim().split(/\s+/).filter(Boolean);
+  const prog = document.getElementById("compose-progress");
+  document.getElementById("compose-submit").disabled = true;
+  prog.innerHTML = '<div class="progress-item">Posting…</div>';
+
+  const fd = new FormData();
+  fd.append("body", bodyText);
+  fd.append("tags", JSON.stringify(tags));
+  fd.append("public", document.getElementById("compose-public").checked ? "true" : "false");
+  for (const f of pendingFiles) fd.append("files", f);
+
+  try {
+    const r = await fetch("/api/posts", {method: "POST", body: fd});
+    if (r.ok) {
+      const post = await r.json();
+      prependPost(post);
+      loadTagSidebar();
+      prog.innerHTML = '<div class="progress-item progress-ok">&#x2713; Posted</div>';
+      pendingFiles = [];
+      document.getElementById("file-list").innerHTML = "";
+      setTimeout(closeCompose, 900);
+    } else {
+      prog.innerHTML = '<div class="progress-item progress-err">&#x2717; Error ' + r.status + '</div>';
+      document.getElementById("compose-submit").disabled = false;
+    }
+  } catch {
+    prog.innerHTML = '<div class="progress-item progress-err">&#x2717; Network error</div>';
+    document.getElementById("compose-submit").disabled = false;
+  }
+}
+
+function prependPost(post) {
+  allPosts.unshift(post);
+  document.querySelectorAll(".post-card[data-idx]").forEach(c => c.dataset.idx = parseInt(c.dataset.idx) + 1);
+  const timeline = document.getElementById("timeline");
+  timeline.insertBefore(makePostCard(post, 0), timeline.firstChild);
+  document.getElementById("empty-msg").hidden = true;
+}
+
+// ── utilities ──────────────────────────────────────────────────────────────
+function maybeClose(id, e) { if (e.target === document.getElementById(id)) document.getElementById(id).hidden = true; }
+function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+function mimeIcon(mt) {
+  if (!mt) return "📄";
+  if (mt.startsWith("video/")) return "🎬";
+  if (mt.startsWith("audio/")) return "🎵";
+  if (mt === "application/pdf") return "📋";
+  return "📄";
+}
+function fmtDate(ts) { if (!ts) return ""; return new Date(ts * 1000).toLocaleString(undefined, {dateStyle:"short",timeStyle:"short"}); }
+function fmtSize(b) { if (b < 1024) return b + " B"; if (b < 1048576) return (b/1024).toFixed(1) + " KB"; return (b/1048576).toFixed(1) + " MB"; }
+</script>
+</body>
+</html>

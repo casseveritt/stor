@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>contac — signing in</title>
+  <style>
+    body { font-family: system-ui, sans-serif; background: #111; color: #e0e0e0;
+           display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+    .msg { text-align: center; color: #666; }
+  </style>
+</head>
+<body>
+<div class="msg" id="msg">Signing in…</div>
+<script>
+(async function() {
+  const hash = window.location.hash;
+  if (!hash.startsWith("#token=")) {
+    document.getElementById("msg").textContent = "Login failed: no token received.";
+    return;
+  }
+  const token = decodeURIComponent(hash.slice(7));
+  const r = await fetch("/api/auth/token", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({token}),
+  });
+  if (r.ok) {
+    window.location.href = "/";
+  } else {
+    document.getElementById("msg").textContent = "Login failed: could not store token.";
+  }
+})();
+</script>
+</body>
+</html>

@@ -2,6 +2,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
+from . import auth as auth_module
 from . import sso as sso_module
 from .auth import AuthDep
 from .sso import SSOError, UnknownIdentityError
@@ -14,13 +15,13 @@ def _callback_uri(request: Request) -> str:
 
 
 @router.get("/login")
-def login(request: Request, provider: str = "google"):
+def login(request: Request, provider: str = "google", return_to: str = ""):
     cfg = request.app.state.sso_config
     if provider == "google":
         client_id = cfg.get("google_client_id")
         if not client_id:
             raise HTTPException(status_code=503, detail="Google SSO not configured")
-        state = sso_module.generate_state(request.app.state.db, "google")
+        state = sso_module.generate_state(request.app.state.db, "google", return_to=return_to)
         auth_url = sso_module.google_auth_url(client_id, _callback_uri(request), state)
         return {"provider": "google", "auth_url": auth_url, "state": state}
     raise HTTPException(status_code=400, detail=f"Unknown provider: {provider}")
@@ -32,7 +33,7 @@ def callback(request: Request, code: str, state: str):
     cfg = request.app.state.sso_config
 
     try:
-        provider = sso_module.consume_state(db, state)
+        provider, return_to = sso_module.consume_state(db, state)
     except SSOError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -49,13 +50,18 @@ def callback(request: Request, code: str, state: str):
         else:
             raise SSOError(f"Unknown provider: {provider}")
 
-        token = sso_module.complete_callback(db, identity)
+        owner_identity = getattr(request.app.state, "owner_identity", None)
+        if owner_identity and identity == owner_identity:
+            token = auth_module.issue_token(ttl_seconds=86400 * 30)
+        else:
+            token = sso_module.complete_callback(db, identity)
     except UnknownIdentityError as e:
         raise HTTPException(status_code=403, detail=str(e))
     except SSOError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return RedirectResponse(url=f"/#token={token}", status_code=302)
+    dest = return_to.rstrip("/") + "/#token=" + token if return_to else "/#token=" + token
+    return RedirectResponse(url=dest, status_code=302)
 
 
 @router.get("/me")

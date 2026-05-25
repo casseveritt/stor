@@ -218,6 +218,6 @@ class TestSSOModule:
     def test_state_is_single_use(self, client):
         db = client.app.state.db
         state = sso_module.generate_state(db, "google")
-        assert sso_module.consume_state(db, state) == "google"
+        assert sso_module.consume_state(db, state) == ("google", "")
         with pytest.raises(SSOError):
             sso_module.consume_state(db, state)

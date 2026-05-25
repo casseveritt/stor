@@ -28,29 +28,29 @@ class UnknownIdentityError(SSOError):
 
 # ── state management (CSRF) ───────────────────────────────────────────────────
 
-def generate_state(db, provider: str, ttl: int = 600) -> str:
+def generate_state(db, provider: str, ttl: int = 600, return_to: str = "") -> str:
     state = base64.urlsafe_b64encode(os.urandom(24)).rstrip(b"=").decode()
     db.execute(
-        "INSERT INTO sso_states (state, provider, expiry) VALUES (?, ?, ?)",
-        (state, provider, time.time() + ttl),
+        "INSERT INTO sso_states (state, provider, expiry, return_to) VALUES (?, ?, ?, ?)",
+        (state, provider, time.time() + ttl, return_to),
     )
     db.commit()
     return state
 
 
-def consume_state(db, state: str) -> str:
-    """Verify and consume a one-time state token. Returns provider name."""
+def consume_state(db, state: str) -> tuple[str, str]:
+    """Verify and consume a one-time state token. Returns (provider, return_to)."""
     row = db.execute(
-        "SELECT provider, expiry FROM sso_states WHERE state = ?", (state,)
+        "SELECT provider, expiry, return_to FROM sso_states WHERE state = ?", (state,)
     ).fetchone()
     if row is None:
         raise SSOError("Invalid or unknown state")
-    provider, expiry = row
+    provider, expiry, return_to = row
     db.execute("DELETE FROM sso_states WHERE state = ?", (state,))
     db.commit()
     if time.time() > expiry:
         raise SSOError("State has expired")
-    return provider
+    return provider, return_to
 
 
 # ── Google OIDC ───────────────────────────────────────────────────────────────
