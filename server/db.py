@@ -76,10 +76,34 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         )
     """)
     con.execute("""
+        CREATE TABLE IF NOT EXISTS posts (
+            id         TEXT PRIMARY KEY,
+            body       TEXT NOT NULL DEFAULT '',
+            created_at REAL NOT NULL,
+            tags       TEXT,
+            deleted    INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS post_tags (
+            post_id TEXT NOT NULL,
+            tag     TEXT NOT NULL,
+            PRIMARY KEY (post_id, tag)
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS post_assets (
+            post_id  TEXT NOT NULL,
+            asset_id TEXT NOT NULL,
+            PRIMARY KEY (post_id, asset_id)
+        )
+    """)
+    con.execute("""
         CREATE TABLE IF NOT EXISTS comments (
             id                  TEXT PRIMARY KEY,
             content_hash        TEXT NOT NULL,
-            asset_id            TEXT NOT NULL,
+            asset_id            TEXT,
+            post_id             TEXT,
             parent_id           TEXT,
             author_recipient_id TEXT,
             body                TEXT NOT NULL,
@@ -89,6 +113,37 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             deleted             INTEGER NOT NULL DEFAULT 0
         )
     """)
+    # migrate existing DBs: make asset_id nullable, add post_id
+    try:
+        con.execute("SELECT post_id FROM comments LIMIT 1")
+    except Exception:
+        con.execute("ALTER TABLE comments RENAME TO _comments_v1")
+        con.execute("""
+            CREATE TABLE comments (
+                id                  TEXT PRIMARY KEY,
+                content_hash        TEXT NOT NULL,
+                asset_id            TEXT,
+                post_id             TEXT,
+                parent_id           TEXT,
+                author_recipient_id TEXT,
+                body                TEXT NOT NULL,
+                created_at          REAL NOT NULL,
+                predecessor         TEXT,
+                successor           TEXT,
+                deleted             INTEGER NOT NULL DEFAULT 0
+            )
+        """)
+        con.execute("""
+            INSERT INTO comments (id, content_hash, asset_id, post_id, parent_id,
+                                  author_recipient_id, body, created_at,
+                                  predecessor, successor, deleted)
+            SELECT id, content_hash, asset_id, NULL, parent_id,
+                   author_recipient_id, body, created_at,
+                   predecessor, successor, deleted
+            FROM _comments_v1
+        """)
+        con.execute("DROP TABLE _comments_v1")
+        con.commit()
     con.execute("""
         CREATE TABLE IF NOT EXISTS comment_edit_requests (
             id                     TEXT PRIMARY KEY,
