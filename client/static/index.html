@@ -14,7 +14,7 @@
     #login-server { font-size: 0.82rem; color: #555; }
     .divider { color: #555; font-size: 0.85rem; }
     .token-row { display: flex; gap: 0.5rem; }
-    #client-login-view, #login-view { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 1.25rem; }
+    #login-view { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 1.25rem; }
 
     /* ── chrome ── */
     header { background: #1a1a1a; padding: 0.6rem 1rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2a2a2a; position: sticky; top: 0; z-index: 20; gap: 0.5rem; }
@@ -142,18 +142,6 @@
 </head>
 <body>
 
-<!-- ── client passphrase login ────────────────────────────────────────────── -->
-<div id="client-login-view" hidden>
-  <h1>contac</h1>
-  <p style="color:#555;font-size:0.85rem">Enter your client passphrase to continue</p>
-  <div class="token-row">
-    <input type="password" id="client-passphrase-input" placeholder="Client passphrase" style="width:260px"
-           onkeydown="if(event.key==='Enter')submitClientPassphrase()">
-    <button class="btn btn-primary" onclick="submitClientPassphrase()">Unlock</button>
-  </div>
-  <div id="client-login-error" style="color:#e06c6c;font-size:0.85rem"></div>
-</div>
-
 <!-- ── server login ────────────────────────────────────────────────────────── -->
 <div id="login-view" hidden>
   <h1>contac</h1>
@@ -275,37 +263,26 @@ function clientTokenParam(hasExistingQuery) {
   return (hasExistingQuery ? "&" : "?") + "client_token=" + encodeURIComponent(t);
 }
 
-// ── client passphrase auth ─────────────────────────────────────────────────
-async function submitClientPassphrase() {
-  const pw = document.getElementById("client-passphrase-input").value;
-  if (!pw) return;
-  const r = await fetch("/client/login", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({passphrase: pw}),
-  });
-  if (r.ok) {
-    setClientToken((await r.json()).token);
-    document.getElementById("client-passphrase-input").value = "";
-    await continueInit();
-  } else {
-    document.getElementById("client-login-error").textContent =
-      r.status === 401 ? "Wrong passphrase." : "Login failed.";
-  }
-}
-
 // ── init ───────────────────────────────────────────────────────────────────
 (async function init() {
-  // if returning from server OAuth, token is in hash — store it via callback.html
-  // (callback.html handles #token= and posts to /api/auth/token)
   await continueInit();
 })();
 
 async function continueInit() {
-  const r = await apiFetch("/api/config");
+  let r = await apiFetch("/api/config");
   if (r.status === 401) {
-    showView("client-login");
-    return;
+    // Try to bootstrap a session from the stored server owner token
+    const s = await fetch("/client/session", {method: "POST"});
+    if (s.ok) {
+      setClientToken((await s.json()).token);
+      r = await apiFetch("/api/config");
+    } else {
+      if (s.status === 403) {
+        document.getElementById("login-error").textContent = "Owner access required.";
+      }
+      showView("login");
+      return;
+    }
   }
   CFG = await r.json().catch(() => null);
   if (!CFG) { document.getElementById("login-error").textContent = "Could not load config."; showView("login"); return; }
@@ -330,21 +307,25 @@ async function loginGoogle() {
 async function loginWithToken() {
   const t = document.getElementById("token-input").value.trim();
   if (!t) return;
-  const r = await apiFetch("/api/auth/token", {
+  const r = await fetch("/client/session", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({token: t}),
   });
   if (r.ok) {
+    setClientToken((await r.json()).token);
     const ok = await loadFeed();
     if (!ok) document.getElementById("login-error").textContent = "Token rejected.";
+  } else {
+    document.getElementById("login-error").textContent =
+      r.status === 403 ? "Owner access required." : "Token rejected.";
   }
 }
 
 async function logout() {
+  clearClientToken();
   await apiFetch("/api/auth/token", {method: "DELETE"});
   CFG = null;
-  showView("login");
   location.reload();
 }
 
@@ -360,7 +341,6 @@ async function loadIdentity() {
 
 // ── views ──────────────────────────────────────────────────────────────────
 function showView(name) {
-  document.getElementById("client-login-view").hidden = name !== "client-login";
   document.getElementById("login-view").hidden = name !== "login";
   document.getElementById("feed-view").hidden  = name !== "feed";
 }

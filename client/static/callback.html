@@ -18,19 +18,20 @@
     document.getElementById("msg").textContent = "Login failed: no token received.";
     return;
   }
-  const token = decodeURIComponent(hash.slice(7));
-  const clientToken = localStorage.getItem("contac_client_session");
-  const headers = {"Content-Type": "application/json"};
-  if (clientToken) headers["Authorization"] = "Bearer " + clientToken;
-  const r = await fetch("/api/auth/token", {
+  const serverToken = decodeURIComponent(hash.slice(7));
+  const r = await fetch("/client/session", {
     method: "POST",
-    headers,
-    body: JSON.stringify({token}),
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({token: serverToken}),
   });
   if (r.ok) {
+    localStorage.setItem("contac_client_session", (await r.json()).token);
     window.location.href = "/";
   } else {
-    document.getElementById("msg").textContent = "Login failed: could not store token.";
+    const detail = await r.json().catch(() => ({}));
+    document.getElementById("msg").textContent =
+      r.status === 403 ? "Access denied: owner identity required."
+                       : "Login failed: " + (detail.detail || r.status);
   }
 })();
 </script>

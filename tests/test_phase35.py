@@ -185,8 +185,7 @@ class TestClientConfig:
         r = subprocess.run(
             [PYTHON, str(ROOT / "tools/init_client.py"),
              "--config", str(config_path),
-             "--own-server", "https://node.example.com",
-             "--no-passphrase"],
+             "--own-server", "https://node.example.com"],
             capture_output=True, text=True,
         )
         assert r.returncode == 0, r.stderr
@@ -208,8 +207,20 @@ class TestClientConfig:
 
 # ── client app ────────────────────────────────────────────────────────────
 
+def _mock_owner_httpx():
+    from unittest.mock import AsyncMock, MagicMock
+    mock_resp = MagicMock(is_success=True)
+    mock_resp.json.return_value = {"role": "owner"}
+    mock_hc = MagicMock()
+    mock_hc.get = AsyncMock(return_value=mock_resp)
+    mock_hc.__aenter__ = AsyncMock(return_value=mock_hc)
+    mock_hc.__aexit__ = AsyncMock(return_value=None)
+    return mock_hc
+
+
 @pytest.fixture
 def client_app(tmp_path):
+    from unittest.mock import patch
     from client.config import ClientConfig
     from client.main import create_app
     from fastapi.testclient import TestClient
@@ -217,22 +228,28 @@ def client_app(tmp_path):
     config_path = tmp_path / "client_config.json"
     ClientConfig(own_server="https://node.example.com").save(config_path)
     app = create_app(config_path)
-    return TestClient(app)
+    client = TestClient(app)
+    with patch("client.main.httpx.AsyncClient", return_value=_mock_owner_httpx()):
+        session = client.post("/client/session", json={"token": "owner-tok"}).json()["token"]
+    return client, {"Authorization": f"Bearer {session}"}
 
 
 class TestClientApp:
     def test_root_returns_html(self, client_app):
-        r = client_app.get("/")
+        client, _ = client_app
+        r = client.get("/")
         assert r.status_code == 200
         assert "text/html" in r.headers["content-type"]
 
     def test_callback_returns_html(self, client_app):
-        r = client_app.get("/auth/callback")
+        client, _ = client_app
+        r = client.get("/auth/callback")
         assert r.status_code == 200
         assert "text/html" in r.headers["content-type"]
 
     def test_api_config(self, client_app):
-        r = client_app.get("/api/config")
+        client, auth = client_app
+        r = client.get("/api/config", headers=auth)
         assert r.status_code == 200
         data = r.json()
         assert data["own_server"] == "https://node.example.com"
@@ -249,6 +266,12 @@ class TestClientApp:
         app = create_app(config_path)
         client = TestClient(app)
 
+        # First get a session
+        with patch("client.main.httpx.AsyncClient", return_value=_mock_owner_httpx()):
+            session = client.post("/client/session", json={"token": "owner-tok"}).json()["token"]
+        auth = {"Authorization": f"Bearer {session}"}
+
+        # Then mock the login-url fetch
         mock_resp = MagicMock(is_success=True)
         mock_resp.json.return_value = {"auth_url": "https://accounts.google.com/auth?state=x"}
         mock_hc = MagicMock()
@@ -257,7 +280,7 @@ class TestClientApp:
         mock_hc.__aexit__ = AsyncMock(return_value=None)
 
         with patch("client.main.httpx.AsyncClient", return_value=mock_hc):
-            r = client.get("/api/auth/login-url")
+            r = client.get("/api/auth/login-url", headers=auth)
 
         assert r.status_code == 200
         data = r.json()
@@ -265,6 +288,7 @@ class TestClientApp:
         assert "accounts.google.com" in data["auth_url"]
 
     def test_api_store_token(self, tmp_path):
+        from unittest.mock import patch
         from client.config import ClientConfig, load_tokens
         from client.main import create_app
         from fastapi.testclient import TestClient
@@ -274,13 +298,18 @@ class TestClientApp:
         app = create_app(config_path)
         client = TestClient(app)
 
-        r = client.post("/api/auth/token",
+        with patch("client.main.httpx.AsyncClient", return_value=_mock_owner_httpx()):
+            session = client.post("/client/session", json={"token": "owner-tok"}).json()["token"]
+        auth = {"Authorization": f"Bearer {session}"}
+
+        r = client.post("/api/auth/token", headers=auth,
                         json={"token": "tok-abc", "server": "https://node.example.com"})
         assert r.status_code == 200
         tokens = load_tokens(config_path)
         assert tokens.get("https://node.example.com") == "tok-abc"
 
     def test_api_clear_token(self, tmp_path):
+        from unittest.mock import patch
         from client.config import ClientConfig, save_tokens, load_tokens
         from client.main import create_app
         from fastapi.testclient import TestClient
@@ -291,7 +320,11 @@ class TestClientApp:
         app = create_app(config_path)
         client = TestClient(app)
 
-        r = client.delete("/api/auth/token?server=https://node.example.com")
+        with patch("client.main.httpx.AsyncClient", return_value=_mock_owner_httpx()):
+            session = client.post("/client/session", json={"token": "owner-tok"}).json()["token"]
+        auth = {"Authorization": f"Bearer {session}"}
+
+        r = client.delete("/api/auth/token?server=https://node.example.com", headers=auth)
         assert r.status_code == 200
         tokens = load_tokens(config_path)
         assert "https://node.example.com" not in tokens

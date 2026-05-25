@@ -4,15 +4,17 @@ Exposes /api/... routes that any frontend (web UI, mobile app) can consume.
 The client manages authentication to server nodes internally; frontends
 never handle server credentials directly.
 
-Client auth flow:
-  1. POST /client/login {passphrase} → {token}  (client-level session)
-  2. Include token as Authorization: Bearer <token> on all /api/ calls
+Auth flow:
+  1. POST /client/session {token?} → {token}
+       Verifies that the stored (or provided) own-server token belongs to the
+       owner identity. Issues a short-lived client session token.
+  2. Include session token as Authorization: Bearer <token> on all /api/ calls
+       (or ?client_token= for browser-initiated requests like <img src>)
 
-Server auth flow (after client auth):
-  1. GET /api/auth/login-url  → returns {auth_url}
-  2. Open auth_url in browser → Google OAuth on own_server
-  3. Server redirects to /auth/callback#token=<token>
-  4. callback.html POSTs to /api/auth/token to persist it
+Server OAuth flow:
+  1. GET /api/auth/login-url  → {auth_url}  (Google OAuth via own_server)
+  2. Browser completes OAuth; server redirects to /auth/callback#token=<token>
+  3. callback.html POSTs server token to /client/session, stores client token
 """
 import secrets
 import sys
@@ -22,8 +24,6 @@ from typing import Optional
 
 import httpx
 import uvicorn
-from argon2 import PasswordHasher
-from argon2.exceptions import VerificationError, VerifyMismatchError
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -50,25 +50,29 @@ def create_app(config_path: str | Path) -> FastAPI:
     _sessions: dict[str, float] = {}  # token -> expiry
     SESSION_TTL = 86400 * 30
 
-    class LoginBody(BaseModel):
-        passphrase: str
+    class SessionBody(BaseModel):
+        token: str = ""  # server token to verify+store; omit to reuse stored token
 
-    @app.post("/client/login")
-    def client_login(body: LoginBody):
-        ph_hash = config.passphrase_hash
-        if not ph_hash:
-            raise HTTPException(status_code=503, detail="No passphrase configured on this client")
-        try:
-            PasswordHasher().verify(ph_hash, body.passphrase)
-        except (VerifyMismatchError, VerificationError):
-            raise HTTPException(status_code=401, detail="Wrong passphrase")
-        token = secrets.token_urlsafe(32)
-        _sessions[token] = time.time() + SESSION_TTL
-        return {"token": token}
+    @app.post("/client/session")
+    async def client_session(body: Optional[SessionBody] = None):
+        server_token = (body.token if body else "") or tokens.get(config.own_server)
+        if not server_token:
+            raise HTTPException(status_code=401, detail="No server token — sign in first")
+        async with httpx.AsyncClient() as hc:
+            r = await hc.get(config.own_server + "/auth/me",
+                             headers={"Authorization": f"Bearer {server_token}"})
+        if not r.is_success:
+            raise HTTPException(status_code=401, detail="Server token invalid or expired")
+        if r.json().get("role") != "owner":
+            raise HTTPException(status_code=403, detail="Owner access required")
+        if body and body.token:
+            tokens[config.own_server] = body.token
+            save_tokens(config_path, tokens)
+        session_token = secrets.token_urlsafe(32)
+        _sessions[session_token] = time.time() + SESSION_TTL
+        return {"token": session_token}
 
     def _require_client_auth(request: Request):
-        if not config.passphrase_hash:
-            return  # open if no passphrase configured
         auth = request.headers.get("Authorization", "")
         # fall back to query param so <img src> and <video src> requests work
         t = auth[7:] if auth.startswith("Bearer ") else request.query_params.get("client_token", "")
