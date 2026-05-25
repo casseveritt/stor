@@ -145,6 +145,39 @@ def get_asset_meta(asset_id: str) -> str:
 
 
 @mcp.tool()
+def update_asset(
+    asset_id: str,
+    title: str | None = None,
+    tags: str | None = None,
+    public: bool | None = None,
+) -> str:
+    """Update metadata for an existing asset (owner only).
+
+    asset_id: the UUID of the asset to update.
+    title: new title (optional; pass empty string to clear).
+    tags: new space-separated tag list (optional; replaces existing tags).
+    public: set visibility — True for public, False for private (optional).
+
+    At least one of title, tags, or public must be provided.
+    Returns the updated asset metadata, or an error dict.
+    """
+    payload: dict = {}
+    if title is not None:
+        payload["title"] = title
+    if tags is not None:
+        payload["tags"] = tags.split() if tags else []
+    if public is not None:
+        payload["public"] = public
+    if not payload:
+        return json.dumps({"error": "at least one of title, tags, or public must be provided"})
+    assert _http is not None, "call _setup() first"
+    r = _http.patch(f"/assets/{asset_id}", json=payload)
+    if not r.is_success:
+        return json.dumps({"error": r.text, "status": r.status_code})
+    return json.dumps(r.json(), indent=2)
+
+
+@mcp.tool()
 def fetch_asset_text(asset_id: str) -> str:
     """Read the text content of a text/* asset (plain text, markdown, code, etc.).
 
