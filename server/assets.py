@@ -8,6 +8,8 @@ from fastapi.responses import Response
 
 from .auth import AuthDep, check_acl
 from .crypto import decrypt_bytes
+from . import watermark as watermark_module
+from .watermark import WatermarkError
 
 router = APIRouter(prefix="/assets")
 
@@ -49,6 +51,20 @@ def _require_acl(db, asset_id: str, identity):
         raise HTTPException(status_code=403, detail="Access denied")
 
 
+def _apply_watermark_if_needed(content: bytes, media_type: str, request: Request, identity) -> bytes:
+    if not request.app.state.watermark_enabled or identity.is_owner:
+        return content
+    row = request.app.state.db.execute(
+        "SELECT identity FROM recipients WHERE id = ?", (identity.recipient_id,)
+    ).fetchone()
+    if row is None:
+        return content
+    try:
+        return watermark_module.apply(content, media_type, row[0])
+    except WatermarkError:
+        raise HTTPException(status_code=500, detail="Watermarking failed")
+
+
 @router.get("/{asset_id}/meta")
 def fetch_asset_meta(asset_id: str, request: Request, identity: AuthDep):
     db = request.app.state.db
@@ -85,8 +101,10 @@ def fetch_thumbnail(asset_id: str, request: Request, identity: AuthDep):
     img.thumbnail(THUMB_SIZE)
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
+    thumb_bytes = _apply_watermark_if_needed(buf.getvalue(), "image/jpeg", request, identity)
+
     return Response(
-        content=buf.getvalue(),
+        content=thumb_bytes,
         media_type="image/jpeg",
         headers={"X-Content-Hash": asset["content_hash"]},
     )
@@ -108,6 +126,8 @@ def fetch_asset(asset_id: str, request: Request, identity: AuthDep):
         )
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Asset content not found")
+
+    content = _apply_watermark_if_needed(content, asset["media_type"], request, identity)
 
     return Response(
         content=content,
