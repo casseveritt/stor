@@ -106,17 +106,23 @@ class TestCallbackEndpoint:
     def _get_state(self, sso_client):
         return sso_client.get("/auth/login?provider=google").json()["state"]
 
+    def _token_from_redirect(self, r) -> str:
+        """Extract the token from a /#token=<token> redirect Location header."""
+        loc = r.headers["location"]
+        assert "token=" in loc, f"No token in redirect: {loc}"
+        return loc.split("token=", 1)[1]
+
     def test_issues_token_for_known_identity(self, sso_client, alice):
         state = self._get_state(sso_client)
-        r = sso_client.get(f"/auth/callback?code=fake&state={state}")
-        assert r.status_code == 200
-        data = r.json()
-        assert "token" in data
-        assert data["identity"] == ALICE_IDENTITY
+        r = sso_client.get(f"/auth/callback?code=fake&state={state}", follow_redirects=False)
+        assert r.status_code == 302
+        token = self._token_from_redirect(r)
+        assert token
 
     def test_issued_token_accepted_on_feed(self, sso_client, alice):
         state = self._get_state(sso_client)
-        token = sso_client.get(f"/auth/callback?code=fake&state={state}").json()["token"]
+        r = sso_client.get(f"/auth/callback?code=fake&state={state}", follow_redirects=False)
+        token = self._token_from_redirect(r)
         r = sso_client.get("/feed", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
 
@@ -136,8 +142,8 @@ class TestCallbackEndpoint:
 
     def test_state_is_consumed_after_use(self, sso_client, alice):
         state = self._get_state(sso_client)
-        r = sso_client.get(f"/auth/callback?code=fake&state={state}")
-        assert r.status_code == 200
+        r = sso_client.get(f"/auth/callback?code=fake&state={state}", follow_redirects=False)
+        assert r.status_code == 302
         # Second use of same state must fail
         r = sso_client.get(f"/auth/callback?code=fake&state={state}")
         assert r.status_code == 400
@@ -157,9 +163,9 @@ class TestIdentityMapping:
         sso_client.app.state.sso_exchange_google = _mock_exchange("bob-alias@gmail.com")
         try:
             state = sso_client.get("/auth/login?provider=google").json()["state"]
-            r = sso_client.get(f"/auth/callback?code=fake&state={state}")
-            assert r.status_code == 200
-            token = r.json()["token"]
+            r = sso_client.get(f"/auth/callback?code=fake&state={state}", follow_redirects=False)
+            assert r.status_code == 302
+            token = r.headers["location"].split("token=", 1)[1]
             db = sso_client.app.state.db
             row = db.execute("SELECT recipient_id FROM tokens WHERE id = ?", (token,)).fetchone()
             assert row[0] == bob_with_alias["recipient_id"]
@@ -171,8 +177,8 @@ class TestIdentityMapping:
         sso_client.app.state.sso_exchange_google = _mock_exchange("bob-primary@example.com")
         try:
             state = sso_client.get("/auth/login?provider=google").json()["state"]
-            r = sso_client.get(f"/auth/callback?code=fake&state={state}")
-            assert r.status_code == 200
+            r = sso_client.get(f"/auth/callback?code=fake&state={state}", follow_redirects=False)
+            assert r.status_code == 302
         finally:
             sso_client.app.state.sso_exchange_google = prev
 

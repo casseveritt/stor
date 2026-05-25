@@ -6,6 +6,8 @@ from pathlib import Path
 
 import uvicorn
 from fastapi import FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from cryptography.exceptions import InvalidTag
 
 from .config import NodeConfig
@@ -72,6 +74,15 @@ def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
     app.include_router(comments_module.router)
     app.include_router(write_module.router)
     app.include_router(admin_module.router)
+
+    static_dir = Path(__file__).parent / "static"
+
+    @app.get("/")
+    def index():
+        return FileResponse(static_dir / "index.html")
+
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     log.info("Node %s ready.", config.node_address)
     return app

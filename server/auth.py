@@ -154,9 +154,12 @@ def get_identity(
     request: Request,
     authorization: Annotated[str | None, Header()] = None,
 ) -> TokenIdentity:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing credentials")
-    token = authorization.removeprefix("Bearer ")
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ")
+    else:
+        token = request.query_params.get("token")
+        if not token:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Missing credentials")
 
     if token.startswith("s1."):
         identity = _verify_share_token(token)

@@ -1,5 +1,6 @@
 """OAuth2/OIDC login and callback endpoints."""
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import RedirectResponse
 
 from . import sso as sso_module
 from .sso import SSOError, UnknownIdentityError
@@ -53,4 +54,4 @@ def callback(request: Request, code: str, state: str):
     except SSOError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return {"token": token, "identity": identity}
+    return RedirectResponse(url=f"/#token={token}", status_code=302)

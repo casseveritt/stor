@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>contac</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #111; color: #e0e0e0; min-height: 100vh; }
+
+    /* login */
+    #login-view { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 1.25rem; }
+    #login-view h1 { font-size: 2rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; }
+    #login-view .divider { color: #555; font-size: 0.85rem; }
+    .token-row { display: flex; gap: 0.5rem; }
+
+    /* chrome */
+    header { background: #1a1a1a; padding: 0.65rem 1rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2a2a2a; }
+    header .logo { font-size: 1.1rem; font-weight: 500; color: #fff; }
+    header .controls { display: flex; gap: 0.5rem; align-items: center; }
+
+    /* feed grid */
+    #grid-wrap { padding: 1rem; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.75rem; }
+    .card { background: #1e1e1e; border-radius: 6px; overflow: hidden; cursor: pointer; transition: transform 0.15s; }
+    .card:hover { transform: scale(1.03); }
+    .card-thumb { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; background: #2a2a2a; }
+    .card-icon { width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; background: #2a2a2a; }
+    .card-info { padding: 0.4rem 0.5rem; font-size: 0.78rem; color: #999; }
+    .card-title { color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .more-row { text-align: center; padding: 1rem; }
+
+    /* modal */
+    .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88); display: flex; align-items: center; justify-content: center; z-index: 50; }
+    .modal { background: #1e1e1e; border-radius: 8px; max-width: min(90vw, 900px); max-height: 90vh; overflow: auto; padding: 1.25rem; position: relative; }
+    .modal-close { position: absolute; top: 0.6rem; right: 0.75rem; background: none; border: none; color: #aaa; font-size: 1.4rem; cursor: pointer; line-height: 1; }
+    .modal-close:hover { color: #fff; }
+    .modal img { max-width: 100%; max-height: 70vh; display: block; border-radius: 4px; }
+    .modal-meta { margin-top: 0.75rem; font-size: 0.85rem; color: #999; }
+    .modal-title { font-size: 1.1rem; color: #e0e0e0; margin-bottom: 0.4rem; }
+    .tag { display: inline-block; background: #2a2a2a; color: #aaa; padding: 2px 9px; border-radius: 12px; font-size: 0.75rem; margin: 2px; }
+
+    /* shared controls */
+    .btn { padding: 0.45rem 1.1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
+    .btn-primary { background: #4285f4; color: #fff; }
+    .btn-primary:hover { background: #3a78e8; }
+    .btn-muted { background: #2a2a2a; color: #ccc; }
+    .btn-muted:hover { background: #333; }
+    input[type=text] { padding: 0.45rem 0.7rem; border-radius: 4px; border: 1px solid #333; background: #222; color: #e0e0e0; font-size: 0.9rem; outline: none; }
+    input[type=text]:focus { border-color: #4285f4; }
+
+    [hidden] { display: none !important; }
+    .empty { color: #555; text-align: center; padding: 3rem; }
+  </style>
+</head>
+<body>
+
+<div id="login-view">
+  <h1>contac</h1>
+  <button class="btn btn-primary" onclick="loginGoogle()">Sign in with Google</button>
+  <span class="divider">— or paste a token —</span>
+  <div class="token-row">
+    <input type="text" id="token-input" placeholder="Owner or recipient token" style="width:280px">
+    <button class="btn btn-primary" onclick="loginWithToken()">Go</button>
+  </div>
+  <div id="login-error" style="color:#e06c6c;font-size:0.85rem"></div>
+</div>
+
+<div id="feed-view" hidden>
+  <header>
+    <span class="logo">contac</span>
+    <div class="controls">
+      <input type="text" id="search-input" placeholder="Search titles…" oninput="scheduleSearch(this.value)" style="width:200px">
+      <button class="btn btn-muted" onclick="logout()">Sign out</button>
+    </div>
+  </header>
+  <div id="grid-wrap">
+    <div id="grid" class="grid"></div>
+    <div id="empty-msg" class="empty" hidden>No assets found.</div>
+    <div class="more-row">
+      <button id="load-more-btn" class="btn btn-muted" onclick="loadMore()" hidden>Load more</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-overlay" class="overlay" hidden onclick="maybeCloseModal(event)">
+  <div class="modal" id="modal-box">
+    <button class="modal-close" onclick="closeModal()">&#x2715;</button>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<script>
+  let TOKEN = null;
+  let nextCursor = null;
+  let currentSearch = null;
+  let searchTimer = null;
+
+  // ── auth ────────────────────────────────────────────────────────────────────
+
+  function authHeaders() {
+    return { "Authorization": "Bearer " + TOKEN };
+  }
+
+  function storeToken(t) {
+    TOKEN = t;
+    localStorage.setItem("contac_token", t);
+  }
+
+  function logout() {
+    localStorage.removeItem("contac_token");
+    TOKEN = null;
+    showView("login");
+  }
+
+  async function loginGoogle() {
+    const r = await fetch("/auth/login?provider=google");
+    if (!r.ok) {
+      document.getElementById("login-error").textContent =
+        r.status === 503 ? "Google SSO is not configured on this node." : "Login unavailable.";
+      return;
+    }
+    const data = await r.json();
+    window.location.href = data.auth_url;
+  }
+
+  async function loginWithToken() {
+    const t = document.getElementById("token-input").value.trim();
+    if (!t) return;
+    storeToken(t);
+    const ok = await tryLoadFeed();
+    if (!ok) {
+      localStorage.removeItem("contac_token");
+      TOKEN = null;
+      document.getElementById("login-error").textContent = "Token rejected (invalid or expired).";
+    }
+  }
+
+  // ── views ───────────────────────────────────────────────────────────────────
+
+  function showView(name) {
+    document.getElementById("login-view").hidden = name !== "login";
+    document.getElementById("feed-view").hidden = name !== "feed";
+  }
+
+  // ── feed ────────────────────────────────────────────────────────────────────
+
+  function scheduleSearch(val) {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      currentSearch = val.trim() || null;
+      resetFeed();
+    }, 350);
+  }
+
+  async function tryLoadFeed() {
+    showView("feed");
+    const ok = await resetFeed();
+    if (!ok) showView("login");
+    return ok;
+  }
+
+  async function resetFeed() {
+    nextCursor = null;
+    document.getElementById("grid").innerHTML = "";
+    document.getElementById("empty-msg").hidden = true;
+    return await loadMore();
+  }
+
+  async function loadMore() {
+    let url = "/feed?limit=50";
+    if (nextCursor) url += "&cursor=" + encodeURIComponent(nextCursor);
+    if (currentSearch) url += "&q=" + encodeURIComponent(currentSearch);
+
+    const r = await fetch(url, { headers: authHeaders() });
+    if (r.status === 401) { logout(); return false; }
+    if (!r.ok) return false;
+
+    const data = await r.json();
+    const grid = document.getElementById("grid");
+
+    for (const asset of data.assets) {
+      grid.appendChild(makeCard(asset));
+    }
+
+    nextCursor = data.next_cursor || null;
+    document.getElementById("load-more-btn").hidden = !nextCursor;
+    document.getElementById("empty-msg").hidden = (grid.children.length > 0);
+    return true;
+  }
+
+  function thumbSrc(id) {
+    return "/assets/" + id + "/thumb?token=" + encodeURIComponent(TOKEN);
+  }
+
+  function makeCard(asset) {
+    const div = document.createElement("div");
+    div.className = "card";
+    div.onclick = () => openAsset(asset);
+    const isImg = (asset.media_type || "").startsWith("image/");
+    if (isImg) {
+      div.innerHTML = '<img class="card-thumb" src="' + thumbSrc(asset.id) + '" alt="" loading="lazy">';
+    } else {
+      div.innerHTML = '<div class="card-icon">' + mimeIcon(asset.media_type) + '</div>';
+    }
+    div.innerHTML += '<div class="card-info"><div class="card-title">'
+      + esc(asset.title || asset.id) + '</div><div>'
+      + esc(asset.media_type || "") + '</div></div>';
+    return div;
+  }
+
+  // ── modal ───────────────────────────────────────────────────────────────────
+
+  async function openAsset(asset) {
+    const body = document.getElementById("modal-body");
+    const isImg = (asset.media_type || "").startsWith("image/");
+    const tagHtml = (asset.tags || []).map(t => '<span class="tag">' + esc(t) + '</span>').join("");
+    const dateFmt = asset.created_at ? new Date(asset.created_at * 1000).toLocaleDateString() : "";
+
+    if (isImg) {
+      const src = "/assets/" + asset.id + "?token=" + encodeURIComponent(TOKEN);
+      body.innerHTML = '<img src="' + src + '" alt="' + esc(asset.title || "") + '">';
+    } else {
+      body.innerHTML = '<div style="font-size:4rem;text-align:center;padding:2rem">' + mimeIcon(asset.media_type) + '</div>';
+    }
+    body.innerHTML += '<div class="modal-meta"><div class="modal-title">' + esc(asset.title || asset.id) + '</div>'
+      + '<div>' + esc(asset.media_type || "") + (dateFmt ? ' &middot; ' + dateFmt : '') + '</div>'
+      + (tagHtml ? '<div style="margin-top:0.4rem">' + tagHtml + '</div>' : '') + '</div>';
+
+    document.getElementById("modal-overlay").hidden = false;
+  }
+
+  function closeModal() {
+    document.getElementById("modal-overlay").hidden = true;
+  }
+
+  function maybeCloseModal(e) {
+    if (e.target === document.getElementById("modal-overlay")) closeModal();
+  }
+
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+
+  // ── helpers ─────────────────────────────────────────────────────────────────
+
+  function esc(s) {
+    return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
+  }
+
+  function mimeIcon(mt) {
+    if (!mt) return "&#x1F4C4;";
+    if (mt.startsWith("video/")) return "&#x1F3AC;";
+    if (mt.startsWith("audio/")) return "&#x1F3B5;";
+    if (mt === "application/pdf") return "&#x1F4CB;";
+    return "&#x1F4C4;";
+  }
+
+  // ── init ────────────────────────────────────────────────────────────────────
+
+  (function init() {
+    const hash = window.location.hash;
+    if (hash.startsWith("#token=")) {
+      storeToken(decodeURIComponent(hash.slice(7)));
+      history.replaceState(null, "", "/");
+    }
+    const stored = localStorage.getItem("contac_token");
+    if (stored) {
+      TOKEN = stored;
+      tryLoadFeed();
+    } else {
+      showView("login");
+    }
+  })();
+</script>
+</body>
+</html>
