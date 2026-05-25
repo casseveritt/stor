@@ -90,6 +90,10 @@
     .post-detail-body .asset-block .asset-file:hover { background: #333; color: #eee; }
     .modal-meta { margin-top: 0.75rem; font-size: 0.85rem; color: #888; }
     .modal-actions { margin-top: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
+    .btn-danger { background: #3a1a1a; color: #e06c6c; }
+    .btn-danger:hover { background: #4a1a1a; }
+    .edit-body { background: #222; color: #e0e0e0; border: 1px solid #4285f4; border-radius: 4px; padding: 0.6rem; width: 100%; font-size: 0.95rem; resize: vertical; min-height: 100px; outline: none; font-family: inherit; line-height: 1.65; }
+    .delete-confirm { display: inline-flex; gap: 0.4rem; align-items: center; }
     .tag-chip { display: inline-block; background: #2a2a2a; color: #aaa; padding: 2px 9px; border-radius: 12px; font-size: 0.75rem; margin: 2px; cursor: pointer; border: none; }
     .tag-chip:hover { background: #1e2d4a; color: #6aa3f5; }
     .tag-chip.active { background: #1e2d4a; color: #6aa3f5; }
@@ -444,63 +448,134 @@ function highlightCard(idx) {
 // ── detail modal ───────────────────────────────────────────────────────────
 let currentPostId = null, replyToId = null;
 
+function renderPostBody(post) {
+  const assetMap = {};
+  for (const a of (post.assets || [])) assetMap[a.id] = a;
+  const parts = (post.body || "").split(/(\[asset:[0-9a-f-]+\])/);
+  let rendered = "";
+  for (const part of parts) {
+    const m = part.match(/^\[asset:([0-9a-f-]+)\]$/);
+    if (m) {
+      const aid = m[1], a = assetMap[aid];
+      const url = "/assets/" + aid + "?token=" + encodeURIComponent(TOKEN);
+      if (a && (a.media_type || "").startsWith("image/"))
+        rendered += '<span class="asset-block"><img src="' + url + '" alt=""></span>';
+      else if (a && (a.media_type || "").startsWith("video/"))
+        rendered += '<span class="asset-block"><video src="' + url + '" controls></video></span>';
+      else {
+        const label = (a && a.title) ? a.title : aid.slice(0, 8) + "…";
+        rendered += '<span class="asset-block"><a class="asset-file" href="' + url + '" download>' + mimeIcon(a && a.media_type) + ' ' + esc(label) + '</a></span>';
+      }
+    } else { rendered += esc(part); }
+  }
+  return rendered;
+}
+
 function openDetail(idx) {
   currentIdx = idx;
   const post = allPosts[idx];
   currentPostId = post.id;
   replyToId = null;
   highlightCard(idx);
-
-  const body = document.getElementById("detail-body");
-
-  // build asset lookup for body rendering
-  const assetMap = {};
-  for (const a of (post.assets || [])) assetMap[a.id] = a;
-
-  // render body: split on [asset:uuid] refs
-  const parts = (post.body || "").split(/(\[asset:[0-9a-f-]+\])/);
-  let rendered = "";
-  for (const part of parts) {
-    const m = part.match(/^\[asset:([0-9a-f-]+)\]$/);
-    if (m) {
-      const aid = m[1];
-      const a = assetMap[aid];
-      const url = "/assets/" + aid + "?token=" + encodeURIComponent(TOKEN);
-      if (a && (a.media_type || "").startsWith("image/")) {
-        rendered += '<span class="asset-block"><img src="' + url + '" alt=""></span>';
-      } else if (a && (a.media_type || "").startsWith("video/")) {
-        rendered += '<span class="asset-block"><video src="' + url + '" controls></video></span>';
-      } else {
-        const label = (a && a.title) ? a.title : aid.slice(0, 8) + "…";
-        rendered += '<span class="asset-block"><a class="asset-file" href="' + url + '" download>' + mimeIcon(a && a.media_type) + ' ' + esc(label) + '</a></span>';
-      }
-    } else {
-      rendered += esc(part);
-    }
-  }
-
-  const tagHtml = (post.tags || []).map(t =>
-    '<button class="tag-chip' + (activeTags.has(t) ? " active" : "") + '" onclick="filterByTag(\'' + esc(t) + '\')">' + esc(t) + '</button>'
-  ).join("");
-  const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleString(undefined, {dateStyle:"short",timeStyle:"short"}) : "";
-
-  body.innerHTML = '<div class="post-detail-body">' + rendered + '</div>'
-    + '<div class="modal-meta">'
-    + (tagHtml ? '<div style="margin-top:0.4rem">' + tagHtml + '</div>' : '')
-    + '<div style="margin-top:0.4rem">' + dateFmt + '</div>'
-    + '</div>'
-    + '<div id="comments-section" class="comments"><div class="comments-header" style="color:#555">Loading…</div></div>';
-
+  renderDetail(post);
   document.getElementById("nav-prev").hidden = idx <= 0;
   document.getElementById("nav-next").hidden = idx >= allPosts.length - 1;
   document.getElementById("detail-overlay").hidden = false;
   loadComments(post.id);
 }
 
+function renderDetail(post) {
+  const tagHtml = (post.tags || []).map(t =>
+    '<button class="tag-chip' + (activeTags.has(t) ? " active" : "") + '" onclick="filterByTag(\'' + esc(t) + '\')">' + esc(t) + '</button>'
+  ).join("");
+  const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleString(undefined, {dateStyle:"short",timeStyle:"short"}) : "";
+  const ownerActions = IS_OWNER
+    ? '<button class="btn btn-muted btn-sm" onclick="startEditPost()">Edit</button>'
+      + '<button class="btn btn-danger btn-sm" id="delete-btn" onclick="confirmDeletePost()">Delete</button>'
+    : "";
+
+  document.getElementById("detail-body").innerHTML =
+    '<div id="post-rendered" class="post-detail-body">' + renderPostBody(post) + '</div>'
+    + '<div class="modal-meta">'
+    + (tagHtml ? '<div style="margin-top:0.4rem" id="detail-tags">' + tagHtml + '</div>' : '<div id="detail-tags"></div>')
+    + '<div style="margin-top:0.4rem">' + dateFmt + '</div>'
+    + '</div>'
+    + (ownerActions ? '<div class="modal-actions" id="post-actions">' + ownerActions + '</div>' : '')
+    + '<div id="comments-section" class="comments"><div class="comments-header" style="color:#555">Loading…</div></div>';
+}
+
+function startEditPost() {
+  const post = allPosts[currentIdx];
+  const rendered = document.getElementById("post-rendered");
+  const actions = document.getElementById("post-actions");
+  const tagsDiv = document.getElementById("detail-tags");
+
+  rendered.outerHTML = '<textarea id="edit-body" class="edit-body">' + esc(post.body || "") + '</textarea>';
+  tagsDiv.innerHTML = '<input type="text" id="edit-tags" style="width:100%;margin-top:0.4rem" '
+    + 'value="' + esc((post.tags || []).join(" ")) + '" placeholder="Tags — space-separated">';
+  actions.innerHTML =
+    '<button class="btn btn-primary btn-sm" onclick="saveEditPost()">Save</button>'
+    + '<button class="btn btn-muted btn-sm" onclick="cancelEditPost()">Cancel</button>';
+  document.getElementById("edit-body").focus();
+}
+
+async function saveEditPost() {
+  const body = document.getElementById("edit-body").value;
+  const tags = document.getElementById("edit-tags").value.trim().split(/\s+/).filter(Boolean);
+  const actions = document.getElementById("post-actions");
+  actions.innerHTML = '<span style="font-size:0.82rem;color:#777">Saving…</span>';
+
+  const r = await fetch("/posts/" + currentPostId, {
+    method: "PATCH",
+    headers: {...authHeaders(), "Content-Type": "application/json"},
+    body: JSON.stringify({body, tags}),
+  });
+  if (r.ok) {
+    const updated = await r.json();
+    allPosts[currentIdx] = updated;
+    // refresh card in timeline
+    const card = document.querySelector(".post-card[data-idx='" + currentIdx + "']");
+    if (card) { const newCard = makePostCard(updated, currentIdx); newCard.classList.toggle("active-card", card.classList.contains("active-card")); card.replaceWith(newCard); }
+    renderDetail(updated);
+    loadTagSidebar();
+    loadComments(currentPostId);
+  } else {
+    actions.innerHTML = '<span style="color:#e06c6c;font-size:0.82rem">Save failed (' + r.status + ')</span>'
+      + '<button class="btn btn-primary btn-sm" onclick="saveEditPost()">Retry</button>'
+      + '<button class="btn btn-muted btn-sm" onclick="cancelEditPost()">Cancel</button>';
+  }
+}
+
+function cancelEditPost() { renderDetail(allPosts[currentIdx]); loadComments(currentPostId); }
+
+function confirmDeletePost() {
+  const actions = document.getElementById("post-actions");
+  actions.innerHTML = '<span style="font-size:0.85rem;color:#e06c6c">Delete this post?</span>'
+    + '<button class="btn btn-danger btn-sm" onclick="executeDeletePost()">Yes, delete</button>'
+    + '<button class="btn btn-muted btn-sm" onclick="renderDetail(allPosts[currentIdx])">Cancel</button>';
+}
+
+async function executeDeletePost() {
+  const r = await fetch("/posts/" + currentPostId, {method: "DELETE", headers: authHeaders()});
+  if (r.ok) {
+    const card = document.querySelector(".post-card[data-idx='" + currentIdx + "']");
+    if (card) card.remove();
+    allPosts.splice(currentIdx, 1);
+    // re-index remaining cards
+    document.querySelectorAll(".post-card[data-idx]").forEach(c => {
+      const i = parseInt(c.dataset.idx);
+      if (i > currentIdx) c.dataset.idx = i - 1;
+    });
+    closeDetail();
+    loadTagSidebar();
+    if (!allPosts.length) document.getElementById("empty-msg").hidden = false;
+  }
+}
+
 function closeDetail() {
   document.getElementById("detail-overlay").hidden = true;
   highlightCard(-1);
-  currentPostId = null; replyToId = null;
+  currentIdx = -1; currentPostId = null; replyToId = null;
 }
 
 function filterByTag(tag) {
