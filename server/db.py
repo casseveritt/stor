@@ -68,5 +68,29 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             expiry   REAL NOT NULL
         )
     """)
-    con.execute("INSERT OR IGNORE INTO schema_version VALUES (4)")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS comments (
+            id                  TEXT PRIMARY KEY,
+            content_hash        TEXT NOT NULL,
+            asset_id            TEXT NOT NULL,
+            parent_id           TEXT,
+            author_recipient_id TEXT,
+            body                TEXT NOT NULL,
+            created_at          REAL NOT NULL,
+            predecessor         TEXT,
+            successor           TEXT,
+            deleted             INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS comment_edit_requests (
+            id                     TEXT PRIMARY KEY,
+            comment_id             TEXT NOT NULL,
+            requester_recipient_id TEXT,
+            new_body               TEXT,
+            created_at             REAL NOT NULL,
+            status                 TEXT NOT NULL DEFAULT 'pending'
+        )
+    """)
+    con.execute("INSERT OR IGNORE INTO schema_version VALUES (5)")
     con.commit()
