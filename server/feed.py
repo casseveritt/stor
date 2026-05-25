@@ -5,7 +5,7 @@ import time
 
 from fastapi import APIRouter, Query, Request
 
-from .auth import AuthDep
+from .auth import AuthDep, OptionalAuthDep
 
 router = APIRouter()
 
@@ -30,7 +30,7 @@ def _encode_cursor(rowid: int) -> str:
 @router.get("/feed")
 def query_feed(
     request: Request,
-    identity: AuthDep,
+    identity: OptionalAuthDep,
     since: float | None = Query(default=None),
     until: float | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=_PAGE_MAX),
@@ -77,11 +77,14 @@ def query_feed(
                 conditions.append(f"id IN ({placeholders})")
                 params.extend(identity.share_asset_ids)
             # else: node-wide share — no filter needed
-        else:
+        elif identity.recipient_id is not None:
             conditions.append(
-                "EXISTS (SELECT 1 FROM acl WHERE asset_id = assets.id AND recipient_id = ?)"
+                "(is_public = 1 OR EXISTS (SELECT 1 FROM acl WHERE asset_id = assets.id AND recipient_id = ?))"
             )
             params.append(identity.recipient_id)
+        else:
+            # unauthenticated guest — only public assets
+            conditions.append("is_public = 1")
 
     params.append(limit + 1)
     where = " AND ".join(conditions)

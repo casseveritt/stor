@@ -80,7 +80,7 @@ def text_asset(store, client, token):
 class TestFetchAsset:
     def test_requires_auth(self, client, image_asset):
         r = client.get(f"/assets/{image_asset['id']}")
-        assert r.status_code == 401
+        assert r.status_code == 403
 
     def test_returns_correct_bytes(self, client, token, image_asset):
         r = client.get(f"/assets/{image_asset['id']}", headers=_auth(token))
@@ -110,7 +110,7 @@ class TestFetchAsset:
 class TestFetchAssetMeta:
     def test_requires_auth(self, client, image_asset):
         r = client.get(f"/assets/{image_asset['id']}/meta")
-        assert r.status_code == 401
+        assert r.status_code == 403
 
     def test_returns_metadata(self, client, token, image_asset):
         r = client.get(f"/assets/{image_asset['id']}/meta", headers=_auth(token))
@@ -134,7 +134,7 @@ class TestFetchAssetMeta:
 class TestFetchThumbnail:
     def test_requires_auth(self, client, image_asset):
         r = client.get(f"/assets/{image_asset['id']}/thumb")
-        assert r.status_code == 401
+        assert r.status_code == 403
 
     def test_returns_image(self, client, token, image_asset):
         r = client.get(f"/assets/{image_asset['id']}/thumb", headers=_auth(token))

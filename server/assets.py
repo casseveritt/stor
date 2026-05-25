@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
-from .auth import AuthDep, check_acl
+from .auth import AuthDep, OptionalAuthDep, check_acl
 from .crypto import decrypt_bytes
 from . import watermark as watermark_module
 from .watermark import WatermarkError
@@ -62,7 +62,7 @@ def _build_history_chain(db, asset_id: str) -> list[dict]:
 def _get_asset_row(db, asset_id: str) -> dict | None:
     row = db.execute(
         """SELECT id, content_hash, media_type, size, created_at,
-                  title, tags, predecessor, successor,
+                  title, tags, predecessor, successor, is_public,
                   (SELECT COUNT(*) FROM comments
                    WHERE comments.asset_id = assets.id
                      AND comments.parent_id IS NULL AND comments.deleted = 0) AS comment_count
@@ -71,7 +71,7 @@ def _get_asset_row(db, asset_id: str) -> dict | None:
     ).fetchone()
     if row is None:
         return None
-    id_, content_hash, media_type, size, created_at, title, tags_json, predecessor, successor, comment_count = row
+    id_, content_hash, media_type, size, created_at, title, tags_json, predecessor, successor, is_public, comment_count = row
     return {
         "id": id_,
         "content_hash": content_hash,
@@ -82,6 +82,7 @@ def _get_asset_row(db, asset_id: str) -> dict | None:
         "tags": json.loads(tags_json) if tags_json else [],
         "predecessor": predecessor,
         "successor": successor,
+        "public": bool(is_public),
         "comment_count": comment_count,
     }
 
@@ -117,7 +118,7 @@ def _apply_watermark_if_needed(content: bytes, media_type: str, request: Request
 
 
 @router.get("/{asset_id}/meta")
-def fetch_asset_meta(asset_id: str, request: Request, identity: AuthDep):
+def fetch_asset_meta(asset_id: str, request: Request, identity: OptionalAuthDep):
     db = request.app.state.db
     asset = _get_asset_row(db, asset_id)
     if asset is None:
@@ -129,7 +130,7 @@ def fetch_asset_meta(asset_id: str, request: Request, identity: AuthDep):
 
 
 @router.get("/{asset_id}/thumb")
-def fetch_thumbnail(asset_id: str, request: Request, identity: AuthDep):
+def fetch_thumbnail(asset_id: str, request: Request, identity: OptionalAuthDep):
     db = request.app.state.db
     asset = _get_asset_row(db, asset_id)
     if asset is None:
@@ -164,7 +165,7 @@ def fetch_thumbnail(asset_id: str, request: Request, identity: AuthDep):
 
 
 @router.get("/{asset_id}")
-def fetch_asset(asset_id: str, request: Request, identity: AuthDep):
+def fetch_asset(asset_id: str, request: Request, identity: OptionalAuthDep):
     db = request.app.state.db
     asset = _get_asset_row(db, asset_id)
     if asset is None:
@@ -191,7 +192,7 @@ def fetch_asset(asset_id: str, request: Request, identity: AuthDep):
 
 
 @router.get("/{asset_id}/history")
-def fetch_asset_history(asset_id: str, request: Request, identity: AuthDep):
+def fetch_asset_history(asset_id: str, request: Request, identity: OptionalAuthDep):
     db = request.app.state.db
     asset = _get_asset_row(db, asset_id)
     if asset is None:

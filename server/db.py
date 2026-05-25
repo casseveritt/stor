@@ -31,12 +31,18 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             tags         TEXT,
             predecessor  TEXT,
             successor    TEXT,
-            deleted      INTEGER NOT NULL DEFAULT 0
+            deleted      INTEGER NOT NULL DEFAULT 0,
+            is_public    INTEGER NOT NULL DEFAULT 0
         )
     """)
     # migration for existing DBs that predate the deleted column
     try:
         con.execute("ALTER TABLE assets ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0")
+        con.commit()
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE assets ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0")
         con.commit()
     except Exception:
         pass
@@ -81,9 +87,15 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             body       TEXT NOT NULL DEFAULT '',
             created_at REAL NOT NULL,
             tags       TEXT,
+            is_public  INTEGER NOT NULL DEFAULT 0,
             deleted    INTEGER NOT NULL DEFAULT 0
         )
     """)
+    try:
+        con.execute("ALTER TABLE posts ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0")
+        con.commit()
+    except Exception:
+        pass
     con.execute("""
         CREATE TABLE IF NOT EXISTS post_tags (
             post_id TEXT NOT NULL,

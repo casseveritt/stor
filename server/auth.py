@@ -222,6 +222,9 @@ OwnerDep = Annotated[TokenIdentity, Depends(require_owner)]
 def check_acl(db, asset_id: str, identity: TokenIdentity) -> bool:
     if identity.is_owner:
         return True
+    pub = db.execute("SELECT is_public FROM assets WHERE id = ?", (asset_id,)).fetchone()
+    if pub and pub[0]:
+        return True
     if identity.is_share:
         if identity.share_asset_ids is None:
             return True  # node-wide share

@@ -26,6 +26,7 @@ async def publish_asset(
     tags: str = Form(default="[]"),
     predecessor: str | None = Form(default=None),
     acl: str = Form(default="[]"),
+    public: str = Form(default="false"),
 ):
     content = await file.read()
     media_type = file.content_type or "application/octet-stream"
@@ -42,6 +43,7 @@ async def publish_asset(
     except json.JSONDecodeError:
         raise HTTPException(status_code=422, detail="acl must be a JSON array")
 
+    is_public = public.lower() in ("true", "1", "yes")
     db = request.app.state.db
 
     if predecessor is not None:
@@ -64,10 +66,11 @@ async def publish_asset(
     now = time.time()
 
     db.execute(
-        """INSERT INTO assets (id, content_hash, media_type, size, created_at, title, tags, predecessor, successor)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)""",
+        """INSERT INTO assets (id, content_hash, media_type, size, created_at, title, tags,
+                               predecessor, successor, is_public)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)""",
         (asset_id, content_hash, media_type, len(content), now,
-         title, json.dumps(tags_list), predecessor),
+         title, json.dumps(tags_list), predecessor, int(is_public)),
     )
     if predecessor is not None:
         db.execute("UPDATE assets SET successor = ? WHERE id = ?", (asset_id, predecessor))
@@ -85,6 +88,7 @@ async def publish_asset(
         "tags": tags_list,
         "predecessor": predecessor,
         "successor": None,
+        "public": is_public,
         "comment_count": 0,
     }
 
@@ -94,6 +98,7 @@ async def publish_asset(
 class _UpdateMetaBody(BaseModel):
     title: str | None = None
     tags: list[str] | None = None
+    public: bool | None = None
 
 
 @router.patch("/assets/{asset_id}")
@@ -111,6 +116,9 @@ def update_metadata(asset_id: str, payload: _UpdateMetaBody, request: Request, i
     if payload.tags is not None:
         updates.append("tags = ?")
         params.append(json.dumps(payload.tags))
+    if payload.public is not None:
+        updates.append("is_public = ?")
+        params.append(int(payload.public))
 
     if not updates:
         raise HTTPException(status_code=422, detail="No fields to update")
@@ -121,13 +129,14 @@ def update_metadata(asset_id: str, payload: _UpdateMetaBody, request: Request, i
 
     row = db.execute(
         """SELECT id, content_hash, media_type, size, created_at, title, tags, predecessor, successor,
+                  is_public,
                   (SELECT COUNT(*) FROM comments
                    WHERE comments.asset_id = assets.id
                      AND comments.parent_id IS NULL AND comments.deleted = 0) AS comment_count
            FROM assets WHERE id = ?""",
         (asset_id,),
     ).fetchone()
-    id_, content_hash, media_type, size, created_at, title, tags_json, pred, succ, comment_count = row
+    id_, content_hash, media_type, size, created_at, title, tags_json, pred, succ, is_public, comment_count = row
     return {
         "id": id_,
         "content_hash": content_hash,
@@ -138,6 +147,7 @@ def update_metadata(asset_id: str, payload: _UpdateMetaBody, request: Request, i
         "tags": json.loads(tags_json) if tags_json else [],
         "predecessor": pred,
         "successor": succ,
+        "public": bool(is_public),
         "comment_count": comment_count,
     }
 

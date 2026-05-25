@@ -114,7 +114,7 @@ class TestPostComment:
         r = client.post(f"/assets/{asset['id']}/comments",
                         content=json.dumps({"body": "anon"}),
                         headers={"Content-Type": "application/json"})
-        assert r.status_code == 401
+        assert r.status_code == 403
 
 
 # ── threading ─────────────────────────────────────────────────────────────────

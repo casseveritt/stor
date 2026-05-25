@@ -55,9 +55,10 @@ def _insert_asset(db, **kwargs):
 # ── auth enforcement ──────────────────────────────────────────────────────────
 
 class TestFeedAuth:
-    def test_no_token_rejected(self, client):
+    def test_no_token_returns_public_feed(self, client):
         r = client.get("/feed")
-        assert r.status_code == 401
+        assert r.status_code == 200
+        assert "assets" in r.json()
 
     def test_bad_token_rejected(self, client):
         r = client.get("/feed", headers={"Authorization": "Bearer notavalidtoken"})

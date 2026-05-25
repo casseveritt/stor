@@ -126,9 +126,9 @@ class TestQueryParamAuth:
         r = client.get(f"/assets/{image_asset['id']}?token=notavalidtoken")
         assert r.status_code == 401
 
-    def test_missing_token_returns_401(self, client, image_asset):
+    def test_missing_token_returns_403_for_private_asset(self, client, image_asset):
         r = client.get(f"/assets/{image_asset['id']}")
-        assert r.status_code == 401
+        assert r.status_code == 403
 
     def test_header_takes_precedence_over_query_param(self, client, owner_token, image_asset):
         r = client.get(

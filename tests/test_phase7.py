@@ -123,7 +123,7 @@ class TestPostComment:
             f"/assets/{comment_world['asset_id']}/comments",
             json={"body": "No token"},
         )
-        assert r.status_code == 401
+        assert r.status_code == 403
 
     def test_unknown_asset_404(self, client, owner_token):
         r = client.post(
