@@ -11,15 +11,15 @@
     /* login */
     #login-view { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 1.25rem; }
     #login-view h1 { font-size: 2rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; }
-    #login-view .divider { color: #555; font-size: 0.85rem; }
+    .divider { color: #555; font-size: 0.85rem; }
     .token-row { display: flex; gap: 0.5rem; }
 
     /* chrome */
-    header { background: #1a1a1a; padding: 0.65rem 1rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2a2a2a; }
+    header { background: #1a1a1a; padding: 0.65rem 1rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2a2a2a; position: sticky; top: 0; z-index: 10; }
     header .logo { font-size: 1.1rem; font-weight: 500; color: #fff; }
     header .controls { display: flex; gap: 0.5rem; align-items: center; }
 
-    /* feed grid */
+    /* feed */
     #grid-wrap { padding: 1rem; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 0.75rem; }
     .card { background: #1e1e1e; border-radius: 6px; overflow: hidden; cursor: pointer; transition: transform 0.15s; }
@@ -30,31 +30,52 @@
     .card-title { color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .more-row { text-align: center; padding: 1rem; }
 
-    /* modal */
+    /* drag-over highlight */
+    body.drag-active #grid-wrap { outline: 2px dashed #4285f4; outline-offset: -8px; border-radius: 6px; }
+
+    /* overlays */
     .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88); display: flex; align-items: center; justify-content: center; z-index: 50; }
     .modal { background: #1e1e1e; border-radius: 8px; max-width: min(90vw, 900px); max-height: 90vh; overflow: auto; padding: 1.25rem; position: relative; }
     .modal-close { position: absolute; top: 0.6rem; right: 0.75rem; background: none; border: none; color: #aaa; font-size: 1.4rem; cursor: pointer; line-height: 1; }
     .modal-close:hover { color: #fff; }
-    .modal img { max-width: 100%; max-height: 70vh; display: block; border-radius: 4px; }
+    .modal h3 { color: #fff; margin-bottom: 1rem; font-weight: 400; }
+
+    /* asset detail */
+    #detail-modal img { max-width: 100%; max-height: 70vh; display: block; border-radius: 4px; }
     .modal-meta { margin-top: 0.75rem; font-size: 0.85rem; color: #999; }
     .modal-title { font-size: 1.1rem; color: #e0e0e0; margin-bottom: 0.4rem; }
+    .modal-actions { margin-top: 0.75rem; display: flex; gap: 0.5rem; }
     .tag { display: inline-block; background: #2a2a2a; color: #aaa; padding: 2px 9px; border-radius: 12px; font-size: 0.75rem; margin: 2px; }
 
-    /* shared controls */
+    /* upload modal */
+    #upload-modal { min-width: min(90vw, 420px); }
+    .drop-zone { border: 2px dashed #444; border-radius: 6px; padding: 2rem 1rem; text-align: center; cursor: pointer; color: #777; transition: border-color 0.15s; }
+    .drop-zone:hover, .drop-zone.over { border-color: #4285f4; color: #aaa; }
+    .drop-zone-icon { font-size: 2rem; margin-bottom: 0.4rem; }
+    .file-list { margin: 0.75rem 0; max-height: 120px; overflow-y: auto; }
+    .file-item { font-size: 0.82rem; padding: 0.2rem 0; color: #aaa; display: flex; justify-content: space-between; }
+    .upload-fields { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.75rem 0; }
+    .upload-progress { font-size: 0.85rem; color: #aaa; min-height: 1.4em; margin: 0.5rem 0; }
+    .progress-item { padding: 0.15rem 0; }
+    .progress-ok { color: #6cbe6c; }
+    .progress-err { color: #e06c6c; }
+
+    /* shared */
     .btn { padding: 0.45rem 1.1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.9rem; }
     .btn-primary { background: #4285f4; color: #fff; }
     .btn-primary:hover { background: #3a78e8; }
     .btn-muted { background: #2a2a2a; color: #ccc; }
     .btn-muted:hover { background: #333; }
-    input[type=text] { padding: 0.45rem 0.7rem; border-radius: 4px; border: 1px solid #333; background: #222; color: #e0e0e0; font-size: 0.9rem; outline: none; }
+    .btn-sm { padding: 0.3rem 0.75rem; font-size: 0.8rem; }
+    input[type=text] { padding: 0.45rem 0.7rem; border-radius: 4px; border: 1px solid #333; background: #222; color: #e0e0e0; font-size: 0.9rem; outline: none; width: 100%; }
     input[type=text]:focus { border-color: #4285f4; }
-
     [hidden] { display: none !important; }
     .empty { color: #555; text-align: center; padding: 3rem; }
   </style>
 </head>
 <body>
 
+<!-- ── login ────────────────────────────────────────────────────────────────── -->
 <div id="login-view">
   <h1>contac</h1>
   <button class="btn btn-primary" onclick="loginGoogle()">Sign in with Google</button>
@@ -66,12 +87,14 @@
   <div id="login-error" style="color:#e06c6c;font-size:0.85rem"></div>
 </div>
 
+<!-- ── feed ─────────────────────────────────────────────────────────────────── -->
 <div id="feed-view" hidden>
   <header>
     <span class="logo">contac</span>
     <div class="controls">
       <input type="text" id="search-input" placeholder="Search titles…" oninput="scheduleSearch(this.value)" style="width:200px">
-      <button class="btn btn-muted" onclick="logout()">Sign out</button>
+      <button id="upload-btn" class="btn btn-primary btn-sm" onclick="openUpload()" hidden>+ Upload</button>
+      <button class="btn btn-muted btn-sm" onclick="logout()">Sign out</button>
     </div>
   </header>
   <div id="grid-wrap">
@@ -83,33 +106,62 @@
   </div>
 </div>
 
-<div id="modal-overlay" class="overlay" hidden onclick="maybeCloseModal(event)">
-  <div class="modal" id="modal-box">
-    <button class="modal-close" onclick="closeModal()">&#x2715;</button>
-    <div id="modal-body"></div>
+<!-- ── asset detail modal ───────────────────────────────────────────────────── -->
+<div id="detail-overlay" class="overlay" hidden onclick="maybeClose('detail-overlay', event)">
+  <div class="modal" id="detail-modal">
+    <button class="modal-close" onclick="closeDetail()">&#x2715;</button>
+    <div id="detail-body"></div>
+  </div>
+</div>
+
+<!-- ── upload modal ─────────────────────────────────────────────────────────── -->
+<div id="upload-overlay" class="overlay" hidden onclick="maybeClose('upload-overlay', event)">
+  <div class="modal" id="upload-modal">
+    <button class="modal-close" onclick="closeUpload()">&#x2715;</button>
+    <h3>Upload files</h3>
+    <div class="drop-zone" id="drop-zone"
+         onclick="document.getElementById('file-picker').click()"
+         ondragover="dzOver(event)" ondragleave="dzOut(event)" ondrop="dzDrop(event)">
+      <div class="drop-zone-icon">&#x2B06;</div>
+      <div>Click to browse or drag files here</div>
+    </div>
+    <input type="file" id="file-picker" multiple hidden onchange="pickFiles(this.files); this.value=''">
+    <div class="file-list" id="file-list"></div>
+    <div class="upload-fields">
+      <input type="text" id="upload-title" placeholder="Title (defaults to filename)">
+      <input type="text" id="upload-tags" placeholder="Tags — space-separated">
+    </div>
+    <div class="upload-progress" id="upload-progress"></div>
+    <div style="display:flex;gap:0.5rem;justify-content:flex-end">
+      <button class="btn btn-muted" onclick="closeUpload()">Cancel</button>
+      <button class="btn btn-primary" id="upload-submit" onclick="startUpload()">Upload</button>
+    </div>
   </div>
 </div>
 
 <script>
+  // ── state ────────────────────────────────────────────────────────────────────
   let TOKEN = null;
+  let IS_OWNER = false;
   let nextCursor = null;
   let currentSearch = null;
   let searchTimer = null;
+  let pendingFiles = [];
 
-  // ── auth ────────────────────────────────────────────────────────────────────
+  // ── auth ─────────────────────────────────────────────────────────────────────
+  function authHeaders() { return { "Authorization": "Bearer " + TOKEN }; }
 
-  function authHeaders() {
-    return { "Authorization": "Bearer " + TOKEN };
-  }
-
-  function storeToken(t) {
+  function storeToken(t, isOwner) {
     TOKEN = t;
+    IS_OWNER = !!isOwner;
     localStorage.setItem("contac_token", t);
+    if (isOwner) localStorage.setItem("contac_is_owner", "1");
   }
 
   function logout() {
     localStorage.removeItem("contac_token");
-    TOKEN = null;
+    localStorage.removeItem("contac_is_owner");
+    TOKEN = null; IS_OWNER = false;
     showView("login");
   }
 
@@ -120,44 +172,47 @@
         r.status === 503 ? "Google SSO is not configured on this node." : "Login unavailable.";
       return;
     }
-    const data = await r.json();
-    window.location.href = data.auth_url;
+    window.location.href = (await r.json()).auth_url;
   }
 
   async function loginWithToken() {
     const t = document.getElementById("token-input").value.trim();
     if (!t) return;
-    storeToken(t);
+    TOKEN = t;
     const ok = await tryLoadFeed();
     if (!ok) {
-      localStorage.removeItem("contac_token");
       TOKEN = null;
       document.getElementById("login-error").textContent = "Token rejected (invalid or expired).";
+    } else {
+      storeToken(t, IS_OWNER);
     }
   }
 
-  // ── views ───────────────────────────────────────────────────────────────────
-
-  function showView(name) {
-    document.getElementById("login-view").hidden = name !== "login";
-    document.getElementById("feed-view").hidden = name !== "feed";
+  async function detectOwner() {
+    // Probe an owner-only endpoint to know if current token is owner.
+    const r = await fetch("/admin/stats", { headers: authHeaders() });
+    IS_OWNER = r.ok;
+    document.getElementById("upload-btn").hidden = !IS_OWNER;
   }
 
-  // ── feed ────────────────────────────────────────────────────────────────────
+  // ── views ────────────────────────────────────────────────────────────────────
+  function showView(name) {
+    document.getElementById("login-view").hidden  = name !== "login";
+    document.getElementById("feed-view").hidden   = name !== "feed";
+  }
 
+  // ── feed ─────────────────────────────────────────────────────────────────────
   function scheduleSearch(val) {
     clearTimeout(searchTimer);
-    searchTimer = setTimeout(() => {
-      currentSearch = val.trim() || null;
-      resetFeed();
-    }, 350);
+    searchTimer = setTimeout(() => { currentSearch = val.trim() || null; resetFeed(); }, 350);
   }
 
   async function tryLoadFeed() {
     showView("feed");
     const ok = await resetFeed();
-    if (!ok) showView("login");
-    return ok;
+    if (!ok) { showView("login"); return false; }
+    detectOwner();
+    return true;
   }
 
   async function resetFeed() {
@@ -171,21 +226,15 @@
     let url = "/feed?limit=50";
     if (nextCursor) url += "&cursor=" + encodeURIComponent(nextCursor);
     if (currentSearch) url += "&q=" + encodeURIComponent(currentSearch);
-
     const r = await fetch(url, { headers: authHeaders() });
     if (r.status === 401) { logout(); return false; }
     if (!r.ok) return false;
-
     const data = await r.json();
     const grid = document.getElementById("grid");
-
-    for (const asset of data.assets) {
-      grid.appendChild(makeCard(asset));
-    }
-
+    for (const asset of data.assets) grid.appendChild(makeCard(asset));
     nextCursor = data.next_cursor || null;
     document.getElementById("load-more-btn").hidden = !nextCursor;
-    document.getElementById("empty-msg").hidden = (grid.children.length > 0);
+    document.getElementById("empty-msg").hidden = grid.children.length > 0;
     return true;
   }
 
@@ -196,66 +245,173 @@
   function makeCard(asset) {
     const div = document.createElement("div");
     div.className = "card";
-    div.onclick = () => openAsset(asset);
+    div.onclick = () => openDetail(asset);
     const isImg = (asset.media_type || "").startsWith("image/");
     if (isImg) {
       div.innerHTML = '<img class="card-thumb" src="' + thumbSrc(asset.id) + '" alt="" loading="lazy">';
     } else {
       div.innerHTML = '<div class="card-icon">' + mimeIcon(asset.media_type) + '</div>';
     }
-    div.innerHTML += '<div class="card-info"><div class="card-title">'
-      + esc(asset.title || asset.id) + '</div><div>'
-      + esc(asset.media_type || "") + '</div></div>';
+    div.innerHTML += '<div class="card-info"><div class="card-title">' + esc(asset.title || asset.id)
+      + '</div><div>' + esc(asset.media_type || "") + '</div></div>';
     return div;
   }
 
-  // ── modal ───────────────────────────────────────────────────────────────────
-
-  async function openAsset(asset) {
-    const body = document.getElementById("modal-body");
+  // ── detail modal ─────────────────────────────────────────────────────────────
+  async function openDetail(asset) {
+    const body = document.getElementById("detail-body");
     const isImg = (asset.media_type || "").startsWith("image/");
     const tagHtml = (asset.tags || []).map(t => '<span class="tag">' + esc(t) + '</span>').join("");
     const dateFmt = asset.created_at ? new Date(asset.created_at * 1000).toLocaleDateString() : "";
+    const assetUrl = "/assets/" + asset.id + "?token=" + encodeURIComponent(TOKEN);
 
     if (isImg) {
-      const src = "/assets/" + asset.id + "?token=" + encodeURIComponent(TOKEN);
-      body.innerHTML = '<img src="' + src + '" alt="' + esc(asset.title || "") + '">';
+      body.innerHTML = '<img src="' + assetUrl + '" alt="' + esc(asset.title || "") + '">';
     } else {
       body.innerHTML = '<div style="font-size:4rem;text-align:center;padding:2rem">' + mimeIcon(asset.media_type) + '</div>';
     }
-    body.innerHTML += '<div class="modal-meta"><div class="modal-title">' + esc(asset.title || asset.id) + '</div>'
+    body.innerHTML +=
+      '<div class="modal-meta">'
+      + '<div class="modal-title">' + esc(asset.title || asset.id) + '</div>'
       + '<div>' + esc(asset.media_type || "") + (dateFmt ? ' &middot; ' + dateFmt : '') + '</div>'
-      + (tagHtml ? '<div style="margin-top:0.4rem">' + tagHtml + '</div>' : '') + '</div>';
-
-    document.getElementById("modal-overlay").hidden = false;
+      + (tagHtml ? '<div style="margin-top:0.4rem">' + tagHtml + '</div>' : '')
+      + '</div>'
+      + '<div class="modal-actions">'
+      + '<a class="btn btn-muted btn-sm" href="' + assetUrl + '" download="' + esc(asset.title || asset.id) + '">Download</a>'
+      + '</div>';
+    document.getElementById("detail-overlay").hidden = false;
   }
 
-  function closeModal() {
-    document.getElementById("modal-overlay").hidden = true;
+  function closeDetail() { document.getElementById("detail-overlay").hidden = true; }
+
+  // ── upload modal ─────────────────────────────────────────────────────────────
+  function openUpload() {
+    pendingFiles = [];
+    renderFileList();
+    document.getElementById("upload-title").value = "";
+    document.getElementById("upload-tags").value = "";
+    document.getElementById("upload-progress").innerHTML = "";
+    document.getElementById("upload-submit").disabled = false;
+    document.getElementById("upload-overlay").hidden = false;
   }
 
-  function maybeCloseModal(e) {
-    if (e.target === document.getElementById("modal-overlay")) closeModal();
+  function closeUpload() { document.getElementById("upload-overlay").hidden = true; }
+
+  function dzOver(e) { e.preventDefault(); document.getElementById("drop-zone").classList.add("over"); }
+  function dzOut(e)  { document.getElementById("drop-zone").classList.remove("over"); }
+  function dzDrop(e) { e.preventDefault(); dzOut(); addFiles(e.dataTransfer.files); }
+  function pickFiles(files) { addFiles(files); }
+
+  function addFiles(files) {
+    for (const f of files) pendingFiles.push(f);
+    renderFileList();
+    if (pendingFiles.length === 1)
+      document.getElementById("upload-title").value = pendingFiles[0].name.replace(/\.[^/.]+$/, "");
   }
 
-  document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
+  function renderFileList() {
+    document.getElementById("file-list").innerHTML = pendingFiles.map(f =>
+      '<div class="file-item"><span>' + esc(f.name) + '</span><span>' + fmtSize(f.size) + '</span></div>'
+    ).join("");
+  }
 
-  // ── helpers ─────────────────────────────────────────────────────────────────
+  async function startUpload() {
+    if (!pendingFiles.length) return;
+    const title = document.getElementById("upload-title").value.trim();
+    const tagsRaw = document.getElementById("upload-tags").value.trim();
+    const tags = tagsRaw ? tagsRaw.split(/\s+/).filter(Boolean) : [];
+    const prog = document.getElementById("upload-progress");
+    document.getElementById("upload-submit").disabled = true;
+    prog.innerHTML = "";
+
+    let ok = 0;
+    for (const file of pendingFiles) {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("title", title || file.name.replace(/\.[^/.]+$/, ""));
+      if (tags.length) fd.append("tags", JSON.stringify(tags));
+      const line = document.createElement("div");
+      line.className = "progress-item";
+      line.textContent = file.name + " …";
+      prog.appendChild(line);
+      try {
+        const r = await fetch("/assets", { method: "POST", headers: authHeaders(), body: fd });
+        if (r.ok) {
+          const asset = await r.json();
+          prependCard(asset);
+          line.className = "progress-item progress-ok";
+          line.textContent = "✓ " + file.name;
+          ok++;
+        } else {
+          line.className = "progress-item progress-err";
+          line.textContent = "✗ " + file.name + " (" + r.status + ")";
+        }
+      } catch (err) {
+        line.className = "progress-item progress-err";
+        line.textContent = "✗ " + file.name + " (network error)";
+      }
+    }
+
+    const all = pendingFiles.length;
+    pendingFiles = [];
+    renderFileList();
+    if (ok === all) setTimeout(closeUpload, 1200);
+    else document.getElementById("upload-submit").disabled = false;
+  }
+
+  function prependCard(asset) {
+    const grid = document.getElementById("grid");
+    grid.insertBefore(makeCard(asset), grid.firstChild);
+    document.getElementById("empty-msg").hidden = true;
+  }
+
+  // ── global drag-and-drop ──────────────────────────────────────────────────────
+  document.addEventListener("dragover", e => {
+    if (TOKEN && !document.getElementById("upload-overlay").hidden) return;
+    if (TOKEN && e.dataTransfer.types.includes("Files")) { e.preventDefault(); document.body.classList.add("drag-active"); }
+  });
+  document.addEventListener("dragleave", e => {
+    if (!e.relatedTarget || !document.body.contains(e.relatedTarget)) document.body.classList.remove("drag-active");
+  });
+  document.addEventListener("drop", e => {
+    document.body.classList.remove("drag-active");
+    if (!TOKEN || !e.dataTransfer.files.length) return;
+    if (!document.getElementById("upload-overlay").hidden) return;
+    e.preventDefault();
+    openUpload();
+    addFiles(e.dataTransfer.files);
+  });
+
+  // ── shared helpers ────────────────────────────────────────────────────────────
+  function maybeClose(overlayId, e) {
+    if (e.target === document.getElementById(overlayId)) {
+      document.getElementById(overlayId).hidden = true;
+    }
+  }
+  document.addEventListener("keydown", e => {
+    if (e.key === "Escape") {
+      document.getElementById("detail-overlay").hidden = true;
+      document.getElementById("upload-overlay").hidden = true;
+    }
+  });
 
   function esc(s) {
     return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;");
   }
-
   function mimeIcon(mt) {
     if (!mt) return "&#x1F4C4;";
-    if (mt.startsWith("video/")) return "&#x1F3AC;";
-    if (mt.startsWith("audio/")) return "&#x1F3B5;";
-    if (mt === "application/pdf") return "&#x1F4CB;";
+    if (mt.startsWith("video/"))    return "&#x1F3AC;";
+    if (mt.startsWith("audio/"))    return "&#x1F3B5;";
+    if (mt === "application/pdf")   return "&#x1F4CB;";
     return "&#x1F4C4;";
   }
+  function fmtSize(b) {
+    if (b < 1024) return b + " B";
+    if (b < 1048576) return (b/1024).toFixed(1) + " KB";
+    return (b/1048576).toFixed(1) + " MB";
+  }
 
-  // ── init ────────────────────────────────────────────────────────────────────
-
+  // ── init ─────────────────────────────────────────────────────────────────────
   (function init() {
     const hash = window.location.hash;
     if (hash.startsWith("#token=")) {
@@ -265,6 +421,7 @@
     const stored = localStorage.getItem("contac_token");
     if (stored) {
       TOKEN = stored;
+      IS_OWNER = localStorage.getItem("contac_is_owner") === "1";
       tryLoadFeed();
     } else {
       showView("login");
