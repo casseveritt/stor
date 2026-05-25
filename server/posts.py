@@ -158,7 +158,13 @@ def get_posts(
     conditions = ["p.deleted = 0"]
 
     if not identity.is_owner:
-        conditions.append("p.is_public = 1")
+        if identity.recipient_id is not None:
+            conditions.append(
+                "(p.is_public = 1 OR EXISTS (SELECT 1 FROM post_acl WHERE post_id = p.id AND recipient_id = ?))"
+            )
+            params.append(identity.recipient_id)
+        else:
+            conditions.append("p.is_public = 1")
 
     if q:
         conditions.append("p.body LIKE ?")
@@ -208,7 +214,10 @@ def get_post(post_id: str, request: Request, identity: OptionalAuthDep):
     if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
     if not identity.is_owner and not row[4]:  # is_public column
-        raise HTTPException(status_code=403, detail="Access denied")
+        if not identity.recipient_id or db.execute(
+            "SELECT 1 FROM post_acl WHERE post_id = ? AND recipient_id = ?", (post_id, identity.recipient_id)
+        ).fetchone() is None:
+            raise HTTPException(status_code=403, detail="Access denied")
     return _post_dict(row, db)
 
 
@@ -275,7 +284,10 @@ def _require_post_access(db, post_id: str, identity) -> None:
     if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
     if not identity.is_owner and not row[0]:
-        raise HTTPException(status_code=403, detail="Access denied")
+        if not identity.recipient_id or db.execute(
+            "SELECT 1 FROM post_acl WHERE post_id = ? AND recipient_id = ?", (post_id, identity.recipient_id)
+        ).fetchone() is None:
+            raise HTTPException(status_code=403, detail="Access denied")
 
 
 @router.get("/posts/{post_id}/comments")
@@ -346,3 +358,50 @@ def post_comment(post_id: str, payload: _CommentBody, request: Request, identity
         "body": payload.body, "deleted": False,
         "created_at": now, "predecessor": None, "successor": None,
     }
+
+
+# ── post ACL ──────────────────────────────────────────────────────────────────
+
+@router.get("/posts/{post_id}/acl")
+def get_post_acl(post_id: str, request: Request, identity: OwnerDep):
+    db = request.app.state.db
+    if db.execute("SELECT id FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    rows = db.execute(
+        """SELECT r.id, r.identity, r.display_name
+           FROM post_acl pa JOIN recipients r ON r.id = pa.recipient_id
+           WHERE pa.post_id = ?""",
+        (post_id,),
+    ).fetchall()
+    return {"post_id": post_id, "recipients": [
+        {"id": r[0], "identity": r[1], "display_name": r[2]} for r in rows
+    ]}
+
+
+class _AclUpdateBody(BaseModel):
+    add: list[str] = []
+    remove: list[str] = []
+
+
+@router.patch("/posts/{post_id}/acl")
+def update_post_acl(post_id: str, payload: _AclUpdateBody, request: Request, identity: OwnerDep):
+    db = request.app.state.db
+    if db.execute("SELECT id FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    for rid in payload.add:
+        if db.execute("SELECT id FROM recipients WHERE id = ?", (rid,)).fetchone() is None:
+            raise HTTPException(status_code=404, detail=f"Recipient {rid} not found")
+    for rid in payload.add:
+        db.execute("INSERT OR IGNORE INTO post_acl (post_id, recipient_id) VALUES (?, ?)", (post_id, rid))
+    for rid in payload.remove:
+        db.execute("DELETE FROM post_acl WHERE post_id = ? AND recipient_id = ?", (post_id, rid))
+    db.commit()
+    rows = db.execute(
+        """SELECT r.id, r.identity, r.display_name
+           FROM post_acl pa JOIN recipients r ON r.id = pa.recipient_id
+           WHERE pa.post_id = ?""",
+        (post_id,),
+    ).fetchall()
+    return {"post_id": post_id, "recipients": [
+        {"id": r[0], "identity": r[1], "display_name": r[2]} for r in rows
+    ]}

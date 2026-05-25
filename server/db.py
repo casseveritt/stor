@@ -111,6 +111,13 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         )
     """)
     con.execute("""
+        CREATE TABLE IF NOT EXISTS post_acl (
+            post_id      TEXT NOT NULL,
+            recipient_id TEXT NOT NULL,
+            PRIMARY KEY (post_id, recipient_id)
+        )
+    """)
+    con.execute("""
         CREATE TABLE IF NOT EXISTS comments (
             id                  TEXT PRIMARY KEY,
             content_hash        TEXT NOT NULL,
