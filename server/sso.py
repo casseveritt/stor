@@ -63,6 +63,7 @@ def google_auth_url(client_id: str, redirect_uri: str, state: str) -> str:
         "scope": "openid email profile",
         "state": state,
         "access_type": "online",
+        "prompt": "select_account",
     }
     return f"{GOOGLE_AUTH_URL}?{urlencode(params)}"
 
