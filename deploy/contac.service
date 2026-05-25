@@ -1,0 +1,26 @@
+[Unit]
+Description=contac personal data node
+After=network.target
+Documentation=https://github.com/casseveritt/stor
+
+[Service]
+Type=simple
+User=cass
+WorkingDirectory=/home/cass/src/stor
+
+# Passphrase via environment file (chmod 600)
+EnvironmentFile=/home/cass/.config/contac/env
+
+ExecStart=/home/cass/src/stor/.venv/bin/python -m server.main \
+    /home/cass/.local/share/contac/node_config.json \
+    --host 127.0.0.1 \
+    --port 8000
+
+Restart=on-failure
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=contac
+
+[Install]
+WantedBy=multi-user.target

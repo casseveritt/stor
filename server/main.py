@@ -1,3 +1,4 @@
+import os
 import sys
 import base64
 import getpass
@@ -89,6 +90,9 @@ def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
 
 
 def _get_passphrase(key_stdin: bool) -> str:
+    env = os.environ.get("CONTAC_PASSPHRASE")
+    if env:
+        return env
     if key_stdin:
         return sys.stdin.readline().rstrip("\n")
     return getpass.getpass("Passphrase: ")
