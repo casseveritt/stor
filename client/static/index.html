@@ -323,8 +323,8 @@ async function loginWithToken() {
 }
 
 async function logout() {
-  clearClientToken();
   await apiFetch("/api/auth/token", {method: "DELETE"});
+  clearClientToken();
   CFG = null;
   location.reload();
 }
