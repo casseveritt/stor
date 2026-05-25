@@ -14,6 +14,7 @@ from .db import open_db, init_schema, WrongPassphraseError
 from . import node as node_module
 from . import auth as auth_module
 from . import feed as feed_module
+from . import assets as assets_module
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -48,11 +49,13 @@ def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
     app = FastAPI(title="contac node")
     app.state.db = db_con
     app.state.file_key = file_key
+    app.state.store_path = store_path
 
     node_module.setup(config.node_address, private_key, config.watermark_enabled)
     auth_module.setup(private_key)
     app.include_router(node_module.router)
     app.include_router(feed_module.router)
+    app.include_router(assets_module.router)
 
     log.info("Node %s ready.", config.node_address)
     return app
