@@ -99,5 +99,21 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             status                 TEXT NOT NULL DEFAULT 'pending'
         )
     """)
-    con.execute("INSERT OR IGNORE INTO schema_version VALUES (5)")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS access_log (
+            id             TEXT PRIMARY KEY,
+            asset_id       TEXT NOT NULL,
+            recipient_id   TEXT,
+            share_identity TEXT,
+            endpoint       TEXT NOT NULL,
+            accessed_at    REAL NOT NULL
+        )
+    """)
+    con.execute(
+        "CREATE INDEX IF NOT EXISTS access_log_asset_idx ON access_log (asset_id, accessed_at DESC)"
+    )
+    con.execute(
+        "CREATE INDEX IF NOT EXISTS access_log_recipient_idx ON access_log (recipient_id, accessed_at DESC)"
+    )
+    con.execute("INSERT OR IGNORE INTO schema_version VALUES (6)")
     con.commit()

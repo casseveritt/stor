@@ -10,6 +10,7 @@ from .auth import AuthDep, check_acl
 from .crypto import decrypt_bytes
 from . import watermark as watermark_module
 from .watermark import WatermarkError
+from .access_log import log_access
 
 router = APIRouter(prefix="/assets")
 
@@ -80,6 +81,7 @@ def fetch_asset_meta(asset_id: str, request: Request, identity: AuthDep):
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
     _require_acl(db, asset_id, identity)
+    log_access(db, asset_id, identity, "fetch_meta")
     asset["node"] = str(request.base_url).rstrip("/")
     return asset
 
@@ -110,6 +112,7 @@ def fetch_thumbnail(asset_id: str, request: Request, identity: AuthDep):
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
     thumb_bytes = _apply_watermark_if_needed(buf.getvalue(), "image/jpeg", request, identity)
+    log_access(db, asset_id, identity, "fetch_thumbnail")
 
     return Response(
         content=thumb_bytes,
@@ -136,6 +139,7 @@ def fetch_asset(asset_id: str, request: Request, identity: AuthDep):
         raise HTTPException(status_code=404, detail="Asset content not found")
 
     content = _apply_watermark_if_needed(content, asset["media_type"], request, identity)
+    log_access(db, asset_id, identity, "fetch_asset")
 
     return Response(
         content=content,

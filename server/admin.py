@@ -131,3 +131,166 @@ def revoke_token_endpoint(token_id: str, request: Request, identity: OwnerDep):
     if not revoke_token(db, token_id):
         raise HTTPException(status_code=404, detail="Token not found")
     return {"token_id": token_id, "status": "revoked"}
+
+
+# ── access log ────────────────────────────────────────────────────────────────
+
+def _access_log_row(row) -> dict:
+    id_, asset_id, recipient_id, share_identity, endpoint, accessed_at, rec_identity = row
+    return {
+        "id": id_,
+        "asset_id": asset_id,
+        "recipient_id": recipient_id,
+        "share_identity": share_identity,
+        "recipient_identity": rec_identity,
+        "endpoint": endpoint,
+        "accessed_at": accessed_at,
+    }
+
+
+@router.get("/access-log")
+def get_access_log(
+    request: Request,
+    identity: OwnerDep,
+    asset_id: str | None = Query(default=None),
+    recipient_id: str | None = Query(default=None),
+    since: float | None = Query(default=None),
+    until: float | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    db = request.app.state.db
+    conditions = []
+    params: list = []
+
+    if asset_id is not None:
+        conditions.append("al.asset_id = ?")
+        params.append(asset_id)
+    if recipient_id is not None:
+        conditions.append("al.recipient_id = ?")
+        params.append(recipient_id)
+    if since is not None:
+        conditions.append("al.accessed_at >= ?")
+        params.append(since)
+    if until is not None:
+        conditions.append("al.accessed_at <= ?")
+        params.append(until)
+
+    where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+    params.extend([limit, offset])
+
+    rows = db.execute(
+        f"""SELECT al.id, al.asset_id, al.recipient_id, al.share_identity,
+                   al.endpoint, al.accessed_at, r.identity AS recipient_identity
+            FROM access_log al
+            LEFT JOIN recipients r ON r.id = al.recipient_id
+            {where}
+            ORDER BY al.accessed_at DESC
+            LIMIT ? OFFSET ?""",
+        params,
+    ).fetchall()
+
+    total = db.execute(
+        f"SELECT COUNT(*) FROM access_log al {where}", params[:-2]
+    ).fetchone()[0]
+
+    return {
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "entries": [_access_log_row(r) for r in rows],
+    }
+
+
+@router.get("/assets/{asset_id}/access-log")
+def get_asset_access_log(
+    asset_id: str,
+    request: Request,
+    identity: OwnerDep,
+    since: float | None = Query(default=None),
+    until: float | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+):
+    db = request.app.state.db
+    if db.execute("SELECT id FROM assets WHERE id = ?", (asset_id,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Asset not found")
+
+    conditions = ["al.asset_id = ?"]
+    params: list = [asset_id]
+
+    if since is not None:
+        conditions.append("al.accessed_at >= ?")
+        params.append(since)
+    if until is not None:
+        conditions.append("al.accessed_at <= ?")
+        params.append(until)
+
+    where = "WHERE " + " AND ".join(conditions)
+    params.extend([limit, offset])
+
+    rows = db.execute(
+        f"""SELECT al.id, al.asset_id, al.recipient_id, al.share_identity,
+                   al.endpoint, al.accessed_at, r.identity AS recipient_identity
+            FROM access_log al
+            LEFT JOIN recipients r ON r.id = al.recipient_id
+            {where}
+            ORDER BY al.accessed_at DESC
+            LIMIT ? OFFSET ?""",
+        params,
+    ).fetchall()
+
+    total = db.execute(
+        f"SELECT COUNT(*) FROM access_log al {where}", params[:-2]
+    ).fetchone()[0]
+
+    return {
+        "asset_id": asset_id,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
+        "entries": [_access_log_row(r) for r in rows],
+    }
+
+
+# ── node statistics ───────────────────────────────────────────────────────────
+
+@router.get("/stats")
+def get_stats(request: Request, identity: OwnerDep):
+    db = request.app.state.db
+    now = time.time()
+
+    asset_total, asset_deleted, asset_size = db.execute(
+        "SELECT COUNT(*), SUM(deleted), COALESCE(SUM(CASE WHEN deleted=0 THEN size ELSE 0 END), 0) FROM assets"
+    ).fetchone()
+    asset_deleted = asset_deleted or 0
+
+    recipient_total = db.execute("SELECT COUNT(*) FROM recipients").fetchone()[0]
+
+    active_tokens = db.execute(
+        "SELECT COUNT(*) FROM tokens WHERE revoked = 0 AND expiry > ?", (now,)
+    ).fetchone()[0]
+
+    comment_total, comment_deleted = db.execute(
+        "SELECT COUNT(*), SUM(deleted) FROM comments"
+    ).fetchone()
+    comment_deleted = comment_deleted or 0
+
+    access_log_total = db.execute("SELECT COUNT(*) FROM access_log").fetchone()[0]
+
+    return {
+        "assets": {
+            "total": asset_total,
+            "active": asset_total - asset_deleted,
+            "deleted": asset_deleted,
+            "total_size_bytes": asset_size,
+        },
+        "recipients": {"total": recipient_total},
+        "tokens": {"active": active_tokens},
+        "comments": {
+            "total": comment_total,
+            "active": comment_total - comment_deleted,
+            "deleted": comment_deleted,
+        },
+        "access_log": {"total": access_log_total},
+    }

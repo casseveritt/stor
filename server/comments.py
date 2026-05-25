@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from .auth import AuthDep, check_acl
+from .access_log import log_access
 
 router = APIRouter()
 
@@ -56,6 +57,7 @@ def fetch_comments(asset_id: str, request: Request, identity: AuthDep):
            WHERE c.asset_id = ? ORDER BY c.created_at ASC""",
         (asset_id,),
     ).fetchall()
+    log_access(db, asset_id, identity, "fetch_comments")
     return {"asset_id": asset_id, "comments": [_row_to_comment(r) for r in rows]}
 
 
