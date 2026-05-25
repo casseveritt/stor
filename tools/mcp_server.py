@@ -81,8 +81,18 @@ def _delete(path: str) -> None:
 
 @mcp.tool()
 def node_info() -> str:
-    """Get information about this contac node: its address, public key, and watermark policy."""
-    return json.dumps(_get("/node"), indent=2)
+    """Get information about this contac node: address, public key, watermark policy,
+    and counts of public posts and assets.
+    For full statistics (owner only) the response also includes total/private counts,
+    storage bytes, recipient count, and comment count if the token has owner access.
+    """
+    info = _get("/node")
+    try:
+        stats = _get("/node/stats")
+        info["stats"] = stats
+    except Exception:
+        pass
+    return json.dumps(info, indent=2)
 
 
 @mcp.tool()

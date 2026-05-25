@@ -1,7 +1,9 @@
 import base64
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+from .auth import OwnerDep
 
 router = APIRouter()
 
@@ -24,9 +26,33 @@ def health():
 
 
 @router.get("/node")
-def node_metadata():
+def node_metadata(request: Request):
+    db = request.app.state.db
+    public_posts = db.execute("SELECT COUNT(*) FROM posts WHERE is_public = 1 AND deleted = 0").fetchone()[0]
+    public_assets = db.execute("SELECT COUNT(*) FROM assets WHERE is_public = 1 AND deleted = 0").fetchone()[0]
     return {
         "node": _node_address,
         "public_key": _public_key_b64,
         "watermark_policy": "enabled" if _watermark_enabled else "disabled",
+        "public_posts": public_posts,
+        "public_assets": public_assets,
+    }
+
+
+@router.get("/node/stats")
+def node_stats(request: Request, identity: OwnerDep):
+    db = request.app.state.db
+    total_posts = db.execute("SELECT COUNT(*) FROM posts WHERE deleted = 0").fetchone()[0]
+    public_posts = db.execute("SELECT COUNT(*) FROM posts WHERE is_public = 1 AND deleted = 0").fetchone()[0]
+    total_assets = db.execute("SELECT COUNT(*) FROM assets WHERE deleted = 0").fetchone()[0]
+    public_assets = db.execute("SELECT COUNT(*) FROM assets WHERE is_public = 1 AND deleted = 0").fetchone()[0]
+    total_storage = db.execute("SELECT COALESCE(SUM(size), 0) FROM assets WHERE deleted = 0").fetchone()[0]
+    recipients = db.execute("SELECT COUNT(*) FROM recipients").fetchone()[0]
+    total_comments = db.execute("SELECT COUNT(*) FROM comments WHERE deleted = 0").fetchone()[0]
+    return {
+        "posts": {"total": total_posts, "public": public_posts, "private": total_posts - public_posts},
+        "assets": {"total": total_assets, "public": public_assets, "private": total_assets - public_assets},
+        "storage_bytes": total_storage,
+        "recipients": recipients,
+        "comments": total_comments,
     }
