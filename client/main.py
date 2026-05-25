@@ -266,13 +266,15 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     # ── auth callback and static (no client auth required) ────────────────
 
+    _NC = {"Cache-Control": "no-cache"}
+
     @app.get("/auth/callback")
     def auth_callback():
-        return FileResponse(static_dir / "callback.html")
+        return FileResponse(static_dir / "callback.html", headers=_NC)
 
     @app.get("/")
     def index():
-        return FileResponse(static_dir / "index.html")
+        return FileResponse(static_dir / "index.html", headers=_NC)
 
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")

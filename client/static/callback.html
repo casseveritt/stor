@@ -19,9 +19,12 @@
     return;
   }
   const token = decodeURIComponent(hash.slice(7));
+  const clientToken = localStorage.getItem("contac_client_session");
+  const headers = {"Content-Type": "application/json"};
+  if (clientToken) headers["Authorization"] = "Bearer " + clientToken;
   const r = await fetch("/api/auth/token", {
     method: "POST",
-    headers: {"Content-Type": "application/json"},
+    headers,
     body: JSON.stringify({token}),
   });
   if (r.ok) {
