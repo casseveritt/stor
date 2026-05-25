@@ -121,7 +121,8 @@ def main() -> None:
         token = auth_module.issue_token(ttl_seconds=86400 * 30)
         print(f"Owner token: {token}", flush=True)
 
-    uvicorn.run(app, host=args.host, port=args.port)
+    uvicorn.run(app, host=args.host, port=args.port,
+                proxy_headers=True, forwarded_allow_ips="*")
 
 
 if __name__ == "__main__":
