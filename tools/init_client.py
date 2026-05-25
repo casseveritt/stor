@@ -5,11 +5,13 @@ Usage:
     python tools/init_client.py --config ~/contac-client/client_config.json \\
         --own-server https://starkville.hopto.org:8443
 """
+import getpass
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from argon2 import PasswordHasher
 from client.config import ClientConfig
 
 
@@ -18,6 +20,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Initialize a contac client")
     parser.add_argument("--config", required=True, help="Path to client_config.json")
     parser.add_argument("--own-server", required=True, help="URL of your contac server node")
+    parser.add_argument("--passphrase-stdin", action="store_true",
+                        help="Read passphrase from stdin instead of prompting")
+    parser.add_argument("--no-passphrase", action="store_true",
+                        help="Skip passphrase (client API will be open — only safe on localhost)")
     args = parser.parse_args()
 
     config_path = Path(args.config)
@@ -27,10 +33,27 @@ def main() -> None:
 
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config = ClientConfig(own_server=args.own_server.rstrip("/"))
+
+    if args.no_passphrase:
+        print("Warning: client API will be open (no passphrase). Only safe on localhost.")
+    else:
+        if args.passphrase_stdin:
+            pw = sys.stdin.readline().rstrip("\n")
+        else:
+            while True:
+                pw = getpass.getpass("Client passphrase: ")
+                pw2 = getpass.getpass("Confirm passphrase: ")
+                if pw == pw2:
+                    break
+                print("Passphrases do not match, try again.")
+        config.passphrase_hash = PasswordHasher().hash(pw)
+
     config.save(config_path)
 
     print(f"Client config written to {config_path}")
     print(f"Own server: {config.own_server}")
+    if config.passphrase_hash:
+        print("Passphrase: set")
     print(f"\nStart with:")
     print(f"  python -m client.main {config_path} --port 9865")
 

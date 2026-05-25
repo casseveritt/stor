@@ -185,7 +185,8 @@ class TestClientConfig:
         r = subprocess.run(
             [PYTHON, str(ROOT / "tools/init_client.py"),
              "--config", str(config_path),
-             "--own-server", "https://node.example.com"],
+             "--own-server", "https://node.example.com",
+             "--no-passphrase"],
             capture_output=True, text=True,
         )
         assert r.returncode == 0, r.stderr
@@ -237,12 +238,31 @@ class TestClientApp:
         assert data["own_server"] == "https://node.example.com"
         assert isinstance(data["servers"], list)
 
-    def test_api_login_url(self, client_app):
-        r = client_app.get("/api/auth/login-url")
+    def test_api_login_url(self, tmp_path):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from client.config import ClientConfig
+        from client.main import create_app
+        from fastapi.testclient import TestClient
+
+        config_path = tmp_path / "client_config.json"
+        ClientConfig(own_server="https://node.example.com").save(config_path)
+        app = create_app(config_path)
+        client = TestClient(app)
+
+        mock_resp = MagicMock(is_success=True)
+        mock_resp.json.return_value = {"auth_url": "https://accounts.google.com/auth?state=x"}
+        mock_hc = MagicMock()
+        mock_hc.get = AsyncMock(return_value=mock_resp)
+        mock_hc.__aenter__ = AsyncMock(return_value=mock_hc)
+        mock_hc.__aexit__ = AsyncMock(return_value=None)
+
+        with patch("client.main.httpx.AsyncClient", return_value=mock_hc):
+            r = client.get("/api/auth/login-url")
+
         assert r.status_code == 200
-        url = r.json()["auth_url"]
-        assert "https://node.example.com/auth/login" in url
-        assert "return_to" in url
+        data = r.json()
+        assert "auth_url" in data
+        assert "accounts.google.com" in data["auth_url"]
 
     def test_api_store_token(self, tmp_path):
         from client.config import ClientConfig, load_tokens

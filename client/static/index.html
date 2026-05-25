@@ -8,12 +8,13 @@
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; background: #111; color: #e0e0e0; min-height: 100vh; }
 
-    /* ── login ── */
-    #login-view { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 1.25rem; }
-    #login-view h1 { font-size: 2rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; }
+    /* ── login screens ── */
+    .login-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 1.25rem; }
+    .login-screen h1 { font-size: 2rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; }
     #login-server { font-size: 0.82rem; color: #555; }
     .divider { color: #555; font-size: 0.85rem; }
     .token-row { display: flex; gap: 0.5rem; }
+    #client-login-view, #login-view { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 1.25rem; }
 
     /* ── chrome ── */
     header { background: #1a1a1a; padding: 0.6rem 1rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2a2a2a; position: sticky; top: 0; z-index: 20; gap: 0.5rem; }
@@ -141,10 +142,22 @@
 </head>
 <body>
 
-<!-- ── login ──────────────────────────────────────────────────────────────── -->
-<div id="login-view">
+<!-- ── client passphrase login ────────────────────────────────────────────── -->
+<div id="client-login-view" hidden>
   <h1>contac</h1>
-  <div id="login-server" class="login-server"></div>
+  <p style="color:#555;font-size:0.85rem">Enter your client passphrase to continue</p>
+  <div class="token-row">
+    <input type="password" id="client-passphrase-input" placeholder="Client passphrase" style="width:260px"
+           onkeydown="if(event.key==='Enter')submitClientPassphrase()">
+    <button class="btn btn-primary" onclick="submitClientPassphrase()">Unlock</button>
+  </div>
+  <div id="client-login-error" style="color:#e06c6c;font-size:0.85rem"></div>
+</div>
+
+<!-- ── server login ────────────────────────────────────────────────────────── -->
+<div id="login-view" hidden>
+  <h1>contac</h1>
+  <div id="login-server"></div>
   <button class="btn btn-primary" onclick="loginGoogle()">Sign in with Google</button>
   <span class="divider">— or paste a token —</span>
   <div class="token-row">
@@ -233,34 +246,77 @@
 <script>
 // ── state ──────────────────────────────────────────────────────────────────
 let CFG = null;
-let activeServer = null;   // null = own_server
+let activeServer = null;
 let activeTags = new Set();
 let allPosts = [];
 let currentIdx = -1;
 let nextCursor = null, currentSearch = null, searchTimer = null;
 let pendingFiles = [];
 let IS_OWNER = false;
-let serverStatuses = {};   // url -> "ok"|"err"|"wait"
+let serverStatuses = {};
+
+// ── client session token ───────────────────────────────────────────────────
+function getClientToken() { return localStorage.getItem("contac_client_session"); }
+function setClientToken(t) { localStorage.setItem("contac_client_session", t); }
+function clearClientToken() { localStorage.removeItem("contac_client_session"); }
+
+function apiHeaders(extra = {}) {
+  const t = getClientToken();
+  return t ? {"Authorization": "Bearer " + t, ...extra} : extra;
+}
+function apiFetch(url, opts = {}) {
+  opts.headers = {...apiHeaders(), ...(opts.headers || {})};
+  return fetch(url, opts);
+}
+
+// ── client passphrase auth ─────────────────────────────────────────────────
+async function submitClientPassphrase() {
+  const pw = document.getElementById("client-passphrase-input").value;
+  if (!pw) return;
+  const r = await fetch("/client/login", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({passphrase: pw}),
+  });
+  if (r.ok) {
+    setClientToken((await r.json()).token);
+    document.getElementById("client-passphrase-input").value = "";
+    await continueInit();
+  } else {
+    document.getElementById("client-login-error").textContent =
+      r.status === 401 ? "Wrong passphrase." : "Login failed.";
+  }
+}
 
 // ── init ───────────────────────────────────────────────────────────────────
 (async function init() {
-  CFG = await fetch("/api/config").then(r => r.json()).catch(() => null);
+  // if returning from server OAuth, token is in hash — store it via callback.html
+  // (callback.html handles #token= and posts to /api/auth/token)
+  await continueInit();
+})();
+
+async function continueInit() {
+  const r = await apiFetch("/api/config");
+  if (r.status === 401) {
+    showView("client-login");
+    return;
+  }
+  CFG = await r.json().catch(() => null);
   if (!CFG) { document.getElementById("login-error").textContent = "Could not load config."; showView("login"); return; }
 
   document.getElementById("login-server").textContent = CFG.own_server;
 
-  // check if authenticated
   const status = CFG.servers.find(s => s.url === CFG.own_server);
   if (status && status.authenticated) {
     await loadFeed();
   } else {
     showView("login");
   }
-})();
+}
 
 // ── auth ───────────────────────────────────────────────────────────────────
 async function loginGoogle() {
-  const r = await fetch("/api/auth/login-url");
+  const r = await apiFetch("/api/auth/login-url");
   if (!r.ok) { document.getElementById("login-error").textContent = "Login unavailable."; return; }
   window.location.href = (await r.json()).auth_url;
 }
@@ -268,7 +324,7 @@ async function loginGoogle() {
 async function loginWithToken() {
   const t = document.getElementById("token-input").value.trim();
   if (!t) return;
-  const r = await fetch("/api/auth/token", {
+  const r = await apiFetch("/api/auth/token", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({token: t}),
@@ -280,14 +336,14 @@ async function loginWithToken() {
 }
 
 async function logout() {
-  await fetch("/api/auth/token", {method: "DELETE"});
+  await apiFetch("/api/auth/token", {method: "DELETE"});
   CFG = null;
   showView("login");
   location.reload();
 }
 
 async function loadIdentity() {
-  const r = await fetch("/api/auth/me");
+  const r = await apiFetch("/api/auth/me");
   if (!r.ok) return;
   const d = await r.json();
   IS_OWNER = d.role === "owner";
@@ -298,6 +354,7 @@ async function loadIdentity() {
 
 // ── views ──────────────────────────────────────────────────────────────────
 function showView(name) {
+  document.getElementById("client-login-view").hidden = name !== "client-login";
   document.getElementById("login-view").hidden = name !== "login";
   document.getElementById("feed-view").hidden  = name !== "feed";
 }
@@ -323,7 +380,7 @@ function setActiveServer(i) {
 
 // ── tag sidebar ────────────────────────────────────────────────────────────
 async function loadTagSidebar() {
-  const r = await fetch("/api/tags");
+  const r = await apiFetch("/api/tags");
   if (!r.ok) return;
   const data = await r.json();
   const list = document.getElementById("tag-list");
@@ -379,7 +436,7 @@ async function loadMore() {
   if (currentSearch) url += "&q=" + encodeURIComponent(currentSearch);
   for (const t of activeTags) url += "&tags=" + encodeURIComponent(t);
 
-  const r = await fetch(url);
+  const r = await apiFetch(url);
   if (r.status === 401) { showView("login"); return false; }
   if (!r.ok) return false;
 
@@ -551,7 +608,7 @@ function closeDetail() {
 async function loadComments(post) {
   const params = post._server_url !== CFG.own_server
     ? "?server=" + encodeURIComponent(post._server_url) : "";
-  const r = await fetch("/api/posts/" + post.id + "/comments" + params);
+  const r = await apiFetch("/api/posts/" + post.id + "/comments" + params);
   const section = document.getElementById("comments-section");
   if (!section || currentPostId !== post.id) return;
   if (!r.ok) { section.innerHTML = ""; return; }
@@ -591,7 +648,7 @@ async function submitComment(postId, serverUrl) {
   const body = input ? input.value.trim() : "";
   if (!body) return;
   const params = serverUrl !== CFG.own_server ? "?server=" + encodeURIComponent(serverUrl) : "";
-  const r = await fetch("/api/posts/" + postId + "/comments" + params, {
+  const r = await apiFetch("/api/posts/" + postId + "/comments" + params, {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({body}),
@@ -638,7 +695,7 @@ async function submitPost() {
   for (const f of pendingFiles) fd.append("files", f);
 
   try {
-    const r = await fetch("/api/posts", {method: "POST", body: fd});
+    const r = await apiFetch("/api/posts", {method: "POST", body: fd});
     if (r.ok) {
       const post = await r.json();
       prependPost(post);
