@@ -196,6 +196,98 @@ def get_asset_history(asset_id: str) -> str:
     return json.dumps(_get(f"/assets/{asset_id}/history"), indent=2)
 
 
+# ── post tools ────────────────────────────────────────────────────────────────
+
+@mcp.tool()
+def get_posts(
+    limit: int = 20,
+    cursor: str = "",
+    tags: str = "",
+    q: str = "",
+) -> str:
+    """Get posts from the feed, newest first.
+
+    limit: number of results (1-100).
+    cursor: pagination token from a previous call's next_cursor field.
+    tags: space-separated tag names that posts must all have.
+    q: substring search on post body text.
+
+    Returns JSON with {posts: [...], next_cursor?}.
+    Each post includes id, body, tags, created_at, assets, comment_count.
+    """
+    params: dict = {"limit": max(1, min(limit, 100))}
+    if cursor:
+        params["cursor"] = cursor
+    if q:
+        params["q"] = q
+    tag_list = tags.split() if tags else []
+    if tag_list:
+        params["tags"] = tag_list
+    data = _http.get("/posts", params=params)
+    data.raise_for_status()
+    result = {"posts": data.json()["posts"]}
+    if "next_cursor" in data.json():
+        result["next_cursor"] = data.json()["next_cursor"]
+    return json.dumps(result, indent=2)
+
+
+@mcp.tool()
+def get_post(post_id: str) -> str:
+    """Get full detail for a single post: body, tags, assets list, comment_count.
+
+    post_id: the UUID of the post.
+    The body text may contain [asset:uuid] inline references.
+    """
+    return json.dumps(_get(f"/posts/{post_id}"), indent=2)
+
+
+@mcp.tool()
+def create_post(body: str, tags: str = "") -> str:
+    """Create a new text post.
+
+    body: the post body text. May include [asset:uuid] references to
+          existing assets (use get_feed or search_assets to find asset IDs).
+    tags: space-separated tag names.
+
+    Returns the created post object.
+    """
+    payload: dict = {"body": body}
+    if tags:
+        payload["tags"] = tags.split()
+    assert _http is not None, "call _setup() first"
+    r = _http.post("/posts", data={"body": body, "tags": json.dumps(tags.split() if tags else [])})
+    r.raise_for_status()
+    return json.dumps(r.json(), indent=2)
+
+
+@mcp.tool()
+def get_post_comments(post_id: str) -> str:
+    """Fetch all non-deleted comments on a post, in chronological order.
+
+    Each comment includes: id, body, author_identity (null for owner),
+    parent_id (for replies), created_at.
+    """
+    data = _get(f"/posts/{post_id}/comments")
+    live = [c for c in data["comments"] if not c.get("deleted")]
+    return json.dumps(live, indent=2)
+
+
+@mcp.tool()
+def comment_on_post(post_id: str, body: str, parent_id: str = "") -> str:
+    """Post a comment on a post.
+
+    post_id: the post to comment on.
+    body: comment text (plain text, may use markdown).
+    parent_id: optional ID of the comment being replied to.
+
+    Returns the created comment object.
+    """
+    payload: dict = {"body": body}
+    if parent_id:
+        payload["parent_id"] = parent_id
+    return json.dumps(_post(f"/posts/{post_id}/comments", payload), indent=2)
+
+
 # ── entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
