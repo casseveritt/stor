@@ -64,6 +64,19 @@ def _post(path: str, payload: dict) -> dict:
     return r.json()
 
 
+def _patch(path: str, payload: dict) -> dict:
+    assert _http is not None, "call _setup() first"
+    r = _http.patch(path, json=payload)
+    r.raise_for_status()
+    return r.json()
+
+
+def _delete(path: str) -> None:
+    assert _http is not None, "call _setup() first"
+    r = _http.delete(path)
+    r.raise_for_status()
+
+
 # ── tools ─────────────────────────────────────────────────────────────────────
 
 @mcp.tool()
@@ -258,6 +271,54 @@ def create_post(body: str, tags: str = "") -> str:
     r = _http.post("/posts", data={"body": body, "tags": json.dumps(tags.split() if tags else [])})
     r.raise_for_status()
     return json.dumps(r.json(), indent=2)
+
+
+@mcp.tool()
+def update_post(
+    post_id: str,
+    body: str | None = None,
+    tags: str | None = None,
+    public: bool | None = None,
+) -> str:
+    """Update an existing post (owner only).
+
+    post_id: the UUID of the post to update.
+    body: new body text (optional).
+    tags: new space-separated tag list (optional; replaces existing tags).
+    public: set visibility — True for public, False for private (optional).
+
+    At least one of body, tags, or public must be provided.
+    Returns the updated post object, or an error dict.
+    """
+    payload: dict = {}
+    if body is not None:
+        payload["body"] = body
+    if tags is not None:
+        payload["tags"] = tags.split() if tags else []
+    if public is not None:
+        payload["public"] = public
+    if not payload:
+        return json.dumps({"error": "at least one of body, tags, or public must be provided"})
+    assert _http is not None, "call _setup() first"
+    r = _http.patch(f"/posts/{post_id}", json=payload)
+    if not r.is_success:
+        return json.dumps({"error": r.text, "status": r.status_code})
+    return json.dumps(r.json(), indent=2)
+
+
+@mcp.tool()
+def delete_post(post_id: str) -> str:
+    """Delete a post (owner only). This is a soft delete — the post is marked
+    deleted and removed from feeds but the ID remains reserved.
+
+    post_id: the UUID of the post to delete.
+    Returns {"deleted": true, "id": post_id} on success, or an error dict.
+    """
+    assert _http is not None, "call _setup() first"
+    r = _http.delete(f"/posts/{post_id}")
+    if not r.is_success:
+        return json.dumps({"error": r.text, "status": r.status_code})
+    return json.dumps({"deleted": True, "id": post_id})
 
 
 @mcp.tool()
