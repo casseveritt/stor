@@ -60,7 +60,7 @@ def google_auth_url(client_id: str, redirect_uri: str, state: str) -> str:
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": "openid email",
+        "scope": "openid email profile",
         "state": state,
         "access_type": "online",
     }

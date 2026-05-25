@@ -70,7 +70,7 @@ class TestAuthMe:
         assert r.status_code == 200
         data = r.json()
         assert data["role"] == "owner"
-        assert data["identity"] == "owner"
+        assert "identity" in data  # value is sso_owner_identity or None if not configured
 
     def test_recipient_returns_recipient_role(self, client, recipient_token):
         r = client.get("/auth/me", headers={"Authorization": f"Bearer {recipient_token}"})

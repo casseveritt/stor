@@ -335,8 +335,10 @@ async function loadIdentity() {
   const d = await r.json();
   IS_OWNER = d.role === "owner";
   document.getElementById("compose-btn").hidden = !IS_OWNER;
-  document.getElementById("identity-badge").textContent =
-    d.role === "owner" ? "owner" : (d.display_name || d.identity || "");
+  const badge = document.getElementById("identity-badge");
+  const identity = d.identity || "";
+  badge.textContent = d.display_name || identity.replace(/^[^:]+:/, "") || d.role;
+  badge.title = identity;
 }
 
 // ── views ──────────────────────────────────────────────────────────────────

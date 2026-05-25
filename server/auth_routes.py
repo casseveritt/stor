@@ -52,6 +52,7 @@ def callback(request: Request, code: str, state: str):
 
         owner_identity = getattr(request.app.state, "owner_identity", None)
         if owner_identity and identity == owner_identity:
+            request.app.state.owner_display_name = claims.get("name") or claims.get("email")
             token = auth_module.issue_token(ttl_seconds=86400 * 30)
         else:
             token = sso_module.complete_callback(db, identity)
@@ -68,7 +69,11 @@ def callback(request: Request, code: str, state: str):
 def me(request: Request, identity: AuthDep):
     """Return the current user's role and identity."""
     if identity.is_owner:
-        return {"role": "owner", "identity": "owner"}
+        return {
+            "role": "owner",
+            "identity": getattr(request.app.state, "owner_identity", None),
+            "display_name": getattr(request.app.state, "owner_display_name", None),
+        }
     if identity.is_share:
         return {"role": "share", "identity": identity.share_identity}
     db = request.app.state.db
