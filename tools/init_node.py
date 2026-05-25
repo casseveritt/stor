@@ -26,6 +26,10 @@ def main() -> None:
     parser.add_argument("--address", required=True, help="Public node address (e.g. https://node.example.com)")
     parser.add_argument("--watermark", action="store_true", help="Enable watermarking")
     parser.add_argument("--key-stdin", action="store_true", help="Read passphrase from stdin (no confirmation)")
+    parser.add_argument("--google-client-id", default=os.environ.get("CONTAC_GOOGLE_CLIENT_ID", ""),
+                        help="Google OAuth2 client ID for SSO (env: CONTAC_GOOGLE_CLIENT_ID)")
+    parser.add_argument("--google-client-secret", default=os.environ.get("CONTAC_GOOGLE_CLIENT_SECRET", ""),
+                        help="Google OAuth2 client secret for SSO (env: CONTAC_GOOGLE_CLIENT_SECRET)")
     args = parser.parse_args()
 
     store_path = Path(args.store)
@@ -77,12 +81,18 @@ def main() -> None:
         "encrypted_private_key": base64.b64encode(encrypted_privkey).decode(),
         "watermark_enabled": args.watermark,
     }
+    if args.google_client_id:
+        config["sso_google_client_id"] = args.google_client_id
+    if args.google_client_secret:
+        config["sso_google_client_secret"] = args.google_client_secret
     config_path.write_text(json.dumps(config, indent=2))
 
     pub_bytes = private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
     print(f"Node initialized at {store_path}")
     print(f"Config:     {config_path}")
     print(f"Public key: {base64.b64encode(pub_bytes).decode()}")
+    if args.google_client_id:
+        print("Google SSO: configured")
 
 
 if __name__ == "__main__":
