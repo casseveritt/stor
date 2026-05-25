@@ -72,6 +72,18 @@ def create_app(config_path: str | Path) -> FastAPI:
         _sessions[session_token] = time.time() + SESSION_TTL
         return {"token": session_token}
 
+    @app.get("/client/login-url")
+    async def client_login_url(request: Request):
+        base = str(request.base_url).rstrip("/")
+        return_to = base + "/auth/callback"
+        server_login = (config.own_server + "/auth/login?provider=google&return_to="
+                        + return_to)
+        async with httpx.AsyncClient() as hc:
+            r = await hc.get(server_login)
+        if not r.is_success:
+            raise HTTPException(status_code=502, detail="Server login unavailable")
+        return {"auth_url": r.json()["auth_url"]}
+
     def _require_client_auth(request: Request):
         auth = request.headers.get("Authorization", "")
         # fall back to query param so <img src> and <video src> requests work
@@ -114,18 +126,6 @@ def create_app(config_path: str | Path) -> FastAPI:
         }
 
     # ── auth ──────────────────────────────────────────────────────────────
-
-    @api.get("/auth/login-url")
-    async def api_login_url(request: Request):
-        base = str(request.base_url).rstrip("/")
-        return_to = base + "/auth/callback"
-        server_login = (config.own_server + "/auth/login?provider=google&return_to="
-                        + return_to)
-        async with httpx.AsyncClient() as hc:
-            r = await hc.get(server_login)
-        if not r.is_success:
-            raise HTTPException(status_code=502, detail="Server login unavailable")
-        return {"auth_url": r.json()["auth_url"]}
 
     class TokenBody(BaseModel):
         token: str

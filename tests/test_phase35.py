@@ -280,7 +280,7 @@ class TestClientApp:
         mock_hc.__aexit__ = AsyncMock(return_value=None)
 
         with patch("client.main.httpx.AsyncClient", return_value=mock_hc):
-            r = client.get("/api/auth/login-url", headers=auth)
+            r = client.get("/client/login-url")
 
         assert r.status_code == 200
         data = r.json()
