@@ -72,6 +72,15 @@ class TestClientApiAuth:
         r = locked_client.get("/api/config", headers={"Authorization": token})
         assert r.status_code == 401
 
+    def test_client_token_query_param_accepted(self, locked_client):
+        token = locked_client.post("/client/login", json={"passphrase": "s3cr3t"}).json()["token"]
+        r = locked_client.get(f"/api/config?client_token={token}")
+        assert r.status_code == 200
+
+    def test_bad_client_token_query_param_returns_401(self, locked_client):
+        r = locked_client.get("/api/config?client_token=notavalidtoken")
+        assert r.status_code == 401
+
     def test_no_passphrase_allows_api_without_token(self, tmp_path):
         from client.config import ClientConfig
         from client.main import create_app
