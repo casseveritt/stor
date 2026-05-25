@@ -25,6 +25,7 @@ def main() -> None:
     parser.add_argument("--store", required=True, help="Path to the store directory")
     parser.add_argument("--address", required=True, help="Public node address (e.g. https://node.example.com)")
     parser.add_argument("--watermark", action="store_true", help="Enable watermarking")
+    parser.add_argument("--key-stdin", action="store_true", help="Read passphrase from stdin (no confirmation)")
     args = parser.parse_args()
 
     store_path = Path(args.store)
@@ -37,11 +38,17 @@ def main() -> None:
     store_path.mkdir(parents=True, exist_ok=True)
     (store_path / "files").mkdir(exist_ok=True)
 
-    passphrase = getpass.getpass("Choose passphrase: ")
-    confirm = getpass.getpass("Confirm passphrase: ")
-    if passphrase != confirm:
-        print("Passphrases do not match.")
-        sys.exit(1)
+    env = os.environ.get("CONTAC_PASSPHRASE")
+    if env:
+        passphrase = env
+    elif args.key_stdin:
+        passphrase = sys.stdin.readline().rstrip("\n")
+    else:
+        passphrase = getpass.getpass("Choose passphrase: ")
+        confirm = getpass.getpass("Confirm passphrase: ")
+        if passphrase != confirm:
+            print("Passphrases do not match.")
+            sys.exit(1)
 
     salt = os.urandom(16)
     print("Deriving keys (this may take a moment)...")

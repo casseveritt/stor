@@ -105,6 +105,7 @@ def main() -> None:
     parser.add_argument("--key-stdin", action="store_true", help="Read passphrase from stdin")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--print-token", action="store_true", help="Print an owner token to stdout before serving")
     args = parser.parse_args()
 
     passphrase = _get_passphrase(args.key_stdin)
@@ -113,6 +114,10 @@ def main() -> None:
     except WrongPassphraseError as e:
         log.error("Startup failed: %s", e)
         sys.exit(1)
+
+    if args.print_token:
+        token = auth_module.issue_token(ttl_seconds=86400 * 30)
+        print(f"Owner token: {token}", flush=True)
 
     uvicorn.run(app, host=args.host, port=args.port)
 
