@@ -2,9 +2,8 @@
 import base64
 import json
 import time
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Query, Request
 
 from .auth import AuthDep
 
@@ -25,16 +24,15 @@ def _decode_cursor(cursor: str | None) -> int | None:
 
 
 def _encode_cursor(rowid: int) -> str:
-    raw = base64.urlsafe_b64encode(json.dumps(rowid).encode()).rstrip(b"=")
-    return raw.decode()
+    return base64.urlsafe_b64encode(json.dumps(rowid).encode()).rstrip(b"=").decode()
 
 
 @router.get("/feed")
 def query_feed(
     request: Request,
-    _auth: AuthDep,
-    since: float | None = Query(default=None, description="Start of time window (Unix timestamp, inclusive)"),
-    until: float | None = Query(default=None, description="End of time window (Unix timestamp, inclusive)"),
+    identity: AuthDep,
+    since: float | None = Query(default=None),
+    until: float | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=_PAGE_MAX),
     cursor: str | None = Query(default=None),
     include_superseded: bool = Query(default=False),
@@ -57,8 +55,14 @@ def query_feed(
         conditions.append("rowid < ?")
         params.append(last_rowid)
 
-    where = " AND ".join(conditions)
+    if not identity.is_owner:
+        conditions.append(
+            "EXISTS (SELECT 1 FROM acl WHERE asset_id = assets.id AND recipient_id = ?)"
+        )
+        params.append(identity.recipient_id)
+
     params.append(limit + 1)
+    where = " AND ".join(conditions)
 
     rows = db.execute(
         f"""
@@ -75,26 +79,27 @@ def query_feed(
     has_more = len(rows) > limit
     rows = rows[:limit]
 
-    assets = []
-    for row in rows:
-        rowid, asset_id, content_hash, media_type, size, created_at, title, tags_json, predecessor, successor = row
-        assets.append({
-            "id": asset_id,
-            "node": str(request.base_url).rstrip("/"),
-            "content_hash": content_hash,
-            "media_type": media_type,
-            "size": size,
-            "created_at": created_at,
-            "title": title,
-            "tags": json.loads(tags_json) if tags_json else [],
-            "predecessor": predecessor,
-            "successor": successor,
-        })
+    node_url = str(request.base_url).rstrip("/")
+    assets = [
+        {
+            "id": row[1],
+            "node": node_url,
+            "content_hash": row[2],
+            "media_type": row[3],
+            "size": row[4],
+            "created_at": row[5],
+            "title": row[6],
+            "tags": json.loads(row[7]) if row[7] else [],
+            "predecessor": row[8],
+            "successor": row[9],
+        }
+        for row in rows
+    ]
 
     next_cursor = _encode_cursor(rows[-1][0]) if has_more and rows else None
 
     return {
-        "node": str(request.base_url).rstrip("/"),
+        "node": node_url,
         "since": since,
         "until": until_ts,
         "include_superseded": include_superseded,

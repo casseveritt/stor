@@ -28,10 +28,32 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             size         INTEGER NOT NULL,
             created_at   REAL NOT NULL,
             title        TEXT,
-            tags         TEXT,        -- JSON array of strings
-            predecessor  TEXT,        -- asset id this supersedes
-            successor    TEXT         -- asset id that supersedes this one
+            tags         TEXT,
+            predecessor  TEXT,
+            successor    TEXT
         )
     """)
-    con.execute("INSERT OR IGNORE INTO schema_version VALUES (2)")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS recipients (
+            id           TEXT PRIMARY KEY,
+            identity     TEXT NOT NULL UNIQUE,
+            display_name TEXT
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS acl (
+            asset_id     TEXT NOT NULL,
+            recipient_id TEXT NOT NULL,
+            PRIMARY KEY (asset_id, recipient_id)
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS tokens (
+            id           TEXT PRIMARY KEY,
+            recipient_id TEXT,
+            expiry       REAL NOT NULL,
+            revoked      INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    con.execute("INSERT OR IGNORE INTO schema_version VALUES (3)")
     con.commit()

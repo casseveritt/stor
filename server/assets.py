@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
-from .auth import AuthDep
+from .auth import AuthDep, check_acl
 from .crypto import decrypt_bytes
 
 router = APIRouter(prefix="/assets")
@@ -44,20 +44,29 @@ def _read_content(store_path: Path, content_hash: str, file_key: bytes) -> bytes
     return decrypt_bytes(file_path.read_bytes(), file_key)
 
 
+def _require_acl(db, asset_id: str, identity):
+    if not check_acl(db, asset_id, identity):
+        raise HTTPException(status_code=403, detail="Access denied")
+
+
 @router.get("/{asset_id}/meta")
-def fetch_asset_meta(asset_id: str, request: Request, _auth: AuthDep):
-    asset = _get_asset_row(request.app.state.db, asset_id)
+def fetch_asset_meta(asset_id: str, request: Request, identity: AuthDep):
+    db = request.app.state.db
+    asset = _get_asset_row(db, asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
+    _require_acl(db, asset_id, identity)
     asset["node"] = str(request.base_url).rstrip("/")
     return asset
 
 
 @router.get("/{asset_id}/thumb")
-def fetch_thumbnail(asset_id: str, request: Request, _auth: AuthDep):
-    asset = _get_asset_row(request.app.state.db, asset_id)
+def fetch_thumbnail(asset_id: str, request: Request, identity: AuthDep):
+    db = request.app.state.db
+    asset = _get_asset_row(db, asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
+    _require_acl(db, asset_id, identity)
 
     if not asset["media_type"].startswith("image/"):
         raise HTTPException(status_code=415, detail="Thumbnail not available for this media type")
@@ -84,10 +93,12 @@ def fetch_thumbnail(asset_id: str, request: Request, _auth: AuthDep):
 
 
 @router.get("/{asset_id}")
-def fetch_asset(asset_id: str, request: Request, _auth: AuthDep):
-    asset = _get_asset_row(request.app.state.db, asset_id)
+def fetch_asset(asset_id: str, request: Request, identity: AuthDep):
+    db = request.app.state.db
+    asset = _get_asset_row(db, asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
+    _require_acl(db, asset_id, identity)
 
     try:
         content = _read_content(
