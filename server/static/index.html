@@ -41,42 +41,55 @@
     #clear-tags-btn { font-size: 0.75rem; color: #4285f4; background: none; border: none; cursor: pointer; padding: 0.2rem 0.5rem; text-align: left; }
     #clear-tags-btn:hover { text-decoration: underline; }
 
-    /* ── main grid area ── */
+    /* ── timeline ── */
     #main-area { flex: 1; overflow-y: auto; padding: 1rem; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(165px, 1fr)); gap: 0.7rem; }
-    .card { background: #1e1e1e; border-radius: 6px; overflow: hidden; cursor: pointer; transition: transform 0.12s, box-shadow 0.12s; }
-    .card:hover { transform: scale(1.03); box-shadow: 0 4px 16px rgba(0,0,0,0.4); }
-    .card.active-card { outline: 2px solid #4285f4; outline-offset: -2px; }
-    .card-thumb { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; background: #242424; }
-    .card-thumb.loading { animation: pulse 1.4s ease-in-out infinite; }
-    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
-    .card-icon { width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; font-size: 2.5rem; background: #242424; }
-    .card-info { padding: 0.35rem 0.45rem; font-size: 0.76rem; color: #888; }
-    .card-title { color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    #feed-status { font-size: 0.8rem; color: #555; margin-bottom: 0.5rem; }
-    .more-row { text-align: center; padding: 1rem; }
+    #timeline { max-width: 680px; margin: 0 auto; display: flex; flex-direction: column; gap: 0.75rem; }
+    #feed-status { font-size: 0.8rem; color: #555; margin-bottom: 0.5rem; max-width: 680px; margin-left: auto; margin-right: auto; }
+    .more-row { text-align: center; padding: 1rem; max-width: 680px; margin: 0 auto; }
     .empty { color: #555; text-align: center; padding: 3rem; }
     .empty-icon { font-size: 2.5rem; margin-bottom: 0.5rem; }
+
+    /* ── post card ── */
+    .post-card { background: #1e1e1e; border-radius: 8px; padding: 1rem; cursor: pointer; transition: background 0.1s; border: 2px solid transparent; }
+    .post-card:hover { background: #232323; }
+    .post-card.active-card { border-color: #4285f4; }
+    .post-body-preview { font-size: 0.92rem; color: #ccc; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
+      display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+    .post-body-preview.text-only { -webkit-line-clamp: 6; }
+    .post-thumbs { display: flex; gap: 4px; margin-top: 0.6rem; overflow-x: auto; padding-bottom: 2px; }
+    .post-thumb { width: 100px; height: 100px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: #2a2a2a; }
+    .post-thumb-icon { width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; font-size: 2rem; background: #2a2a2a; border-radius: 4px; flex-shrink: 0; }
+    .post-thumb.loading { animation: pulse 1.4s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .post-foot { margin-top: 0.6rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: 0.76rem; color: #555; }
+    .post-date { flex-shrink: 0; }
+    .post-comment-count { flex-shrink: 0; }
 
     /* ── drag highlight ── */
     body.drag-active #main-area { outline: 2px dashed #4285f4; outline-offset: -8px; border-radius: 6px; }
 
     /* ── overlays ── */
     .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88); display: flex; align-items: center; justify-content: center; z-index: 50; }
-    .modal { background: #1e1e1e; border-radius: 8px; max-width: min(90vw, 960px); max-height: 90vh; overflow: auto; padding: 1.25rem; position: relative; }
+    .modal { background: #1e1e1e; border-radius: 8px; max-width: min(90vw, 720px); width: 100%; max-height: 90vh; overflow: auto; padding: 1.25rem; position: relative; }
     .modal-close { position: absolute; top: 0.6rem; right: 0.75rem; background: none; border: none; color: #aaa; font-size: 1.4rem; cursor: pointer; line-height: 1; }
     .modal-close:hover { color: #fff; }
     .modal h3 { color: #fff; margin-bottom: 1rem; font-weight: 400; }
 
     /* ── detail ── */
-    #detail-modal img { max-width: 100%; max-height: 56vh; display: block; border-radius: 4px; }
-    .modal-meta { margin-top: 0.75rem; font-size: 0.85rem; color: #999; }
-    .modal-title { font-size: 1.1rem; color: #e0e0e0; margin-bottom: 0.4rem; }
-    .modal-actions { margin-top: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
     .modal-nav { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(0,0,0,0.5); border: none; color: #aaa; font-size: 1.8rem; cursor: pointer; padding: 0.5rem 0.7rem; border-radius: 4px; line-height: 1; }
     .modal-nav:hover { color: #fff; background: rgba(0,0,0,0.75); }
     #nav-prev { left: -3rem; }
     #nav-next { right: -3rem; }
+
+    /* ── post detail body ── */
+    .post-detail-body { font-size: 0.95rem; color: #ddd; line-height: 1.65; white-space: pre-wrap; word-break: break-word; }
+    .post-detail-body .asset-block { display: block; margin: 0.75rem 0; white-space: normal; }
+    .post-detail-body .asset-block img { max-width: 100%; border-radius: 6px; display: block; }
+    .post-detail-body .asset-block video { max-width: 100%; border-radius: 6px; display: block; }
+    .post-detail-body .asset-block .asset-file { display: inline-flex; align-items: center; gap: 0.5rem; background: #2a2a2a; padding: 0.4rem 0.75rem; border-radius: 4px; font-size: 0.85rem; color: #aaa; text-decoration: none; }
+    .post-detail-body .asset-block .asset-file:hover { background: #333; color: #eee; }
+    .modal-meta { margin-top: 0.75rem; font-size: 0.85rem; color: #888; }
+    .modal-actions { margin-top: 0.75rem; display: flex; gap: 0.5rem; flex-wrap: wrap; align-items: center; }
     .tag-chip { display: inline-block; background: #2a2a2a; color: #aaa; padding: 2px 9px; border-radius: 12px; font-size: 0.75rem; margin: 2px; cursor: pointer; border: none; }
     .tag-chip:hover { background: #1e2d4a; color: #6aa3f5; }
     .tag-chip.active { background: #1e2d4a; color: #6aa3f5; }
@@ -98,14 +111,16 @@
     .comment-form textarea:focus { border-color: #4285f4; }
     .comment-form-footer { display: flex; justify-content: flex-end; margin-top: 0.4rem; }
 
-    /* ── upload ── */
-    #upload-modal { min-width: min(90vw, 420px); }
-    .drop-zone { border: 2px dashed #444; border-radius: 6px; padding: 2rem 1rem; text-align: center; cursor: pointer; color: #777; transition: border-color 0.15s; }
+    /* ── compose / post modal ── */
+    #compose-modal { min-width: min(90vw, 560px); }
+    #compose-body { background: #222; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; padding: 0.6rem; width: 100%; font-size: 0.95rem; resize: vertical; min-height: 100px; outline: none; font-family: inherit; margin-bottom: 0.75rem; }
+    #compose-body:focus { border-color: #4285f4; }
+    .drop-zone { border: 2px dashed #444; border-radius: 6px; padding: 1.25rem 1rem; text-align: center; cursor: pointer; color: #777; transition: border-color 0.15s; }
     .drop-zone:hover, .drop-zone.over { border-color: #4285f4; color: #aaa; }
-    .drop-zone-icon { font-size: 2rem; margin-bottom: 0.4rem; }
-    .file-list { margin: 0.75rem 0; max-height: 120px; overflow-y: auto; }
+    .drop-zone-icon { font-size: 1.5rem; margin-bottom: 0.25rem; }
+    .file-list { margin: 0.6rem 0; max-height: 100px; overflow-y: auto; }
     .file-item { font-size: 0.82rem; padding: 0.2rem 0; color: #aaa; display: flex; justify-content: space-between; }
-    .upload-fields { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.75rem 0; }
+    .compose-fields { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.6rem 0; }
     .upload-progress { font-size: 0.85rem; color: #aaa; min-height: 1.4em; margin: 0.5rem 0; }
     .progress-item { padding: 0.15rem 0; }
     .progress-ok { color: #6cbe6c; }
@@ -155,10 +170,10 @@
       <span id="identity-badge"></span>
     </div>
     <div id="search-wrap">
-      <input type="text" id="search-input" placeholder="Search titles…" oninput="scheduleSearch(this.value)">
+      <input type="text" id="search-input" placeholder="Search posts…" oninput="scheduleSearch(this.value)">
     </div>
     <div class="header-right">
-      <button id="upload-btn" class="btn btn-primary btn-sm" onclick="openUpload()" hidden>+ Upload</button>
+      <button id="compose-btn" class="btn btn-primary btn-sm" onclick="openCompose()" hidden>+ Post</button>
       <button class="btn btn-muted btn-sm" onclick="logout()">Sign out</button>
     </div>
   </header>
@@ -171,10 +186,10 @@
     </nav>
     <div id="main-area">
       <div id="feed-status"></div>
-      <div id="grid" class="grid"></div>
+      <div id="timeline"></div>
       <div id="empty-msg" class="empty" hidden>
-        <div class="empty-icon">&#x1F4C2;</div>
-        <div>No assets found.</div>
+        <div class="empty-icon">&#x1F4DD;</div>
+        <div>No posts yet.</div>
       </div>
       <div class="more-row">
         <button id="load-more-btn" class="btn btn-muted" onclick="loadMore()" hidden>Load more</button>
@@ -187,33 +202,33 @@
 <div id="detail-overlay" class="overlay" hidden onclick="maybeClose('detail-overlay',event)">
   <div class="modal" id="detail-modal">
     <button class="modal-close" onclick="closeDetail()">&#x2715;</button>
-    <button class="modal-nav" id="nav-prev" onclick="navigateAsset(-1)" title="Previous (←)">&#x2039;</button>
-    <button class="modal-nav" id="nav-next" onclick="navigateAsset(1)"  title="Next (→)">&#x203A;</button>
+    <button class="modal-nav" id="nav-prev" onclick="navigatePost(-1)" title="Previous (←)">&#x2039;</button>
+    <button class="modal-nav" id="nav-next" onclick="navigatePost(1)"  title="Next (→)">&#x203A;</button>
     <div id="detail-body"></div>
   </div>
 </div>
 
-<!-- ── upload modal ───────────────────────────────────────────────────────── -->
-<div id="upload-overlay" class="overlay" hidden onclick="maybeClose('upload-overlay',event)">
-  <div class="modal" id="upload-modal">
-    <button class="modal-close" onclick="closeUpload()">&#x2715;</button>
-    <h3>Upload files</h3>
+<!-- ── compose modal ──────────────────────────────────────────────────────── -->
+<div id="compose-overlay" class="overlay" hidden onclick="maybeClose('compose-overlay',event)">
+  <div class="modal" id="compose-modal">
+    <button class="modal-close" onclick="closeCompose()">&#x2715;</button>
+    <h3>New post</h3>
+    <textarea id="compose-body" placeholder="What's on your mind?"></textarea>
     <div class="drop-zone" id="drop-zone"
          onclick="document.getElementById('file-picker').click()"
          ondragover="dzOver(event)" ondragleave="dzOut(event)" ondrop="dzDrop(event)">
-      <div class="drop-zone-icon">&#x2B06;</div>
-      <div>Click to browse or drag files here</div>
+      <div class="drop-zone-icon">&#x1F4CE;</div>
+      <div>Attach files — click or drag here</div>
     </div>
     <input type="file" id="file-picker" multiple hidden onchange="pickFiles(this.files);this.value=''">
     <div class="file-list" id="file-list"></div>
-    <div class="upload-fields">
-      <input type="text" id="upload-title" placeholder="Title (defaults to filename)">
-      <input type="text" id="upload-tags" placeholder="Tags — space-separated">
+    <div class="compose-fields">
+      <input type="text" id="compose-tags" placeholder="Tags — space-separated">
     </div>
-    <div class="upload-progress" id="upload-progress"></div>
+    <div class="upload-progress" id="compose-progress"></div>
     <div style="display:flex;gap:0.5rem;justify-content:flex-end">
-      <button class="btn btn-muted" onclick="closeUpload()">Cancel</button>
-      <button class="btn btn-primary" id="upload-submit" onclick="startUpload()">Upload</button>
+      <button class="btn btn-muted" onclick="closeCompose()">Cancel</button>
+      <button class="btn btn-primary" id="compose-submit" onclick="submitPost()">Post</button>
     </div>
   </div>
 </div>
@@ -223,13 +238,12 @@
 let TOKEN = null, IS_OWNER = false;
 let nextCursor = null, currentSearch = null, searchTimer = null;
 let activeTags = new Set();
-let allAssets = [];      // flat list of loaded assets for keyboard nav
-let currentIdx = -1;     // index in allAssets of the open detail
+let allPosts = [];      // flat list for keyboard nav
+let currentIdx = -1;
 let pendingFiles = [];
 
 // ── auth ───────────────────────────────────────────────────────────────────
 function authHeaders() { return {"Authorization": "Bearer " + TOKEN}; }
-
 function storeToken(t) { TOKEN = t; localStorage.setItem("contac_token", t); }
 
 function logout() {
@@ -258,10 +272,9 @@ async function loadIdentity() {
   if (!r.ok) return;
   const d = await r.json();
   IS_OWNER = d.role === "owner";
-  document.getElementById("upload-btn").hidden = !IS_OWNER;
+  document.getElementById("compose-btn").hidden = !IS_OWNER;
   const badge = document.getElementById("identity-badge");
-  if (d.role === "owner") badge.textContent = "owner";
-  else if (d.identity) badge.textContent = d.display_name || d.identity;
+  badge.textContent = d.role === "owner" ? "owner" : (d.display_name || d.identity || "");
 }
 
 // ── views ──────────────────────────────────────────────────────────────────
@@ -290,20 +303,17 @@ async function loadTagSidebar() {
 }
 
 function toggleTag(tag) {
-  if (activeTags.has(tag)) activeTags.delete(tag);
-  else activeTags.add(tag);
+  if (activeTags.has(tag)) activeTags.delete(tag); else activeTags.add(tag);
   document.getElementById("clear-tags-btn").hidden = activeTags.size === 0;
   updateTagButtons();
   resetFeed();
 }
-
 function updateTagButtons() {
   document.querySelectorAll(".tag-btn").forEach(btn => {
     const tag = btn.querySelector("span:first-child").textContent;
     btn.classList.toggle("active", activeTags.has(tag));
   });
 }
-
 function clearTagFilter() {
   activeTags.clear();
   document.getElementById("clear-tags-btn").hidden = true;
@@ -327,17 +337,15 @@ async function tryLoadFeed() {
 }
 
 async function resetFeed() {
-  nextCursor = null;
-  allAssets = [];
-  currentIdx = -1;
-  document.getElementById("grid").innerHTML = "";
+  nextCursor = null; allPosts = []; currentIdx = -1;
+  document.getElementById("timeline").innerHTML = "";
   document.getElementById("empty-msg").hidden = true;
   document.getElementById("feed-status").textContent = "";
   return await loadMore();
 }
 
 async function loadMore() {
-  let url = "/feed?limit=50";
+  let url = "/posts?limit=20";
   if (nextCursor) url += "&cursor=" + encodeURIComponent(nextCursor);
   if (currentSearch) url += "&q=" + encodeURIComponent(currentSearch);
   for (const t of activeTags) url += "&tags=" + encodeURIComponent(t);
@@ -345,119 +353,159 @@ async function loadMore() {
   if (r.status === 401) { logout(); return false; }
   if (!r.ok) return false;
   const data = await r.json();
-  const grid = document.getElementById("grid");
-  for (const asset of data.assets) {
-    allAssets.push(asset);
-    grid.appendChild(makeCard(asset, allAssets.length - 1));
+  const timeline = document.getElementById("timeline");
+  for (const post of data.posts) {
+    allPosts.push(post);
+    timeline.appendChild(makePostCard(post, allPosts.length - 1));
   }
   nextCursor = data.next_cursor || null;
   document.getElementById("load-more-btn").hidden = !nextCursor;
-  const n = allAssets.length;
-  document.getElementById("feed-status").textContent = n ? n + (nextCursor ? "+" : "") + " asset" + (n !== 1 ? "s" : "") : "";
+  const n = allPosts.length;
+  document.getElementById("feed-status").textContent = n ? n + (nextCursor ? "+" : "") + " post" + (n !== 1 ? "s" : "") : "";
   document.getElementById("empty-msg").hidden = n > 0;
   return true;
 }
 
-function thumbSrc(id) { return "/assets/" + id + "/thumb?token=" + encodeURIComponent(TOKEN); }
-
-function makeCard(asset, idx) {
+function makePostCard(post, idx) {
   const div = document.createElement("div");
-  div.className = "card";
+  div.className = "post-card";
   div.dataset.idx = idx;
   div.onclick = () => openDetail(idx);
-  const isImg = (asset.media_type || "").startsWith("image/");
-  if (isImg) {
-    const img = document.createElement("img");
-    img.className = "card-thumb loading";
-    img.onload  = () => img.classList.remove("loading");
-    img.onerror = () => img.classList.remove("loading");
-    img.alt = "";
-    img.loading = "lazy";
-    img.src = thumbSrc(asset.id);
-    div.appendChild(img);
-  } else {
-    const ic = document.createElement("div");
-    ic.className = "card-icon";
-    ic.textContent = mimeIcon(asset.media_type);
-    div.appendChild(ic);
-  }
-  const info = document.createElement("div");
-  info.className = "card-info";
-  info.innerHTML = '<div class="card-title">' + esc(asset.title || asset.id) + '</div>'
-    + '<div style="font-size:0.72rem">' + esc(asset.media_type || "") + '</div>';
-  div.appendChild(info);
-  return div;
-}
 
-function highlightCard(idx) {
-  document.querySelectorAll(".card.active-card").forEach(c => c.classList.remove("active-card"));
-  const card = document.querySelector(".card[data-idx='" + idx + "']");
-  if (card) card.classList.add("active-card");
+  // body preview — strip [asset:uuid] refs
+  const previewText = (post.body || "").replace(/\[asset:[0-9a-f-]+\]/g, "").trim();
+  const hasOnlyRefs = !previewText && post.assets && post.assets.length;
+  if (previewText) {
+    const p = document.createElement("div");
+    p.className = "post-body-preview" + (post.assets && post.assets.length ? "" : " text-only");
+    p.textContent = previewText;
+    div.appendChild(p);
+  }
+
+  // thumbnail strip
+  if (post.assets && post.assets.length) {
+    const strip = document.createElement("div");
+    strip.className = "post-thumbs";
+    for (const asset of post.assets) {
+      if ((asset.media_type || "").startsWith("image/")) {
+        const img = document.createElement("img");
+        img.className = "post-thumb loading";
+        img.onload = img.onerror = () => img.classList.remove("loading");
+        img.alt = ""; img.loading = "lazy";
+        img.src = "/assets/" + asset.id + "/thumb?token=" + encodeURIComponent(TOKEN);
+        strip.appendChild(img);
+      } else {
+        const ic = document.createElement("div");
+        ic.className = "post-thumb-icon";
+        ic.textContent = mimeIcon(asset.media_type);
+        strip.appendChild(ic);
+      }
+    }
+    div.appendChild(strip);
+  }
+
+  // footer: tags + date + comment count
+  const foot = document.createElement("div");
+  foot.className = "post-foot";
+  const tagHtml = (post.tags || []).map(t =>
+    '<span class="tag-chip' + (activeTags.has(t) ? " active" : "") + '">' + esc(t) + '</span>'
+  ).join("");
+  const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleDateString() : "";
+  const cc = post.comment_count || 0;
+  foot.innerHTML = tagHtml
+    + '<span class="post-date" style="margin-left:auto">' + dateFmt + '</span>'
+    + (cc ? '<span class="post-comment-count">&#x1F4AC; ' + cc + '</span>' : '');
+  div.appendChild(foot);
+  return div;
 }
 
 // ── keyboard navigation ────────────────────────────────────────────────────
 document.addEventListener("keydown", e => {
-  if (document.getElementById("upload-overlay") && !document.getElementById("upload-overlay").hidden) return;
-  if (!document.getElementById("detail-overlay") || document.getElementById("detail-overlay").hidden) return;
+  if (!document.getElementById("compose-overlay").hidden) return;
+  if (document.getElementById("detail-overlay").hidden) return;
   if (e.key === "Escape") { closeDetail(); return; }
-  if (e.key === "ArrowLeft"  || e.key === "ArrowUp")   { e.preventDefault(); navigateAsset(-1); }
-  if (e.key === "ArrowRight" || e.key === "ArrowDown")  { e.preventDefault(); navigateAsset(1);  }
+  if (e.key === "ArrowLeft"  || e.key === "ArrowUp")   { e.preventDefault(); navigatePost(-1); }
+  if (e.key === "ArrowRight" || e.key === "ArrowDown")  { e.preventDefault(); navigatePost(1);  }
 });
 
-function navigateAsset(delta) {
+function navigatePost(delta) {
   const next = currentIdx + delta;
-  if (next < 0 || next >= allAssets.length) return;
+  if (next < 0 || next >= allPosts.length) return;
   openDetail(next);
-  // Load more if near end
-  if (next >= allAssets.length - 3 && nextCursor) loadMore();
+  if (next >= allPosts.length - 3 && nextCursor) loadMore();
+}
+
+function highlightCard(idx) {
+  document.querySelectorAll(".post-card.active-card").forEach(c => c.classList.remove("active-card"));
+  const card = document.querySelector(".post-card[data-idx='" + idx + "']");
+  if (card) card.classList.add("active-card");
 }
 
 // ── detail modal ───────────────────────────────────────────────────────────
-let currentAssetId = null, replyToId = null;
+let currentPostId = null, replyToId = null;
 
 function openDetail(idx) {
   currentIdx = idx;
-  const asset = allAssets[idx];
-  currentAssetId = asset.id;
+  const post = allPosts[idx];
+  currentPostId = post.id;
   replyToId = null;
   highlightCard(idx);
 
   const body = document.getElementById("detail-body");
-  const isImg = (asset.media_type || "").startsWith("image/");
-  const assetUrl = "/assets/" + asset.id + "?token=" + encodeURIComponent(TOKEN);
-  const tagHtml = (asset.tags || []).map(t =>
+
+  // build asset lookup for body rendering
+  const assetMap = {};
+  for (const a of (post.assets || [])) assetMap[a.id] = a;
+
+  // render body: split on [asset:uuid] refs
+  const parts = (post.body || "").split(/(\[asset:[0-9a-f-]+\])/);
+  let rendered = "";
+  for (const part of parts) {
+    const m = part.match(/^\[asset:([0-9a-f-]+)\]$/);
+    if (m) {
+      const aid = m[1];
+      const a = assetMap[aid];
+      const url = "/assets/" + aid + "?token=" + encodeURIComponent(TOKEN);
+      if (a && (a.media_type || "").startsWith("image/")) {
+        rendered += '<span class="asset-block"><img src="' + url + '" alt=""></span>';
+      } else if (a && (a.media_type || "").startsWith("video/")) {
+        rendered += '<span class="asset-block"><video src="' + url + '" controls></video></span>';
+      } else {
+        const label = (a && a.title) ? a.title : aid.slice(0, 8) + "…";
+        rendered += '<span class="asset-block"><a class="asset-file" href="' + url + '" download>' + mimeIcon(a && a.media_type) + ' ' + esc(label) + '</a></span>';
+      }
+    } else {
+      rendered += esc(part);
+    }
+  }
+
+  const tagHtml = (post.tags || []).map(t =>
     '<button class="tag-chip' + (activeTags.has(t) ? " active" : "") + '" onclick="filterByTag(\'' + esc(t) + '\')">' + esc(t) + '</button>'
   ).join("");
-  const dateFmt = asset.created_at ? new Date(asset.created_at * 1000).toLocaleDateString() : "";
+  const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleString(undefined, {dateStyle:"short",timeStyle:"short"}) : "";
 
-  body.innerHTML = (isImg
-    ? '<img src="' + assetUrl + '" alt="' + esc(asset.title || "") + '">'
-    : '<div style="font-size:4rem;text-align:center;padding:2rem">' + mimeIcon(asset.media_type) + '</div>')
+  body.innerHTML = '<div class="post-detail-body">' + rendered + '</div>'
     + '<div class="modal-meta">'
-    + '<div class="modal-title">' + esc(asset.title || asset.id) + '</div>'
-    + '<div>' + esc(asset.media_type || "") + (dateFmt ? ' &middot; ' + dateFmt : '') + '</div>'
     + (tagHtml ? '<div style="margin-top:0.4rem">' + tagHtml + '</div>' : '')
-    + '</div>'
-    + '<div class="modal-actions">'
-    + '<a class="btn btn-muted btn-sm" href="' + assetUrl + '" download="' + esc(asset.title || asset.id) + '">Download</a>'
+    + '<div style="margin-top:0.4rem">' + dateFmt + '</div>'
     + '</div>'
     + '<div id="comments-section" class="comments"><div class="comments-header" style="color:#555">Loading…</div></div>';
 
   document.getElementById("nav-prev").hidden = idx <= 0;
-  document.getElementById("nav-next").hidden = idx >= allAssets.length - 1;
+  document.getElementById("nav-next").hidden = idx >= allPosts.length - 1;
   document.getElementById("detail-overlay").hidden = false;
-  loadComments(asset.id);
+  loadComments(post.id);
 }
 
 function closeDetail() {
   document.getElementById("detail-overlay").hidden = true;
   highlightCard(-1);
-  currentAssetId = null; replyToId = null;
+  currentPostId = null; replyToId = null;
 }
 
 function filterByTag(tag) {
   closeDetail();
-  if (activeTags.has(tag)) return; // already active, just close
+  if (activeTags.has(tag)) return;
   activeTags.add(tag);
   document.getElementById("clear-tags-btn").hidden = false;
   updateTagButtons();
@@ -465,15 +513,15 @@ function filterByTag(tag) {
 }
 
 // ── comments ───────────────────────────────────────────────────────────────
-async function loadComments(assetId) {
-  const r = await fetch("/assets/" + assetId + "/comments", {headers: authHeaders()});
+async function loadComments(postId) {
+  const r = await fetch("/posts/" + postId + "/comments", {headers: authHeaders()});
   const section = document.getElementById("comments-section");
-  if (!section || currentAssetId !== assetId) return;
+  if (!section || currentPostId !== postId) return;
   if (!r.ok) { section.innerHTML = ""; return; }
-  renderComments(assetId, (await r.json()).comments);
+  renderComments(postId, (await r.json()).comments);
 }
 
-function renderComments(assetId, comments) {
+function renderComments(postId, comments) {
   const section = document.getElementById("comments-section");
   if (!section) return;
   const live = comments.filter(c => !c.deleted);
@@ -515,94 +563,90 @@ function clearReplyTo() { replyToId = null; const b = document.getElementById("r
 async function submitComment() {
   const input = document.getElementById("comment-input");
   const body = input ? input.value.trim() : "";
-  if (!body || !currentAssetId) return;
+  if (!body || !currentPostId) return;
   const payload = {body};
   if (replyToId) payload.parent_id = replyToId;
-  const r = await fetch("/assets/" + currentAssetId + "/comments", {
+  const r = await fetch("/posts/" + currentPostId + "/comments", {
     method: "POST",
     headers: {...authHeaders(), "Content-Type": "application/json"},
     body: JSON.stringify(payload),
   });
-  if (r.ok) { replyToId = null; loadComments(currentAssetId); }
+  if (r.ok) { replyToId = null; loadComments(currentPostId); }
 }
 
-// ── upload ─────────────────────────────────────────────────────────────────
-function openUpload() {
+// ── compose ────────────────────────────────────────────────────────────────
+function openCompose() {
   pendingFiles = []; renderFileList();
-  document.getElementById("upload-title").value = "";
-  document.getElementById("upload-tags").value = "";
-  document.getElementById("upload-progress").innerHTML = "";
-  document.getElementById("upload-submit").disabled = false;
-  document.getElementById("upload-overlay").hidden = false;
+  document.getElementById("compose-body").value = "";
+  document.getElementById("compose-tags").value = "";
+  document.getElementById("compose-progress").innerHTML = "";
+  document.getElementById("compose-submit").disabled = false;
+  document.getElementById("compose-overlay").hidden = false;
+  document.getElementById("compose-body").focus();
 }
-function closeUpload() { document.getElementById("upload-overlay").hidden = true; }
+function closeCompose() { document.getElementById("compose-overlay").hidden = true; }
 function dzOver(e) { e.preventDefault(); document.getElementById("drop-zone").classList.add("over"); }
 function dzOut()   { document.getElementById("drop-zone").classList.remove("over"); }
 function dzDrop(e) { e.preventDefault(); dzOut(); addFiles(e.dataTransfer.files); }
 function pickFiles(files) { addFiles(files); }
-function addFiles(files) {
-  for (const f of files) pendingFiles.push(f);
-  renderFileList();
-  if (pendingFiles.length === 1) document.getElementById("upload-title").value = pendingFiles[0].name.replace(/\.[^/.]+$/, "");
-}
+function addFiles(files) { for (const f of files) pendingFiles.push(f); renderFileList(); }
 function renderFileList() {
   document.getElementById("file-list").innerHTML = pendingFiles.map(f =>
     '<div class="file-item"><span>' + esc(f.name) + '</span><span>' + fmtSize(f.size) + '</span></div>'
   ).join("");
 }
-async function startUpload() {
-  if (!pendingFiles.length) return;
-  const title = document.getElementById("upload-title").value.trim();
-  const tags = document.getElementById("upload-tags").value.trim().split(/\s+/).filter(Boolean);
-  const prog = document.getElementById("upload-progress");
-  document.getElementById("upload-submit").disabled = true;
-  prog.innerHTML = "";
-  let ok = 0;
-  for (const file of pendingFiles) {
-    const fd = new FormData();
-    fd.append("file", file);
-    fd.append("title", title || file.name.replace(/\.[^/.]+$/, ""));
-    if (tags.length) fd.append("tags", JSON.stringify(tags));
-    const line = document.createElement("div");
-    line.className = "progress-item";
-    line.textContent = file.name + " …";
-    prog.appendChild(line);
-    try {
-      const r = await fetch("/assets", {method: "POST", headers: authHeaders(), body: fd});
-      if (r.ok) {
-        const asset = await r.json();
-        prependCard(asset);
-        line.className = "progress-item progress-ok";
-        line.textContent = "✓ " + file.name;
-        ok++;
-      } else { line.className = "progress-item progress-err"; line.textContent = "✗ " + file.name + " (" + r.status + ")"; }
-    } catch { line.className = "progress-item progress-err"; line.textContent = "✗ " + file.name + " (error)"; }
+
+async function submitPost() {
+  const bodyText = document.getElementById("compose-body").value.trim();
+  if (!bodyText && !pendingFiles.length) return;
+  const tags = document.getElementById("compose-tags").value.trim().split(/\s+/).filter(Boolean);
+  const prog = document.getElementById("compose-progress");
+  document.getElementById("compose-submit").disabled = true;
+  prog.innerHTML = '<div class="progress-item">Posting…</div>';
+
+  const fd = new FormData();
+  fd.append("body", bodyText);
+  if (tags.length) fd.append("tags", JSON.stringify(tags));
+  for (const f of pendingFiles) fd.append("files", f);
+
+  try {
+    const r = await fetch("/posts", {method: "POST", headers: authHeaders(), body: fd});
+    if (r.ok) {
+      const post = await r.json();
+      prependPost(post);
+      loadTagSidebar();
+      prog.innerHTML = '<div class="progress-item progress-ok">&#x2713; Posted</div>';
+      pendingFiles = []; renderFileList();
+      setTimeout(closeCompose, 900);
+    } else {
+      prog.innerHTML = '<div class="progress-item progress-err">&#x2717; Error ' + r.status + '</div>';
+      document.getElementById("compose-submit").disabled = false;
+    }
+  } catch {
+    prog.innerHTML = '<div class="progress-item progress-err">&#x2717; Network error</div>';
+    document.getElementById("compose-submit").disabled = false;
   }
-  pendingFiles = []; renderFileList();
-  if (ok > 0) loadTagSidebar();
-  if (ok === pendingFiles.length || (ok > 0 && pendingFiles.length === 0)) setTimeout(closeUpload, 1200);
-  else document.getElementById("upload-submit").disabled = false;
 }
-function prependCard(asset) {
-  allAssets.unshift(asset);
-  // Re-index all existing cards
-  document.querySelectorAll(".card[data-idx]").forEach(c => c.dataset.idx = parseInt(c.dataset.idx) + 1);
-  const grid = document.getElementById("grid");
-  grid.insertBefore(makeCard(asset, 0), grid.firstChild);
+
+function prependPost(post) {
+  allPosts.unshift(post);
+  document.querySelectorAll(".post-card[data-idx]").forEach(c => c.dataset.idx = parseInt(c.dataset.idx) + 1);
+  const timeline = document.getElementById("timeline");
+  timeline.insertBefore(makePostCard(post, 0), timeline.firstChild);
   document.getElementById("empty-msg").hidden = true;
 }
 
 // ── global drag-drop ───────────────────────────────────────────────────────
 document.addEventListener("dragover", e => {
-  if (TOKEN && !document.getElementById("upload-overlay").hidden) return;
-  if (TOKEN && e.dataTransfer.types.includes("Files")) { e.preventDefault(); document.body.classList.add("drag-active"); }
+  if (TOKEN && IS_OWNER && !document.getElementById("compose-overlay").hidden) return;
+  if (TOKEN && IS_OWNER && e.dataTransfer.types.includes("Files")) { e.preventDefault(); document.body.classList.add("drag-active"); }
 });
 document.addEventListener("dragleave", e => { if (!e.relatedTarget || !document.body.contains(e.relatedTarget)) document.body.classList.remove("drag-active"); });
 document.addEventListener("drop", e => {
   document.body.classList.remove("drag-active");
-  if (!TOKEN || !e.dataTransfer.files.length || !document.getElementById("upload-overlay").hidden) return;
+  if (!TOKEN || !IS_OWNER || !e.dataTransfer.files.length || !document.getElementById("compose-overlay").hidden) return;
   e.preventDefault();
-  openUpload();
+  openCompose();
   addFiles(e.dataTransfer.files);
 });
 
@@ -610,7 +654,7 @@ document.addEventListener("drop", e => {
 function maybeClose(id, e) { if (e.target === document.getElementById(id)) document.getElementById(id).hidden = true; }
 document.addEventListener("keydown", e => {
   if (e.key === "Escape") {
-    if (!document.getElementById("upload-overlay").hidden) { closeUpload(); return; }
+    if (!document.getElementById("compose-overlay").hidden) { closeCompose(); return; }
     if (!document.getElementById("detail-overlay").hidden) { closeDetail(); }
   }
 });

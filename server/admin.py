@@ -437,11 +437,20 @@ def reject_edit_endpoint(request_id: str, request: Request, identity: OwnerDep):
 def list_tags(request: Request, identity: OwnerDep):
     db = request.app.state.db
     rows = db.execute(
-        """SELECT je.value AS tag, COUNT(*) AS count
-           FROM assets a, json_each(a.tags) je
-           WHERE a.deleted = 0
-           GROUP BY je.value
-           ORDER BY count DESC, je.value ASC"""
+        """SELECT tag, SUM(cnt) AS count FROM (
+               SELECT je.value AS tag, COUNT(*) AS cnt
+               FROM assets a, json_each(a.tags) je
+               WHERE a.deleted = 0
+               GROUP BY je.value
+               UNION ALL
+               SELECT pt.tag, COUNT(*) AS cnt
+               FROM post_tags pt
+               JOIN posts p ON p.id = pt.post_id
+               WHERE p.deleted = 0
+               GROUP BY pt.tag
+           )
+           GROUP BY tag
+           ORDER BY count DESC, tag ASC"""
     ).fetchall()
     return {"tags": [{"tag": r[0], "count": r[1]} for r in rows]}
 

@@ -148,10 +148,15 @@ def get_posts(
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str = Query(default=""),
     tags: list[str] = Query(default=[]),
+    q: str = Query(default=""),
 ):
     db = request.app.state.db
     params: list = []
     conditions = ["p.deleted = 0"]
+
+    if q:
+        conditions.append("p.body LIKE ?")
+        params.append(f"%{q}%")
 
     if cursor:
         conditions.append("p.created_at < ?")
