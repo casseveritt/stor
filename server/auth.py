@@ -39,6 +39,7 @@ class TokenIdentity:
     recipient_id: str | None = None       # set for recipient tokens
     share_identity: str | None = None     # set for share tokens (watermark label)
     share_asset_ids: list[str] | None = None  # None = node-wide; list = scoped
+    share_post_ids: list[str] | None = None   # None = not present; list = scoped
 
     @property
     def is_share(self) -> bool:
@@ -110,10 +111,13 @@ def issue_share_token(
     identity: str,
     asset_ids: list[str] | None,
     ttl_seconds: int = 86400 * 30,
+    post_ids: list[str] | None = None,
 ) -> str:
     if _private_key is None:
         raise RuntimeError("auth not initialised")
-    payload = {"v": 1, "identity": identity, "assets": asset_ids, "exp": int(time.time()) + ttl_seconds}
+    payload: dict = {"v": 1, "identity": identity, "assets": asset_ids, "exp": int(time.time()) + ttl_seconds}
+    if post_ids is not None:
+        payload["posts"] = post_ids
     payload_b64 = base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode()).rstrip(b"=").decode()
     to_sign = f"s1.{payload_b64}".encode()
     sig_b64 = base64.urlsafe_b64encode(_private_key.sign(to_sign)).rstrip(b"=").decode()
@@ -143,6 +147,7 @@ def _verify_share_token(token: str) -> TokenIdentity | None:
             is_owner=False,
             share_identity=payload["identity"],
             share_asset_ids=payload.get("assets"),
+            share_post_ids=payload.get("posts"),
         )
     except (InvalidSignature, Exception):
         return None

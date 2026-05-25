@@ -158,7 +158,13 @@ def get_posts(
     conditions = ["p.deleted = 0"]
 
     if not identity.is_owner:
-        if identity.recipient_id is not None:
+        if identity.is_share:
+            if identity.share_post_ids is not None:
+                placeholders = ",".join("?" * len(identity.share_post_ids))
+                conditions.append(f"(p.is_public = 1 OR p.id IN ({placeholders}))")
+                params.extend(identity.share_post_ids)
+            # else: node-wide share token → no extra filter needed
+        elif identity.recipient_id is not None:
             conditions.append(
                 "(p.is_public = 1 OR EXISTS (SELECT 1 FROM post_acl WHERE post_id = p.id AND recipient_id = ?))"
             )
@@ -213,10 +219,8 @@ def get_post(post_id: str, request: Request, identity: OptionalAuthDep):
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    if not identity.is_owner and not row[4]:  # is_public column
-        if not identity.recipient_id or db.execute(
-            "SELECT 1 FROM post_acl WHERE post_id = ? AND recipient_id = ?", (post_id, identity.recipient_id)
-        ).fetchone() is None:
+    if not identity.is_owner and not row[4]:  # is_public
+        if not _check_post_access(db, post_id, identity):
             raise HTTPException(status_code=403, detail="Access denied")
     return _post_dict(row, db)
 
@@ -279,14 +283,24 @@ def delete_post(post_id: str, request: Request, identity: OwnerDep):
 
 # ── post comments ─────────────────────────────────────────────────────────────
 
+def _check_post_access(db, post_id: str, identity) -> bool:
+    if identity.is_share:
+        if identity.share_post_ids is None:
+            return True  # node-wide share
+        return post_id in identity.share_post_ids
+    if identity.recipient_id:
+        return db.execute(
+            "SELECT 1 FROM post_acl WHERE post_id = ? AND recipient_id = ?", (post_id, identity.recipient_id)
+        ).fetchone() is not None
+    return False
+
+
 def _require_post_access(db, post_id: str, identity) -> None:
     row = db.execute("SELECT is_public FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
     if not identity.is_owner and not row[0]:
-        if not identity.recipient_id or db.execute(
-            "SELECT 1 FROM post_acl WHERE post_id = ? AND recipient_id = ?", (post_id, identity.recipient_id)
-        ).fetchone() is None:
+        if not _check_post_access(db, post_id, identity):
             raise HTTPException(status_code=403, detail="Access denied")
 
 

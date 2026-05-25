@@ -227,6 +227,7 @@ def delete_asset(asset_id: str, request: Request, identity: OwnerDep):
 class _IssueShareTokenBody(BaseModel):
     identity: str
     asset_ids: list[str] | None = None  # None = node-wide
+    post_ids: list[str] | None = None   # None = not included; list = scoped
     ttl_seconds: int = 86400 * 30
 
 
@@ -241,6 +242,10 @@ def issue_share_token_endpoint(
         for asset_id in payload.asset_ids:
             if db.execute("SELECT id FROM assets WHERE id = ?", (asset_id,)).fetchone() is None:
                 raise HTTPException(status_code=404, detail=f"Asset {asset_id} not found")
+    if payload.post_ids is not None:
+        for post_id in payload.post_ids:
+            if db.execute("SELECT id FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone() is None:
+                raise HTTPException(status_code=404, detail=f"Post {post_id} not found")
 
-    token = issue_share_token(payload.identity, payload.asset_ids, payload.ttl_seconds)
-    return {"token": token, "identity": payload.identity, "asset_ids": payload.asset_ids}
+    token = issue_share_token(payload.identity, payload.asset_ids, payload.ttl_seconds, payload.post_ids)
+    return {"token": token, "identity": payload.identity, "asset_ids": payload.asset_ids, "post_ids": payload.post_ids}
