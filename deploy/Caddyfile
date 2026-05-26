@@ -1,0 +1,7 @@
+{$CONTAC_DOMAIN}:8443 {
+    reverse_proxy server:8765
+}
+
+{$CONTAC_DOMAIN}:9876 {
+    reverse_proxy client:9865
+}

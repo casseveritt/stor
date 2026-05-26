@@ -1,0 +1,41 @@
+services:
+  server:
+    build: .
+    image: contac
+    restart: unless-stopped
+    command: python -m server.main /data/node_config.json --host 0.0.0.0 --port 8765
+    environment:
+      CONTAC_PASSPHRASE: ${CONTAC_PASSPHRASE}
+    volumes:
+      - ./data/server:/data
+    expose:
+      - "8765"
+
+  client:
+    image: contac
+    restart: unless-stopped
+    command: python -m client.main /data/client_config.json --host 0.0.0.0 --port 9865
+    volumes:
+      - ./data/client:/data
+    expose:
+      - "9865"
+    depends_on:
+      - server
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8443:8443"
+      - "9876:9876"
+    environment:
+      CONTAC_DOMAIN: ${CONTAC_DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./data/caddy:/data
+      - ./data/caddy-config:/config
+    depends_on:
+      - server
+      - client
