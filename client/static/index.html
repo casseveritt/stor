@@ -231,6 +231,26 @@
   </div>
 </div>
 
+<!-- ── edit modal ─────────────────────────────────────────────────────────── -->
+<div id="edit-overlay" class="overlay" hidden onclick="maybeClose('edit-overlay',event)">
+  <div class="modal" id="edit-modal" style="min-width:min(90vw,560px)">
+    <button class="modal-close" onclick="closeEdit()">&#x2715;</button>
+    <h3>Edit post</h3>
+    <textarea id="edit-body" style="background:#222;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:0.6rem;width:100%;font-size:0.95rem;resize:vertical;min-height:100px;outline:none;font-family:inherit;margin-bottom:0.75rem"></textarea>
+    <div class="compose-fields">
+      <input type="text" id="edit-tags" placeholder="Tags — space-separated">
+      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:#aaa;cursor:pointer">
+        <input type="checkbox" id="edit-public"> Publish (visible to recipients)
+      </label>
+    </div>
+    <div class="upload-progress" id="edit-status"></div>
+    <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:0.75rem">
+      <button class="btn btn-muted" onclick="closeEdit()">Cancel</button>
+      <button class="btn btn-primary" id="edit-submit" onclick="submitEdit()">Save</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── state ──────────────────────────────────────────────────────────────────
 let CFG = null;
@@ -512,6 +532,7 @@ document.addEventListener("keydown", e => {
     if (e.key === "ArrowRight" || e.key === "ArrowDown")  { e.preventDefault(); navigatePost(1);  }
   }
   if (!document.getElementById("compose-overlay").hidden && e.key === "Escape") closeCompose();
+  if (!document.getElementById("edit-overlay").hidden && e.key === "Escape") closeEdit();
 });
 
 function navigatePost(delta) {
@@ -576,6 +597,12 @@ function renderDetail(post) {
   const srcLine = post._server_name && post._server_name !== "me"
     ? '<div style="font-size:0.78rem;color:#555;margin-bottom:0.4rem">' + esc(post._server_name) + '</div>'
     : "";
+  const ownerControls = IS_OWNER && post._server_url === CFG.own_server
+    ? '<div style="display:flex;gap:0.5rem;margin-top:0.75rem">'
+      + '<button class="btn btn-muted btn-sm" onclick="openEdit(' + currentIdx + ')">Edit</button>'
+      + '<button class="btn btn-sm" style="background:#5a1f1f;color:#e06c6c" onclick="confirmDelete(' + currentIdx + ')">Delete</button>'
+      + '</div>'
+    : "";
   document.getElementById("detail-body").innerHTML =
     srcLine
     + '<div class="post-detail-body">' + renderPostBody(post) + '</div>'
@@ -583,6 +610,7 @@ function renderDetail(post) {
     + (tagHtml ? '<div style="margin-top:0.4rem">' + tagHtml + '</div>' : '')
     + '<div style="margin-top:0.4rem">' + dateFmt + '</div>'
     + '</div>'
+    + ownerControls
     + '<div id="comments-section" class="comments"><div class="comments-header" style="color:#555">Loading…</div></div>';
 }
 
@@ -708,6 +736,67 @@ function prependPost(post) {
   const timeline = document.getElementById("timeline");
   timeline.insertBefore(makePostCard(post, 0), timeline.firstChild);
   document.getElementById("empty-msg").hidden = true;
+}
+
+// ── edit / delete ──────────────────────────────────────────────────────────
+let editingIdx = -1;
+
+function openEdit(idx) {
+  editingIdx = idx;
+  const post = allPosts[idx];
+  document.getElementById("edit-body").value = post.body || "";
+  document.getElementById("edit-tags").value = (post.tags || []).join(" ");
+  document.getElementById("edit-public").checked = !!post.is_public;
+  document.getElementById("edit-status").innerHTML = "";
+  document.getElementById("edit-submit").disabled = false;
+  document.getElementById("edit-overlay").hidden = false;
+}
+function closeEdit() { document.getElementById("edit-overlay").hidden = true; }
+
+async function submitEdit() {
+  const post = allPosts[editingIdx];
+  const body = document.getElementById("edit-body").value;
+  const tags = document.getElementById("edit-tags").value.trim().split(/\s+/).filter(Boolean);
+  const pub  = document.getElementById("edit-public").checked;
+  document.getElementById("edit-submit").disabled = true;
+  document.getElementById("edit-status").innerHTML = '<span style="color:#aaa">Saving…</span>';
+
+  const r = await apiFetch("/api/posts/" + post.id, {
+    method: "PATCH",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({body, tags, public: pub}),
+  });
+  if (r.ok) {
+    const updated = await r.json();
+    updated._server_url = post._server_url;
+    updated._server_name = post._server_name;
+    allPosts[editingIdx] = updated;
+    const card = document.querySelector(".post-card[data-idx='" + editingIdx + "']");
+    if (card) card.replaceWith(makePostCard(updated, editingIdx));
+    closeEdit();
+    if (currentIdx === editingIdx) renderDetail(updated);
+  } else {
+    document.getElementById("edit-status").innerHTML = '<span style="color:#e06c6c">Save failed.</span>';
+    document.getElementById("edit-submit").disabled = false;
+  }
+}
+
+async function confirmDelete(idx) {
+  const post = allPosts[idx];
+  if (!confirm("Delete this post? This cannot be undone.")) return;
+  const r = await apiFetch("/api/posts/" + post.id, {method: "DELETE"});
+  if (r.ok || r.status === 204) {
+    allPosts.splice(idx, 1);
+    document.querySelectorAll(".post-card[data-idx]").forEach(c => {
+      const i = parseInt(c.dataset.idx);
+      if (i === idx) c.remove();
+      else if (i > idx) c.dataset.idx = i - 1;
+    });
+    if (currentIdx === idx) { closeDetail(); }
+    else if (currentIdx > idx) { currentIdx--; }
+    document.getElementById("empty-msg").hidden = allPosts.length > 0;
+    loadTagSidebar();
+  }
 }
 
 // ── utilities ──────────────────────────────────────────────────────────────

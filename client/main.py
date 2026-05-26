@@ -206,6 +206,36 @@ def create_app(config_path: str | Path) -> FastAPI:
         post["_server_name"] = "me"
         return post
 
+    @api.patch("/posts/{post_id}")
+    async def api_update_post(post_id: str, request: Request):
+        if not _token(config.own_server):
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        payload = await request.json()
+        async with httpx.AsyncClient() as hc:
+            r = await hc.patch(
+                config.own_server + f"/posts/{post_id}",
+                json=payload,
+                headers=_headers(config.own_server),
+            )
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        post = r.json()
+        post["_server_url"] = config.own_server
+        post["_server_name"] = "me"
+        return post
+
+    @api.delete("/posts/{post_id}", status_code=204)
+    async def api_delete_post(post_id: str):
+        if not _token(config.own_server):
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        async with httpx.AsyncClient() as hc:
+            r = await hc.delete(
+                config.own_server + f"/posts/{post_id}",
+                headers=_headers(config.own_server),
+            )
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+
     @api.get("/posts/{post_id}/comments")
     async def api_get_comments(post_id: str, server: str = ""):
         src = server or config.own_server
