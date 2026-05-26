@@ -104,7 +104,7 @@ Node will be available at: {node_address}
 def main() -> None:
     parser = argparse.ArgumentParser(description="Generate contac deployment artifacts")
     parser.add_argument("--config", required=True, help="Path to node_config.json")
-    parser.add_argument("--port", type=int, default=8765, help="Local bind port for contac (default: 8765)")
+    parser.add_argument("--port", type=int, default=9443, help="Local bind port for contac (default: 9443)")
     parser.add_argument("--https-port", type=int, default=443,
                         help="External HTTPS port Caddy listens on (default: 443; use 8443 if 443 is taken)")
     parser.add_argument("--out", default="deploy", help="Output directory (default: deploy/)")

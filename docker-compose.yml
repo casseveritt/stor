@@ -3,22 +3,22 @@ services:
     build: .
     image: contac
     restart: unless-stopped
-    command: python -m server.main /data/node_config.json --host 0.0.0.0 --port 8765
+    command: python -m server.main /data/node_config.json --host 0.0.0.0 --port 9443
     environment:
       CONTAC_PASSPHRASE: ${CONTAC_PASSPHRASE}
     volumes:
       - ./data/server:/data
     expose:
-      - "8765"
+      - "9443"
 
   client:
     image: contac
     restart: unless-stopped
-    command: python -m client.main /data/client_config.json --host 0.0.0.0 --port 9865
+    command: python -m client.main /data/client_config.json --host 0.0.0.0 --port 9444
     volumes:
       - ./data/client:/data
     expose:
-      - "9865"
+      - "9444"
     depends_on:
       - server
 
@@ -29,7 +29,7 @@ services:
       - "80:80"
       - "443:443"
       - "8443:8443"
-      - "9876:9876"
+      - "8444:8444"
     environment:
       CONTAC_DOMAIN: ${CONTAC_DOMAIN}
     volumes:

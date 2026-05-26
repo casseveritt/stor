@@ -129,7 +129,7 @@ echo
 echo "==> Done!"
 echo
 echo "    Server: https://${CONTAC_DOMAIN}:8443"
-echo "    Client: https://${CONTAC_DOMAIN}:9876"
+echo "    Client: https://${CONTAC_DOMAIN}:8444"
 echo
 echo "    First login: open the client URL and sign in with Google."
 echo "    Logs: docker compose logs -f"

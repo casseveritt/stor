@@ -114,7 +114,7 @@ def main() -> None:
     parser.add_argument("config", help="Path to node_config.json")
     parser.add_argument("--key-stdin", action="store_true", help="Read passphrase from stdin")
     parser.add_argument("--host", default="0.0.0.0")
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=9443)
     parser.add_argument("--print-token", action="store_true", help="Print an owner token to stdout before serving")
     args = parser.parse_args()
 
