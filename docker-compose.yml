@@ -22,12 +22,22 @@ services:
     depends_on:
       - server
 
+  registry:
+    image: contac
+    restart: unless-stopped
+    command: python -m registry.main /data/registry.db --host 0.0.0.0 --port 9532
+    volumes:
+      - ./data/registry:/data
+    expose:
+      - "9532"
+
   caddy:
     image: caddy:2
     restart: unless-stopped
     ports:
       - "80:80"
       - "443:443"
+      - "8421:8421"
       - "8443:8443"
       - "8444:8444"
     environment:
@@ -39,3 +49,4 @@ services:
     depends_on:
       - server
       - client
+      - registry
