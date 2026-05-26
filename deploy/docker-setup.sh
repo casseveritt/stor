@@ -115,7 +115,7 @@ if [ ! -f data/client/client_config.json ]; then
     docker compose run --rm client \
         python tools/init_client.py \
             --config /data/client_config.json \
-            --own-server "https://${CONTAC_DOMAIN}:8443"
+            --own-server "http://server:9443"
 else
     echo "==> Client already initialized — skipping."
 fi

@@ -11,6 +11,9 @@ router = APIRouter(prefix="/auth")
 
 
 def _callback_uri(request: Request) -> str:
+    node_address = getattr(request.app.state, "node_address", None)
+    if node_address:
+        return node_address.rstrip("/") + "/auth/callback"
     return str(request.base_url).rstrip("/") + "/auth/callback"
 
 

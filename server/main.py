@@ -66,6 +66,7 @@ def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
     app.state.db = db_con
     app.state.file_key = file_key
     app.state.store_path = store_path
+    app.state.node_address = config.node_address
     app.state.watermark_enabled = config.watermark_enabled
     app.state.owner_identity = config.sso_owner_identity
 
