@@ -10,12 +10,8 @@
     body { font-family: system-ui, sans-serif; background: #111; color: #e0e0e0; min-height: 100vh; }
 
     /* ── login screens ── */
-    .login-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 1.25rem; }
-    .login-screen h1 { font-size: 2rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; }
     #login-server { font-size: 0.82rem; color: #555; }
-    .divider { color: #555; font-size: 0.85rem; }
-    .token-row { display: flex; gap: 0.5rem; }
-    #login-view { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 1.25rem; }
+#login-view { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 1.25rem; }
 
     /* ── chrome ── */
     header { background: #1a1a1a; padding: 0.6rem 1rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2a2a2a; position: sticky; top: 0; z-index: 20; gap: 0.5rem; }
@@ -228,11 +224,6 @@
   <div class="setup-logo"><img src="/static/favicon.svg"><span>contacc</span></div>
   <div id="login-server"></div>
   <button class="btn btn-primary" onclick="loginGoogle()">Sign in with Google</button>
-  <span class="divider">— or paste a token —</span>
-  <div class="token-row">
-    <input type="text" id="token-input" placeholder="Owner or recipient token" style="width:280px">
-    <button class="btn btn-primary" onclick="loginWithToken()">Go</button>
-  </div>
   <div id="login-error" style="color:#e06c6c;font-size:0.85rem"></div>
 </div>
 
@@ -481,23 +472,6 @@ async function loginGoogle() {
   window.location.href = (await r.json()).auth_url;
 }
 
-async function loginWithToken() {
-  const t = document.getElementById("token-input").value.trim();
-  if (!t) return;
-  const r = await fetch("/client/session", {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({token: t}),
-  });
-  if (r.ok) {
-    setClientToken((await r.json()).token);
-    const ok = await loadFeed();
-    if (!ok) document.getElementById("login-error").textContent = "Token rejected.";
-  } else {
-    document.getElementById("login-error").textContent =
-      r.status === 403 ? "Owner access required." : "Token rejected.";
-  }
-}
 
 async function logout() {
   await apiFetch("/api/auth/token", {method: "DELETE"});
