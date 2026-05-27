@@ -120,6 +120,28 @@ else
     echo "==> Client already initialized — skipping."
 fi
 
+# ── patch configs for Docker ───────────────────────────────────────────────────
+# store_path and own_server may point to old host paths when restoring from backup.
+
+python3 -c "
+import json, sys
+p = 'data/server/node_config.json'
+c = json.load(open(p))
+c['store_path'] = '/data'
+json.dump(c, open(p, 'w'), indent=2)
+print('==> store_path set to /data')
+"
+
+python3 -c "
+import json
+p = 'data/client/client_config.json'
+c = json.load(open(p))
+c['own_server'] = 'http://server:9443'
+c.pop('passphrase_hash', None)
+json.dump(c, open(p, 'w'), indent=2)
+print('==> own_server set to http://server:9443')
+"
+
 # ── start services ─────────────────────────────────────────────────────────────
 
 echo "==> Starting services..."
