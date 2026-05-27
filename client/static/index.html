@@ -285,6 +285,7 @@ let nextCursor = null, currentSearch = null, searchTimer = null;
 let pendingFiles = [];
 let IS_OWNER = false;
 let serverStatuses = {};
+let serverHandles = {};
 
 // ── client session token ───────────────────────────────────────────────────
 function getClientToken() { return localStorage.getItem("contac_client_session"); }
@@ -380,7 +381,11 @@ async function loadIdentity() {
   document.getElementById("compose-btn").hidden = !IS_OWNER;
   const badge = document.getElementById("identity-badge");
   const identity = d.identity || "";
-  badge.textContent = d.display_name || identity.replace(/^[^:]+:/, "") || d.role;
+  const nodeR = await fetch(CFG.own_server + "/node");
+  const nodeD = nodeR.ok ? await nodeR.json() : {};
+  const handlePart = nodeD.handle ? `@${nodeD.handle}` : "";
+  const namePart = d.display_name || identity.replace(/^[^:]+:/, "") || d.role;
+  badge.textContent = handlePart ? `${handlePart} · ${namePart}` : namePart;
   badge.title = identity;
 }
 
@@ -395,11 +400,25 @@ function renderServerList() {
   const list = document.getElementById("server-list");
   list.innerHTML = (CFG.servers || []).map((s, i) => {
     const status = serverStatuses[s.url] || (s.authenticated ? "wait" : "err");
-    return '<button class="server-btn' + (activeServer === s.url ? " active" : "") + '" onclick="setActiveServer(' + i + ')">'
-      + '<span>' + esc(s.name) + '</span>'
+    const handle = serverHandles[s.url];
+    const label = handle ? `@${handle}` : esc(s.name);
+    return '<button class="server-btn' + (activeServer === s.url ? " active" : "") + '" onclick="setActiveServer(' + i + ')" title="' + esc(s.name) + '">'
+      + '<span>' + label + '</span>'
       + '<span class="server-dot ' + status + '"></span>'
       + '</button>';
   }).join("");
+}
+
+async function fetchServerHandles() {
+  for (const s of CFG.servers || []) {
+    try {
+      const r = await fetch(s.url + "/node");
+      if (r.ok) {
+        const d = await r.json();
+        if (d.handle) { serverHandles[s.url] = d.handle; renderServerList(); }
+      }
+    } catch {}
+  }
 }
 
 function setActiveServer(i) {
@@ -500,6 +519,7 @@ async function loadFeed() {
   if (!ok) { showView("login"); return false; }
   loadIdentity();
   loadTagSidebar();
+  fetchServerHandles();
   return true;
 }
 

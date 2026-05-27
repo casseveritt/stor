@@ -93,7 +93,7 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
     }
     app.state.sso_exchange_google = sso_module.exchange_google_code
 
-    node_module.setup(node_address, private_key, config.watermark_enabled)
+    node_module.setup(node_address, private_key, config.watermark_enabled, config.registry_handle)
     auth_module.setup(private_key)
 
     app.state.initialized = True

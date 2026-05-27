@@ -187,6 +187,8 @@
         </div>
         <div id="setup-new-form" class="setup-form">
           <input type="email" id="setup-owner-email" placeholder="your@email.com (Google account)">
+          <input type="text" id="setup-handle" placeholder="Handle (e.g. alice)" autocomplete="off" autocapitalize="none" oninput="checkHandleAvailability()">
+          <div id="setup-handle-status" style="font-size:0.82rem;min-height:1.1em;margin-top:-0.25rem;padding-left:0.1rem"></div>
           <input type="password" id="setup-passphrase" placeholder="Choose a passphrase">
           <input type="password" id="setup-passphrase-confirm" placeholder="Confirm passphrase">
           <button class="btn btn-primary" onclick="doSetupNew()">Create Identity</button>
@@ -354,7 +356,12 @@ async function loadIdentity() {
   document.getElementById("compose-btn").hidden = !IS_OWNER;
   document.getElementById("backup-btn").hidden = !IS_OWNER;
   const badge = document.getElementById("identity-badge");
-  badge.textContent = d.role === "owner" ? "owner" : (d.display_name || d.identity || "");
+  const nodeR = await fetch("/node", {headers: authHeaders()});
+  const nodeD = nodeR.ok ? await nodeR.json() : {};
+  const handlePart = nodeD.handle ? `@${nodeD.handle}` : "";
+  const rolePart = d.role === "owner" ? "owner" : (d.display_name || d.identity || "");
+  badge.textContent = handlePart ? `${handlePart} · ${rolePart}` : rolePart;
+  badge.title = nodeD.node || "";
 }
 
 // ── views ──────────────────────────────────────────────────────────────────
@@ -878,19 +885,50 @@ function pickRestoreFile(input) {
   document.getElementById("restore-file-label").textContent = restoreFile ? restoreFile.name : "Select backup .zip file";
 }
 
+let _handleCheckTimer = null;
+let _handleAvailable = false;
+
+function checkHandleAvailability() {
+  const handle = document.getElementById("setup-handle").value.trim();
+  const status = document.getElementById("setup-handle-status");
+  _handleAvailable = false;
+  clearTimeout(_handleCheckTimer);
+  if (!handle) { status.textContent = ""; return; }
+  status.style.color = "#888";
+  status.textContent = "Checking…";
+  _handleCheckTimer = setTimeout(async () => {
+    try {
+      const r = await fetch("/setup/check-handle?handle=" + encodeURIComponent(handle));
+      const d = await r.json();
+      if (r.ok) {
+        status.style.color = "#6dbf6d";
+        status.textContent = `✓ '${handle}' is available`;
+        _handleAvailable = true;
+      } else {
+        status.style.color = "#e06c6c";
+        status.textContent = d.detail || "Handle unavailable";
+        _handleAvailable = false;
+      }
+    } catch { status.style.color = "#888"; status.textContent = "Could not check availability"; }
+  }, 400);
+}
+
 async function doSetupNew() {
   const email = document.getElementById("setup-owner-email").value.trim();
+  const handle = document.getElementById("setup-handle").value.trim();
   const pass = document.getElementById("setup-passphrase").value;
   const confirm = document.getElementById("setup-passphrase-confirm").value;
   const err = document.getElementById("setup-new-error");
   err.textContent = "";
-  if (!email || !pass) { err.textContent = "All fields required."; return; }
+  if (!email || !handle || !pass) { err.textContent = "All fields required."; return; }
+  if (!_handleAvailable) { err.textContent = "Please choose an available handle."; return; }
   if (pass !== confirm) { err.textContent = "Passphrases do not match."; return; }
+  const body = {passphrase: pass, confirm_passphrase: confirm, owner_identity: "google:" + email, setup_token: _setupToken, handle};
   try {
     const r = await fetch("/setup/new", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({passphrase: pass, confirm_passphrase: confirm, owner_identity: "google:" + email, setup_token: _setupToken}),
+      body: JSON.stringify(body),
     });
     const d = await r.json();
     if (r.status === 403) { _badSetupToken(d.detail); return; }

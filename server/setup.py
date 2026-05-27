@@ -65,11 +65,34 @@ def setup_status(request: Request):
     return {"state": _state(request.app)}
 
 
+@router.get("/check-handle")
+def check_handle(handle: str, request: Request):
+    """Return 200 if handle is available, 400 if taken, 502 if registry unreachable."""
+    identity_proxy_url = os.environ.get("CONTACC_IDENTITY_PROXY_URL", "https://starkville.hopto.org:8421")
+    registry_url = os.environ.get("CONTACC_REGISTRY_URL", identity_proxy_url)
+    _check_handle_available(handle, registry_url)
+    return {"available": True, "handle": handle}
+
+
 class NewBody(BaseModel):
     passphrase: str
     confirm_passphrase: str
     owner_identity: str
     setup_token: str
+    handle: str
+
+
+def _check_handle_available(handle: str, registry_url: str) -> None:
+    """Raise HTTPException if handle is already registered."""
+    import httpx
+    try:
+        r = httpx.get(f"{registry_url}/lookup/{handle}", timeout=5)
+        if r.status_code == 200:
+            raise HTTPException(400, f"Handle '{handle}' is already taken")
+        if r.status_code != 404:
+            raise HTTPException(502, "Registry returned an unexpected response — try again")
+    except httpx.RequestError as exc:
+        raise HTTPException(502, f"Could not reach registry: {exc}")
 
 
 @router.post("/new")
@@ -82,12 +105,17 @@ def setup_new(body: NewBody, request: Request):
         raise HTTPException(400, "Passphrases do not match")
     if not body.owner_identity.startswith("google:"):
         raise HTTPException(400, "Owner identity must be in the form google:you@example.com")
+    if not body.handle:
+        raise HTTPException(400, "Handle is required")
 
     config_path = Path(app.state.config_path)
     node_address = app.state.node_address or ""
     identity_proxy_url = os.environ.get("CONTACC_IDENTITY_PROXY_URL", "https://starkville.hopto.org:8421")
+    registry_url = os.environ.get("CONTACC_REGISTRY_URL", identity_proxy_url)
 
-    _create_node_config(config_path, node_address, identity_proxy_url, body.owner_identity, body.passphrase)
+    _check_handle_available(body.handle, registry_url)
+
+    _create_node_config(config_path, node_address, identity_proxy_url, body.owner_identity, body.passphrase, body.handle)
 
     try:
         app.state.do_initialize(body.passphrase)
@@ -172,6 +200,7 @@ def _create_node_config(
     identity_proxy_url: str,
     owner_identity: str,
     passphrase: str,
+    handle: str,
 ) -> None:
     """Generate keys, initialize DB, and write node_config.json."""
     import os as _os
@@ -211,4 +240,5 @@ def _create_node_config(
         "sso_owner_identity": owner_identity,
         "identity_proxy_url": identity_proxy_url,
     }
+    config["registry_handle"] = handle
     config_path.write_text(json.dumps(config, indent=2))
