@@ -27,6 +27,9 @@ if [ -f .env ]; then
     set -a; source .env; set +a
 fi
 
+read -rp "Data directory [${CONTACC_DATA_DIR:-/opt/contacc}]: " _datadir
+CONTACC_DATA_DIR="${_datadir:-${CONTACC_DATA_DIR:-/opt/contacc}}"
+
 read -rp "Domain name [${CONTACC_DOMAIN:-your.domain.example}]: " _domain
 CONTACC_DOMAIN="${_domain:-${CONTACC_DOMAIN:-}}"
 if [ -z "${CONTACC_DOMAIN}" ]; then
@@ -62,6 +65,7 @@ fi
 # ── write .env ─────────────────────────────────────────────────────────────────
 
 cat > .env <<EOF
+CONTACC_DATA_DIR=${CONTACC_DATA_DIR}
 CONTACC_DOMAIN=${CONTACC_DOMAIN}
 CONTACC_PASSPHRASE=${CONTACC_PASSPHRASE}
 CONTACC_GOOGLE_CLIENT_ID=${CONTACC_GOOGLE_CLIENT_ID}
@@ -73,7 +77,7 @@ echo "==> .env written."
 
 # ── data directories ───────────────────────────────────────────────────────────
 
-mkdir -p data/server data/client data/caddy data/caddy-config
+mkdir -p "${CONTACC_DATA_DIR}/server" "${CONTACC_DATA_DIR}/client" "${CONTACC_DATA_DIR}/caddy" "${CONTACC_DATA_DIR}/caddy-config"
 echo "==> Data directories ready."
 
 # ── build image ────────────────────────────────────────────────────────────────
@@ -83,7 +87,7 @@ docker compose build server
 
 # ── initialize server node ─────────────────────────────────────────────────────
 
-if [ ! -f data/server/node_config.json ]; then
+if [ ! -f "${CONTACC_DATA_DIR}/server/node_config.json" ]; then
     echo "==> Initializing server node..."
     docker compose run --rm \
         -e CONTACC_PASSPHRASE="${CONTACC_PASSPHRASE}" \
@@ -110,7 +114,7 @@ docker compose run --rm \
 
 # ── initialize client ──────────────────────────────────────────────────────────
 
-if [ ! -f data/client/client_config.json ]; then
+if [ ! -f "${CONTACC_DATA_DIR}/client/client_config.json" ]; then
     echo "==> Initializing client..."
     docker compose run --rm client \
         python tools/init_client.py \
@@ -124,8 +128,8 @@ fi
 # store_path and own_server may point to old host paths when restoring from backup.
 
 python3 -c "
-import json, sys
-p = 'data/server/node_config.json'
+import json
+p = '${CONTACC_DATA_DIR}/server/node_config.json'
 c = json.load(open(p))
 c['store_path'] = '/data'
 json.dump(c, open(p, 'w'), indent=2)
@@ -134,7 +138,7 @@ print('==> store_path set to /data')
 
 python3 -c "
 import json
-p = 'data/client/client_config.json'
+p = '${CONTACC_DATA_DIR}/client/client_config.json'
 c = json.load(open(p))
 c['own_server'] = 'http://server:9443'
 c.pop('passphrase_hash', None)

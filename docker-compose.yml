@@ -8,7 +8,7 @@ services:
       CONTACC_PASSPHRASE: ${CONTACC_PASSPHRASE}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
     volumes:
-      - ./data/server:/data
+      - ${CONTACC_DATA_DIR}/server:/data
     expose:
       - "9443"
 
@@ -19,7 +19,7 @@ services:
     environment:
       CONTACC_CLIENT_URL: https://${CONTACC_DOMAIN}:8444
     volumes:
-      - ./data/client:/data
+      - ${CONTACC_DATA_DIR}/client:/data
     expose:
       - "9444"
     depends_on:
@@ -30,7 +30,7 @@ services:
     restart: unless-stopped
     command: python -m registry.main /data/registry.db --host 0.0.0.0 --port 9532
     volumes:
-      - ./data/registry:/data
+      - ${CONTACC_DATA_DIR}/registry:/data
     expose:
       - "9532"
 
@@ -46,8 +46,8 @@ services:
       CONTACC_DOMAIN: ${CONTACC_DOMAIN}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./data/caddy:/data
-      - ./data/caddy-config:/config
+      - ${CONTACC_DATA_DIR}/caddy:/data
+      - ${CONTACC_DATA_DIR}/caddy-config:/config
     depends_on:
       - server
       - client

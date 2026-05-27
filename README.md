@@ -76,10 +76,11 @@ docker compose up -d                # start everything
 
 ### Backup and restore
 
-All persistent data lives in `./data/` and credentials in `.env`. Back them up together:
+All persistent data lives in `$CONTACC_DATA_DIR` and credentials in `.env`. Back them up together:
 
 ```bash
-tar -czf contacc-backup-$(date +%Y%m%d).tar.gz data/ .env
+source .env
+tar -czf contacc-backup-$(date +%Y%m%d).tar.gz "$CONTACC_DATA_DIR" .env
 ```
 
 **To restore on a new host:**
@@ -87,9 +88,9 @@ tar -czf contacc-backup-$(date +%Y%m%d).tar.gz data/ .env
 ```bash
 git clone https://github.com/casseveritt/stor contacc
 cd contacc
-# restore your backup
+# restore your backup (extracts data dir and .env)
 tar -xzf contacc-backup-YYYYMMDD.tar.gz
-# start — init is skipped automatically because data/ already exists
+# start — init is skipped automatically because the data dir already exists
 docker compose up -d
 ```
 
@@ -148,16 +149,16 @@ The callback URI must be registered in the Google Cloud Console and must exactly
 
 ## Data storage
 
-All persistent data uses **bind-mount volumes** — plain host directories, not Docker-managed volumes:
+All persistent data uses **bind-mount volumes** — plain host directories, not Docker-managed volumes. The root of these directories is set by `CONTACC_DATA_DIR` in `.env` (e.g. `/opt/contacc`), which keeps data entirely outside the repo:
 
-| Host path (relative to repo) | Container path | Contents |
-|------------------------------|---------------|----------|
-| `./data/server/` | `/data` | Encrypted SQLCipher DB, asset files, `node_config.json` |
-| `./data/client/` | `/data` | `client_config.json` |
-| `./data/registry/` | `/data` | `registry.db` (plain SQLite) |
-| `./data/caddy/` | `/data` | TLS certificates (managed by Caddy) |
+| Host path | Container path | Contents |
+|-----------|---------------|----------|
+| `$CONTACC_DATA_DIR/server/` | `/data` | Encrypted SQLCipher DB, asset files, `node_config.json` |
+| `$CONTACC_DATA_DIR/client/` | `/data` | `client_config.json` |
+| `$CONTACC_DATA_DIR/registry/` | `/data` | `registry.db` (plain SQLite) |
+| `$CONTACC_DATA_DIR/caddy/` | `/data` | TLS certificates (managed by Caddy) |
 
-Because the data is on the host filesystem you can inspect, back up, or restore it directly without Docker commands. This is what makes the backup runbook simple — `tar data/ .env` captures everything.
+Because the data is on the host filesystem you can inspect, back up, or restore it directly without Docker commands. This is what makes the backup runbook simple — `tar $CONTACC_DATA_DIR .env` captures everything.
 
 ## Environment variables
 
