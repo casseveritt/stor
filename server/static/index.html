@@ -173,7 +173,7 @@
 
       <!-- Step 1: token entry -->
       <div id="setup-token-step" class="setup-form">
-        <p style="color:#888;font-size:0.9rem;text-align:center">Enter the setup token from your server logs to continue.</p>
+        <p style="color:#888;font-size:0.9rem;text-align:center">Enter your setup token to continue.</p>
         <input type="text" id="setup-token-input" placeholder="Setup token" autocomplete="off" onkeydown="if(event.key==='Enter')acceptSetupToken()">
         <button class="btn btn-primary" onclick="acceptSetupToken()">Continue</button>
         <div class="setup-error" id="setup-token-error"></div>
@@ -1013,7 +1013,15 @@ async function downloadBackup() {
     const sr = await fetch("/setup/status");
     if (sr.ok) {
       const sd = await sr.json();
-      if (sd.state === "uninitialized") { showView("setup"); return; }
+      if (sd.state === "uninitialized") {
+        showView("setup");
+        const urlToken = new URLSearchParams(location.search).get("setup_token");
+        if (urlToken) {
+          document.getElementById("setup-token-input").value = urlToken;
+          acceptSetupToken();
+        }
+        return;
+      }
       if (sd.state === "locked") { showView("unlock"); return; }
     }
   } catch {}

@@ -176,7 +176,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         return await call_next(request)
 
     # Try to initialize immediately if we have everything we need
-    passphrase = os.environ.get("CONTACC_PASSPHRASE")
+    passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE")
     if config_path.exists() and passphrase:
         try:
             _initialize(app, config_path, passphrase)
@@ -199,7 +199,7 @@ def main() -> None:
 
     if args.print_token:
         if not app.state.initialized:
-            log.error("--print-token requires the server to be initialized (set CONTACC_PASSPHRASE)")
+            log.error("--print-token requires the server to be initialized (set CONTACC_PASSPHRASE_UNSECURE)")
             sys.exit(1)
         token = auth_module.issue_token(ttl_seconds=86400 * 30)
         print(f"Owner token: {token}", flush=True)

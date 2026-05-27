@@ -20,7 +20,7 @@ services:
     build: .
     environment:
       <<: *proxy-env
-      CONTACC_PASSPHRASE: ${CONTACC_PASSPHRASE:-}
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
     volumes:
       - ${CONTACC_DATA_DIR}/server:/data
@@ -39,7 +39,7 @@ services:
     profiles: [slot2]
     environment:
       <<: *proxy-env
-      CONTACC_PASSPHRASE: ${CONTACC_PASSPHRASE_2:-}
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_2:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8445
     volumes:
       - ${CONTACC_DATA_DIR}/server-2:/data
@@ -59,7 +59,7 @@ services:
     profiles: [slot3]
     environment:
       <<: *proxy-env
-      CONTACC_PASSPHRASE: ${CONTACC_PASSPHRASE_3:-}
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_3:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8447
     volumes:
       - ${CONTACC_DATA_DIR}/server-3:/data
@@ -79,7 +79,7 @@ services:
     profiles: [slot4]
     environment:
       <<: *proxy-env
-      CONTACC_PASSPHRASE: ${CONTACC_PASSPHRASE_4:-}
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_4:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8449
     volumes:
       - ${CONTACC_DATA_DIR}/server-4:/data
@@ -99,7 +99,7 @@ services:
     profiles: [slot5]
     environment:
       <<: *proxy-env
-      CONTACC_PASSPHRASE: ${CONTACC_PASSPHRASE_5:-}
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_5:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8451
     volumes:
       - ${CONTACC_DATA_DIR}/server-5:/data
@@ -119,7 +119,7 @@ services:
     profiles: [slot6]
     environment:
       <<: *proxy-env
-      CONTACC_PASSPHRASE: ${CONTACC_PASSPHRASE_6:-}
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_6:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8453
     volumes:
       - ${CONTACC_DATA_DIR}/server-6:/data
@@ -139,7 +139,7 @@ services:
     profiles: [slot7]
     environment:
       <<: *proxy-env
-      CONTACC_PASSPHRASE: ${CONTACC_PASSPHRASE_7:-}
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_7:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8455
     volumes:
       - ${CONTACC_DATA_DIR}/server-7:/data
@@ -159,7 +159,7 @@ services:
     profiles: [slot8]
     environment:
       <<: *proxy-env
-      CONTACC_PASSPHRASE: ${CONTACC_PASSPHRASE_8:-}
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_8:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8457
     volumes:
       - ${CONTACC_DATA_DIR}/server-8:/data
@@ -179,7 +179,7 @@ services:
     profiles: [slot9]
     environment:
       <<: *proxy-env
-      CONTACC_PASSPHRASE: ${CONTACC_PASSPHRASE_9:-}
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_9:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8459
     volumes:
       - ${CONTACC_DATA_DIR}/server-9:/data
@@ -199,7 +199,7 @@ services:
     profiles: [slot10]
     environment:
       <<: *proxy-env
-      CONTACC_PASSPHRASE: ${CONTACC_PASSPHRASE_10:-}
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_10:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8461
     volumes:
       - ${CONTACC_DATA_DIR}/server-10:/data

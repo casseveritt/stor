@@ -160,7 +160,7 @@
     <div class="setup-inner">
       <h1>contacc</h1>
       <div id="setup-token-step" class="setup-form">
-        <p style="color:#888;font-size:0.9rem;text-align:center">Enter the setup token from your server logs to continue.</p>
+        <p style="color:#888;font-size:0.9rem;text-align:center">Enter your setup token to continue.</p>
         <input type="text" id="setup-token-input" placeholder="Setup token" autocomplete="off" onkeydown="if(event.key==='Enter')acceptSetupToken()">
         <button class="btn btn-primary" onclick="acceptSetupToken()">Continue</button>
         <div class="setup-error" id="setup-token-error"></div>
@@ -223,7 +223,8 @@
 <div id="feed-view" hidden>
   <header>
     <div class="header-left">
-      <span id="handle-display" class="logo">contacc</span>
+      <span class="logo">contacc</span>
+      <span id="handle-display"></span>
       <span id="identity-badge"></span>
     </div>
     <div id="search-wrap">
@@ -382,7 +383,15 @@ async function continueInit() {
     const sr = await fetch("/setup/status");
     if (sr.ok) {
       const ss = await sr.json();
-      if (ss.state === "uninitialized") { showView("setup"); return; }
+      if (ss.state === "uninitialized") {
+        showView("setup");
+        const urlToken = new URLSearchParams(location.search).get("setup_token");
+        if (urlToken) {
+          document.getElementById("setup-token-input").value = urlToken;
+          acceptSetupToken();
+        }
+        return;
+      }
       if (ss.state === "locked") { showView("unlock"); return; }
     }
   } catch {}
@@ -457,7 +466,7 @@ async function loadIdentity() {
   const nodeR = await fetch("/node");
   const nodeD = nodeR.ok ? await nodeR.json() : {};
   const handleDisplay = document.getElementById("handle-display");
-  handleDisplay.textContent = nodeD.handle ? `@${nodeD.handle}` : "contacc";
+  handleDisplay.textContent = nodeD.handle ? `@${nodeD.handle}` : "";
   const badge = document.getElementById("identity-badge");
   badge.textContent = d.display_name || identity.replace(/^[^:]+:/, "") || d.role;
   badge.title = identity;

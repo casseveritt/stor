@@ -98,4 +98,4 @@ echo
 echo "    Client: https://${CONTACC_DOMAIN}:8444"
 echo "    Logs:   docker compose logs -f"
 echo
-echo "    Tip: after setup, add CONTACC_PASSPHRASE=<your-passphrase> to .env for auto-unlock on restart."
+echo "    Tip: after setup, add CONTACC_PASSPHRASE_UNSECURE=<your-passphrase> to .env for auto-unlock on restart."
