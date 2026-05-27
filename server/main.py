@@ -125,6 +125,9 @@ def create_app(config_path: str | Path) -> FastAPI:
     app.state.config_path = config_path
     app.state.node_address = os.environ.get("CONTACC_NODE_ADDRESS", "")
 
+    if not config_path.exists():
+        setup_module.ensure_setup_token(app)
+
     def _do_initialize(passphrase: str) -> None:
         _initialize(app, config_path, passphrase)
 

@@ -85,12 +85,17 @@ docker compose up -d
 echo
 echo "==> Done!"
 echo
-echo "    Next: open the server URL to complete setup:"
-echo "    https://${CONTACC_DOMAIN}:8443"
+echo "    Next steps:"
 echo
-echo "    You will be prompted to create a new identity or restore from a backup."
+echo "    1. Get your setup token:"
+echo "       docker compose logs server | grep 'SETUP TOKEN'"
+echo
+echo "    2. Open the server URL and enter the token:"
+echo "       https://${CONTACC_DOMAIN}:8443"
+echo
+echo "    3. Create a new identity or restore from a backup."
 echo
 echo "    Client: https://${CONTACC_DOMAIN}:8444"
 echo "    Logs:   docker compose logs -f"
 echo
-echo "    Tip: add CONTACC_PASSPHRASE=<your-passphrase> to .env for auto-unlock on restart."
+echo "    Tip: after setup, add CONTACC_PASSPHRASE=<your-passphrase> to .env for auto-unlock on restart."

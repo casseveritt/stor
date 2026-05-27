@@ -3,6 +3,7 @@ import base64
 import io
 import json
 import os
+import secrets
 import zipfile
 from pathlib import Path
 
@@ -15,6 +16,8 @@ from .db import WrongPassphraseError
 
 router = APIRouter(prefix="/setup")
 
+log = __import__("logging").getLogger("contacc")
+
 
 def _state(app) -> str:
     if not Path(app.state.config_path).exists():
@@ -22,6 +25,39 @@ def _state(app) -> str:
     if not app.state.initialized:
         return "locked"
     return "running"
+
+
+def _setup_token_path(app) -> Path:
+    return Path(app.state.config_path).parent / ".setup_token"
+
+
+def ensure_setup_token(app) -> str:
+    """Return the setup token, generating and persisting it if needed."""
+    token_path = _setup_token_path(app)
+    if token_path.exists():
+        token = token_path.read_text().strip()
+    else:
+        token = secrets.token_urlsafe(24)
+        token_path.parent.mkdir(parents=True, exist_ok=True)
+        token_path.write_text(token)
+    log.info("=" * 60)
+    log.info("SETUP TOKEN: %s", token)
+    log.info("Open the server URL and enter this token to initialize.")
+    log.info("=" * 60)
+    return token
+
+
+def _validate_token(app, token: str) -> None:
+    token_path = _setup_token_path(app)
+    if not token_path.exists():
+        raise HTTPException(status_code=403, detail="Setup token not found — server may already be initialized")
+    expected = token_path.read_text().strip()
+    if not secrets.compare_digest(token, expected):
+        raise HTTPException(status_code=403, detail="Invalid setup token")
+
+
+def _consume_token(app) -> None:
+    _setup_token_path(app).unlink(missing_ok=True)
 
 
 @router.get("/status")
@@ -33,6 +69,7 @@ class NewBody(BaseModel):
     passphrase: str
     confirm_passphrase: str
     owner_identity: str
+    setup_token: str
 
 
 @router.post("/new")
@@ -40,6 +77,7 @@ def setup_new(body: NewBody, request: Request):
     app = request.app
     if _state(app) != "uninitialized":
         raise HTTPException(400, "Server already initialized")
+    _validate_token(app, body.setup_token)
     if body.passphrase != body.confirm_passphrase:
         raise HTTPException(400, "Passphrases do not match")
     if not body.owner_identity.startswith("google:"):
@@ -56,6 +94,7 @@ def setup_new(body: NewBody, request: Request):
     except WrongPassphraseError:
         raise HTTPException(500, "Failed to initialize after setup")
 
+    _consume_token(app)
     return {"status": "ok", "node_address": node_address}
 
 
@@ -78,10 +117,12 @@ def setup_unlock(body: UnlockBody, request: Request):
 
 
 @router.post("/restore")
-async def setup_restore(request: Request, bundle: UploadFile = File(...), passphrase: str = Form(...)):
+async def setup_restore(request: Request, bundle: UploadFile = File(...), passphrase: str = Form(...), setup_token: str = Form(...)):
     app = request.app
     if _state(app) == "running":
         raise HTTPException(400, "Server already running — stop it before restoring")
+    if _state(app) == "uninitialized":
+        _validate_token(app, setup_token)
 
     data = await bundle.read()
     try:
@@ -121,6 +162,7 @@ async def setup_restore(request: Request, bundle: UploadFile = File(...), passph
     except WrongPassphraseError:
         raise HTTPException(500, "Failed to initialize after restore")
 
+    _consume_token(app)
     return {"status": "ok"}
 
 

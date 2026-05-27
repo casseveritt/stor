@@ -170,26 +170,38 @@
   <div class="setup-card">
     <div class="setup-inner">
       <h1>contacc</h1>
-      <div class="setup-tabs">
-        <button class="setup-tab active" id="tab-new" onclick="showSetupTab('new')">New Identity</button>
-        <button class="setup-tab" id="tab-restore" onclick="showSetupTab('restore')">Restore Backup</button>
+
+      <!-- Step 1: token entry -->
+      <div id="setup-token-step" class="setup-form">
+        <p style="color:#888;font-size:0.9rem;text-align:center">Enter the setup token from your server logs to continue.</p>
+        <input type="text" id="setup-token-input" placeholder="Setup token" autocomplete="off" onkeydown="if(event.key==='Enter')acceptSetupToken()">
+        <button class="btn btn-primary" onclick="acceptSetupToken()">Continue</button>
+        <div class="setup-error" id="setup-token-error"></div>
       </div>
-      <div id="setup-new-form" class="setup-form">
-        <input type="email" id="setup-owner-email" placeholder="your@email.com (Google account)">
-        <input type="password" id="setup-passphrase" placeholder="Choose a passphrase">
-        <input type="password" id="setup-passphrase-confirm" placeholder="Confirm passphrase">
-        <button class="btn btn-primary" onclick="doSetupNew()">Create Identity</button>
-        <div class="setup-error" id="setup-new-error"></div>
-      </div>
-      <div id="setup-restore-form" class="setup-form" hidden>
-        <div class="drop-zone" onclick="document.getElementById('restore-file-picker').click()">
-          <div class="drop-zone-icon">&#x1F4E6;</div>
-          <div id="restore-file-label">Select backup .zip file</div>
+
+      <!-- Step 2: new / restore (hidden until token entered) -->
+      <div id="setup-wizard-step" hidden>
+        <div class="setup-tabs">
+          <button class="setup-tab active" id="tab-new" onclick="showSetupTab('new')">New Identity</button>
+          <button class="setup-tab" id="tab-restore" onclick="showSetupTab('restore')">Restore Backup</button>
         </div>
-        <input type="file" id="restore-file-picker" accept=".zip" hidden onchange="pickRestoreFile(this)">
-        <input type="password" id="restore-passphrase" placeholder="Passphrase">
-        <button class="btn btn-primary" onclick="doSetupRestore()">Restore</button>
-        <div class="setup-error" id="setup-restore-error"></div>
+        <div id="setup-new-form" class="setup-form">
+          <input type="email" id="setup-owner-email" placeholder="your@email.com (Google account)">
+          <input type="password" id="setup-passphrase" placeholder="Choose a passphrase">
+          <input type="password" id="setup-passphrase-confirm" placeholder="Confirm passphrase">
+          <button class="btn btn-primary" onclick="doSetupNew()">Create Identity</button>
+          <div class="setup-error" id="setup-new-error"></div>
+        </div>
+        <div id="setup-restore-form" class="setup-form" hidden>
+          <div class="drop-zone" onclick="document.getElementById('restore-file-picker').click()">
+            <div class="drop-zone-icon">&#x1F4E6;</div>
+            <div id="restore-file-label">Select backup .zip file</div>
+          </div>
+          <input type="file" id="restore-file-picker" accept=".zip" hidden onchange="pickRestoreFile(this)">
+          <input type="password" id="restore-passphrase" placeholder="Passphrase">
+          <button class="btn btn-primary" onclick="doSetupRestore()">Restore</button>
+          <div class="setup-error" id="setup-restore-error"></div>
+        </div>
       </div>
     </div>
   </div>
@@ -842,6 +854,17 @@ function fmtSize(b) { if (b < 1024) return b + " B"; if (b < 1048576) return (b/
 
 // ── setup / unlock ─────────────────────────────────────────────────────────
 let restoreFile = null;
+let _setupToken = null;
+
+function acceptSetupToken() {
+  const token = document.getElementById("setup-token-input").value.trim();
+  const err = document.getElementById("setup-token-error");
+  err.textContent = "";
+  if (!token) { err.textContent = "Token required."; return; }
+  _setupToken = token;
+  document.getElementById("setup-token-step").hidden = true;
+  document.getElementById("setup-wizard-step").hidden = false;
+}
 
 function showSetupTab(tab) {
   document.getElementById("setup-new-form").hidden = tab !== "new";
@@ -867,9 +890,10 @@ async function doSetupNew() {
     const r = await fetch("/setup/new", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({passphrase: pass, confirm_passphrase: confirm, owner_identity: "google:" + email}),
+      body: JSON.stringify({passphrase: pass, confirm_passphrase: confirm, owner_identity: "google:" + email, setup_token: _setupToken}),
     });
     const d = await r.json();
+    if (r.status === 403) { _badSetupToken(d.detail); return; }
     if (!r.ok) { err.textContent = d.detail || "Error."; return; }
     showView("login");
   } catch { err.textContent = "Network error."; }
@@ -884,12 +908,21 @@ async function doSetupRestore() {
   const fd = new FormData();
   fd.append("bundle", restoreFile);
   fd.append("passphrase", pass);
+  fd.append("setup_token", _setupToken || "");
   try {
     const r = await fetch("/setup/restore", {method: "POST", body: fd});
     const d = await r.json();
+    if (r.status === 403) { _badSetupToken(d.detail); return; }
     if (!r.ok) { err.textContent = d.detail || "Error."; return; }
     showView("login");
   } catch { err.textContent = "Network error."; }
+}
+
+function _badSetupToken(msg) {
+  _setupToken = null;
+  document.getElementById("setup-wizard-step").hidden = true;
+  document.getElementById("setup-token-step").hidden = false;
+  document.getElementById("setup-token-error").textContent = msg || "Invalid setup token.";
 }
 
 async function doUnlock() {
