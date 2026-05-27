@@ -5,3 +5,75 @@
 {$CONTACC_DOMAIN}:8444 {
     reverse_proxy client:9444
 }
+
+{$CONTACC_DOMAIN}:8445 {
+    reverse_proxy server-2:9443
+}
+
+{$CONTACC_DOMAIN}:8446 {
+    reverse_proxy client-2:9444
+}
+
+{$CONTACC_DOMAIN}:8447 {
+    reverse_proxy server-3:9443
+}
+
+{$CONTACC_DOMAIN}:8448 {
+    reverse_proxy client-3:9444
+}
+
+{$CONTACC_DOMAIN}:8449 {
+    reverse_proxy server-4:9443
+}
+
+{$CONTACC_DOMAIN}:8450 {
+    reverse_proxy client-4:9444
+}
+
+{$CONTACC_DOMAIN}:8451 {
+    reverse_proxy server-5:9443
+}
+
+{$CONTACC_DOMAIN}:8452 {
+    reverse_proxy client-5:9444
+}
+
+{$CONTACC_DOMAIN}:8453 {
+    reverse_proxy server-6:9443
+}
+
+{$CONTACC_DOMAIN}:8454 {
+    reverse_proxy client-6:9444
+}
+
+{$CONTACC_DOMAIN}:8455 {
+    reverse_proxy server-7:9443
+}
+
+{$CONTACC_DOMAIN}:8456 {
+    reverse_proxy client-7:9444
+}
+
+{$CONTACC_DOMAIN}:8457 {
+    reverse_proxy server-8:9443
+}
+
+{$CONTACC_DOMAIN}:8458 {
+    reverse_proxy client-8:9444
+}
+
+{$CONTACC_DOMAIN}:8459 {
+    reverse_proxy server-9:9443
+}
+
+{$CONTACC_DOMAIN}:8460 {
+    reverse_proxy client-9:9444
+}
+
+{$CONTACC_DOMAIN}:8461 {
+    reverse_proxy server-10:9443
+}
+
+{$CONTACC_DOMAIN}:8462 {
+    reverse_proxy client-10:9444
+}

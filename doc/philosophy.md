@@ -68,6 +68,20 @@ The protocol encodes the rigid structural parts — identities, assets, operatio
 
 ---
 
+## Knowing Your Contacts
+
+The quality of AI judgment about what to share — and how — depends heavily on how well the AI understands the relationships involved. A contact list of names and addresses is not enough.
+
+contacc users are encouraged to maintain **prose descriptions of their relationships**: free-form accounts of how they know a person, how they met, shared history, the texture of the relationship, and anything else that shapes what it means to share something with that person. These descriptions are part of the user's data store, not the protocol — they are personal knowledge, not metadata.
+
+This context is what allows an AI agent to make genuinely useful decisions. Knowing that a contact is a childhood friend you've stayed close to over forty years is qualitatively different from knowing they are a work colleague you respect but see only at conferences. The same piece of content might be appropriate to share with one and not the other — not because of a category the system assigned, but because of what you actually know about the relationship.
+
+These relationship descriptions also provide the natural substrate for **constructing sharing groups**. Rather than manually curating lists labeled "family" or "close friends," a user can let an AI derive those groupings from the relationship descriptions themselves: who counts as family, which colleagues are actual friends, which acquaintances have grown into something closer. The categories emerge from the descriptions, not the other way around.
+
+As with inner monologue, these descriptions should be candid. They are never shared — they exist to inform the AI acting on the user's behalf, not to be shown to the contacts they describe. A user should feel free to note that a friendship has cooled, that a colleague is difficult, or that a family relationship is complicated, because that honesty is what makes the AI's judgment worth trusting.
+
+---
+
 ## Recording for Your Future Self
 
 Most digital communication is shaped, consciously or not, by the question *who will see this?* Even nominally private content is framed around an imagined audience. This produces a subtle but pervasive self-censorship: people curate even their private thoughts around imagined judgment.
