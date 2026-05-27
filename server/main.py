@@ -29,6 +29,7 @@ from . import write as write_module
 from . import admin as admin_module
 from . import posts as posts_module
 from . import setup as setup_module
+from . import profile as profile_module
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("contacc")
@@ -43,7 +44,14 @@ def _client_url_from_server(node_address: str) -> str:
     return ""
 
 
-def _registry_heartbeat(private_key: Ed25519PrivateKey, node_address: str, handle: str, registry_url: str) -> None:
+def _registry_heartbeat(
+    private_key: Ed25519PrivateKey,
+    node_address: str,
+    handle: str,
+    registry_url: str,
+    display_name: str | None = None,
+    photo_url: str | None = None,
+) -> None:
     """Sign and push an update to the registry. Runs in the background; failures are logged and ignored."""
     try:
         client_url = _client_url_from_server(node_address)
@@ -53,6 +61,10 @@ def _registry_heartbeat(private_key: Ed25519PrivateKey, node_address: str, handl
         signature = base64.b64encode(private_key.sign(msg.encode())).decode()
         payload = {"server_url": node_address, "client_url": client_url, "ttl": 14400,
                    "timestamp": timestamp, "signature": signature}
+        if display_name:
+            payload["display_name"] = display_name
+        if photo_url:
+            payload["photo_url"] = photo_url
         r = httpx.put(f"{registry_url.rstrip('/')}/update/{handle}", json=payload, timeout=10.0)
         if r.is_success:
             log.info("Registry heartbeat OK: %s → %s (client: %s)", handle, node_address, client_url)
@@ -113,11 +125,20 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
         registry_url = config.registry_url or config.identity_proxy_url or ""
         if registry_url:
             import threading
-            threading.Thread(
-                target=_registry_heartbeat,
-                args=(private_key, node_address, config.registry_handle, registry_url),
-                daemon=True,
-            ).start()
+
+            def _make_trigger(pk, addr, hdl, reg_url, db_con):
+                def trigger():
+                    row = db_con.execute(
+                        "SELECT display_name, photo_content_hash FROM profile WHERE id = 1"
+                    ).fetchone()
+                    dn = row[0] if row else None
+                    pu = f"{addr}/profile/photo" if (row and row[1]) else None
+                    _registry_heartbeat(pk, addr, hdl, reg_url, dn, pu)
+                return trigger
+
+            trigger_fn = _make_trigger(private_key, node_address, config.registry_handle, registry_url, db_con)
+            app.state.trigger_heartbeat = trigger_fn
+            threading.Thread(target=trigger_fn, daemon=True).start()
 
 
 def create_app(config_path: str | Path) -> FastAPI:
@@ -155,6 +176,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     app.include_router(write_module.router)
     app.include_router(admin_module.router)
     app.include_router(posts_module.router)
+    app.include_router(profile_module.router)
 
     static_dir = Path(__file__).parent / "static"
 

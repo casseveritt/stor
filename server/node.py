@@ -32,6 +32,9 @@ def node_metadata(request: Request):
     db = request.app.state.db
     public_posts = db.execute("SELECT COUNT(*) FROM posts WHERE is_public = 1 AND deleted = 0").fetchone()[0]
     public_assets = db.execute("SELECT COUNT(*) FROM assets WHERE is_public = 1 AND deleted = 0").fetchone()[0]
+    profile_row = db.execute(
+        "SELECT display_name, photo_content_hash FROM profile WHERE id = 1"
+    ).fetchone()
     result = {
         "node": _node_address,
         "public_key": _public_key_b64,
@@ -41,6 +44,10 @@ def node_metadata(request: Request):
     }
     if _registry_handle:
         result["handle"] = _registry_handle
+    if profile_row and profile_row[0]:
+        result["display_name"] = profile_row[0]
+    if profile_row and profile_row[1]:
+        result["photo_url"] = f"{_node_address}/profile/photo"
     return result
 
 

@@ -201,5 +201,13 @@ def init_schema(con: sqlcipher3.Connection) -> None:
     con.execute(
         "CREATE INDEX IF NOT EXISTS access_log_recipient_idx ON access_log (recipient_id, accessed_at DESC)"
     )
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS profile (
+            id                INTEGER PRIMARY KEY DEFAULT 1,
+            display_name      TEXT,
+            photo_content_hash TEXT,
+            photo_media_type  TEXT
+        )
+    """)
     con.execute("INSERT OR IGNORE INTO schema_version VALUES (6)")
     con.commit()

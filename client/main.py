@@ -303,13 +303,60 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     # ── contacts ──────────────────────────────────────────────────────────
 
+    @api.get("/profile")
+    async def api_profile():
+        async with httpx.AsyncClient() as hc:
+            r = await hc.get(config.own_server + "/profile", timeout=10)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code)
+        return r.json()
+
+    @api.put("/profile")
+    async def api_update_profile(request: Request):
+        if not _token(config.own_server):
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        payload = await request.json()
+        async with httpx.AsyncClient() as hc:
+            r = await hc.put(
+                config.own_server + "/profile",
+                json=payload,
+                headers=_headers(config.own_server),
+                timeout=10,
+            )
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+    @api.put("/profile/photo")
+    async def api_update_photo(file: UploadFile = File(...)):
+        if not _token(config.own_server):
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        content = await file.read()
+        async with httpx.AsyncClient() as hc:
+            r = await hc.put(
+                config.own_server + "/profile/photo",
+                files={"file": (file.filename, content, file.content_type or "image/jpeg")},
+                headers=_headers(config.own_server),
+                timeout=30,
+            )
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
     @api.get("/contacts/lookup")
     async def api_lookup_handle(handle: str = Query(...)):
         from registry.client import lookup as registry_lookup
         record = await registry_lookup(handle)
         if record is None:
             raise HTTPException(status_code=404, detail=f"Handle '{handle}' not found")
-        return {"handle": handle, "name": handle, "server_url": record["server_url"], "client_url": record.get("client_url", "")}
+        return {
+            "handle": handle,
+            "name": record.get("display_name") or handle,
+            "server_url": record["server_url"],
+            "client_url": record.get("client_url", ""),
+            "display_name": record.get("display_name"),
+            "photo_url": record.get("photo_url"),
+        }
 
     class ContactBody(BaseModel):
         name: str

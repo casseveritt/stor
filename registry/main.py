@@ -73,6 +73,17 @@ def create_app(db_path: str) -> FastAPI:
             updated_at    REAL NOT NULL
         )
     """)
+    try:
+        con.execute("ALTER TABLE handles ADD COLUMN display_name TEXT")
+        con.commit()
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE handles ADD COLUMN photo_url TEXT")
+        con.commit()
+    except Exception:
+        pass
+
     con.execute("""
         CREATE TABLE IF NOT EXISTS proxy_states (
             state      TEXT PRIMARY KEY,
@@ -121,32 +132,76 @@ def create_app(db_path: str) -> FastAPI:
              color: #fff; font-size: 1rem; cursor: pointer; }
     button:hover { background: #3a78e0; }
     #err { color: #e06c6c; font-size: 0.85rem; min-height: 1.2em; }
+    #profile-card { display: none; flex-direction: column; align-items: center; gap: 0.75rem;
+                    background: #1e1e1e; border-radius: 10px; padding: 1.5rem 2rem; min-width: 240px; }
+    #profile-photo { width: 80px; height: 80px; border-radius: 50%; object-fit: cover;
+                     background: #333; border: 2px solid #333; }
+    #profile-photo.hidden { display: none; }
+    #profile-initials { width: 80px; height: 80px; border-radius: 50%; background: #2a4a7a;
+                        display: flex; align-items: center; justify-content: center;
+                        font-size: 2rem; color: #aac8ff; font-weight: 300; }
+    #profile-initials.hidden { display: none; }
+    #profile-name { font-size: 1.1rem; color: #fff; font-weight: 400; }
+    #profile-handle { font-size: 0.85rem; color: #666; }
+    #go-btn { margin-top: 0.25rem; padding: 0.5rem 1.5rem; border-radius: 4px; border: none;
+              background: #4285f4; color: #fff; font-size: 1rem; cursor: pointer; }
+    #go-btn:hover { background: #3a78e0; }
   </style>
 </head>
 <body>
   <div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="114.1085 98.626948 11.98291 9.7358322"><path style="fill:#4285f4;stroke-width:0.199817" d="m 125.34474,104.96592 0.74667,1.9637 -0.10218,0.12403 c -0.0734,-0.11943 -0.13361,-0.17915 -0.18077,-0.17915 -0.0472,0 -0.17946,0.11024 -0.39691,0.33073 -0.45062,0.45475 -0.8305,0.76252 -1.13965,0.92329 -0.30652,0.15617 -0.67199,0.23426 -1.09641,0.23426 -0.84623,0 -1.54049,-0.3514 -2.08281,-1.0542 -0.31962,-0.40881 -0.50719,-0.82671 -0.69058,-1.43305 -0.19942,-1.14201 -0.14909,-1.18922 -0.15208,-2.72041 -0.003,-1.67715 -0.007,-1.74466 0.33965,-2.63337 0.44703,-1.145722 1.43438,-1.894801 2.58975,-1.894801 0.42442,0 0.78858,0.07809 1.09248,0.234267 0.30391,0.156177 0.68379,0.463939 1.13965,0.923285 0.21745,0.215889 0.34975,0.323839 0.39691,0.323839 0.0472,0 0.10742,-0.0597 0.18077,-0.179145 l 0.10218,0.124025 -0.74667,1.9637 -0.1061,-0.12402 c 0.005,-0.0735 0.008,-0.13551 0.008,-0.18604 0,-0.13321 -0.0327,-0.25723 -0.0983,-0.37207 -0.0655,-0.11943 -0.18208,-0.26182 -0.34975,-0.42719 -0.46372,-0.45935 -0.95495,-0.68902 -1.47368,-0.68902 -0.61305,0 -1.10166,0.26872 -1.46582,0.80615 -0.42966,0.62931 -0.64449,1.45154 -0.64449,2.46669 0,1.01515 0.21483,1.83738 0.64449,2.46669 0.36416,0.53743 0.85277,0.80615 1.46582,0.80615 0.51873,0 1.00996,-0.22967 1.47368,-0.68902 0.16767,-0.16537 0.28426,-0.30547 0.34975,-0.4203 0.0655,-0.11943 0.0983,-0.24575 0.0983,-0.37896 0,-0.0505 -0.003,-0.11025 -0.008,-0.17915 z"/><path style="fill:#4285f4;stroke-width:0.199817" d="m 114.85517,104.96592 -0.74667,1.9637 0.10218,0.12403 c 0.0734,-0.11943 0.13361,-0.17915 0.18077,-0.17915 0.0472,0 0.17946,0.11024 0.39691,0.33073 0.45062,0.45475 0.8305,0.76252 1.13965,0.92329 0.30652,0.15617 0.67199,0.23426 1.09641,0.23426 0.84623,0 1.54049,-0.3514 2.08281,-1.0542 0.31962,-0.40881 0.50719,-0.82671 0.69058,-1.43305 0.19942,-1.14201 0.14909,-1.18922 0.15208,-2.72041 0.003,-1.67715 0.007,-1.74466 -0.33965,-2.63337 -0.44703,-1.145723 -1.43438,-1.894802 -2.58975,-1.894802 -0.42442,0 -0.78858,0.07809 -1.09248,0.234267 -0.30391,0.156177 -0.68379,0.463939 -1.13965,0.923285 -0.21745,0.21589 -0.34975,0.32384 -0.39691,0.32384 -0.0472,0 -0.10742,-0.0597 -0.18077,-0.179146 l -0.10218,0.124026 0.74667,1.9637 0.1061,-0.12402 c -0.005,-0.0735 -0.008,-0.13551 -0.008,-0.18604 0,-0.13321 0.0327,-0.25723 0.0982,-0.37207 0.0655,-0.11943 0.18208,-0.26182 0.34975,-0.42719 0.46372,-0.45935 0.95495,-0.68902 1.47368,-0.68902 0.61305,0 1.10166,0.26872 1.46582,0.80615 0.42966,0.62931 0.64449,1.45154 0.64449,2.46669 0,1.01515 -0.21483,1.83738 -0.64449,2.46669 -0.36416,0.53743 -0.85277,0.80615 -1.46582,0.80615 -0.51873,0 -1.00996,-0.22967 -1.47368,-0.68902 -0.16767,-0.16537 -0.28426,-0.30547 -0.34975,-0.4203 -0.0655,-0.11943 -0.0982,-0.24575 -0.0982,-0.37896 0,-0.0505 0.003,-0.11025 0.008,-0.17915 z"/></svg><span>contacc</span></div>
   <div class="row">
     <input id="handle" type="text" placeholder="your handle" autocomplete="off"
-           autocapitalize="none" onkeydown="if(event.key==='Enter')go()">
-    <button onclick="go()">Go</button>
+           autocapitalize="none" onkeydown="if(event.key==='Enter')lookup()">
+    <button onclick="lookup()">Look up</button>
   </div>
   <div id="err"></div>
+  <div id="profile-card">
+    <img id="profile-photo" alt="">
+    <div id="profile-initials"></div>
+    <div id="profile-name"></div>
+    <div id="profile-handle"></div>
+    <button id="go-btn" onclick="gotoProfile()">Go to profile</button>
+  </div>
   <script>
-    async function go() {
+    let _profileUrl = null;
+
+    async function lookup() {
       const handle = document.getElementById("handle").value.trim();
       const err = document.getElementById("err");
+      const card = document.getElementById("profile-card");
       err.textContent = "";
+      card.style.display = "none";
+      _profileUrl = null;
       if (!handle) return;
       const r = await fetch("/lookup/" + encodeURIComponent(handle));
       if (r.status === 404) { err.textContent = "Handle not found."; return; }
       if (!r.ok) { err.textContent = "Registry error."; return; }
       const d = await r.json();
-      if (d.client_url) { window.location.href = d.client_url; }
-      else if (d.server_url) { window.location.href = d.server_url; }
-      else { err.textContent = "No URL found for that handle."; }
+      _profileUrl = d.client_url || d.server_url || null;
+      const name = d.display_name || ("@" + handle);
+      document.getElementById("profile-name").textContent = name;
+      document.getElementById("profile-handle").textContent = "@" + handle;
+      const photo = document.getElementById("profile-photo");
+      const initials = document.getElementById("profile-initials");
+      if (d.photo_url) {
+        photo.src = d.photo_url;
+        photo.classList.remove("hidden");
+        initials.classList.add("hidden");
+      } else {
+        photo.classList.add("hidden");
+        initials.classList.remove("hidden");
+        initials.textContent = name.trim()[0].toUpperCase();
+      }
+      card.style.display = "flex";
     }
+
+    function gotoProfile() {
+      if (_profileUrl) window.location.href = _profileUrl;
+    }
+
     const h = new URLSearchParams(location.search).get("handle");
-    if (h) { document.getElementById("handle").value = h; go(); }
+    if (h) { document.getElementById("handle").value = h; lookup(); }
   </script>
 </body>
 </html>"""
@@ -174,12 +229,12 @@ def create_app(db_path: str) -> FastAPI:
     @app.get("/lookup/{username}")
     def lookup(username: str):
         row = con.execute(
-            "SELECT server_url, client_url, public_key, ttl, updated_at "
+            "SELECT server_url, client_url, public_key, ttl, updated_at, display_name, photo_url "
             "FROM handles WHERE username = ?", (username,)
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Username not found")
-        server_url, client_url, public_key, ttl, updated_at = row
+        server_url, client_url, public_key, ttl, updated_at, display_name, photo_url = row
         return {
             "username": username,
             "server_url": server_url,
@@ -187,6 +242,8 @@ def create_app(db_path: str) -> FastAPI:
             "public_key": public_key,
             "ttl": ttl,
             "updated_at": updated_at,
+            "display_name": display_name,
+            "photo_url": photo_url,
         }
 
     class RegisterBody(BaseModel):
@@ -225,6 +282,8 @@ def create_app(db_path: str) -> FastAPI:
         ttl: int = DEFAULT_TTL
         timestamp: int
         signature: str
+        display_name: str | None = None
+        photo_url: str | None = None
 
     @app.put("/update/{username}")
     def update(username: str, body: UpdateBody):
@@ -239,8 +298,9 @@ def create_app(db_path: str) -> FastAPI:
         if not _verify_sig(row[0], msg, body.signature):
             raise HTTPException(status_code=401, detail="Invalid signature")
         con.execute(
-            "UPDATE handles SET server_url=?, client_url=?, ttl=?, updated_at=? WHERE username=?",
-            (body.server_url, body.client_url, ttl, time.time(), username),
+            "UPDATE handles SET server_url=?, client_url=?, ttl=?, updated_at=?, display_name=?, photo_url=? "
+            "WHERE username=?",
+            (body.server_url, body.client_url, ttl, time.time(), body.display_name, body.photo_url, username),
         )
         con.commit()
         return {"username": username, "ttl": ttl}

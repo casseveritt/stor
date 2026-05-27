@@ -123,6 +123,19 @@
     .progress-ok { color: #6cbe6c; }
     .progress-err { color: #e06c6c; }
 
+    /* ── profile ── */
+    #profile-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; cursor: pointer; border: 2px solid #333; flex-shrink: 0; }
+    #profile-avatar-initials { width: 28px; height: 28px; border-radius: 50%; background: #2a4a7a; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: #aac8ff; cursor: pointer; border: 2px solid #333; flex-shrink: 0; }
+    .profile-modal-photo { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
+    .profile-modal-photo img { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; background: #333; border: 2px solid #333; }
+    .profile-initials-lg { width: 80px; height: 80px; border-radius: 50%; background: #2a4a7a; display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #aac8ff; font-weight: 300; }
+    .contact-profile-card { display: flex; align-items: center; gap: 0.75rem; padding: 0.75rem; background: #252525; border-radius: 8px; margin-bottom: 0.5rem; }
+    .contact-profile-card img { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: #333; flex-shrink: 0; }
+    .contact-profile-initials { width: 48px; height: 48px; border-radius: 50%; background: #2a4a7a; display: flex; align-items: center; justify-content: center; font-size: 1.25rem; color: #aac8ff; flex-shrink: 0; }
+    .contact-profile-info { display: flex; flex-direction: column; gap: 0.15rem; }
+    .contact-profile-name { font-size: 0.95rem; color: #e0e0e0; }
+    .contact-profile-handle { font-size: 0.78rem; color: #666; }
+
     /* ── shared ── */
     .btn { padding: 0.42rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.88rem; }
     .btn-primary { background: #4285f4; color: #fff; }
@@ -237,6 +250,8 @@
     </div>
     <div class="header-right">
       <button id="compose-btn" class="btn btn-primary btn-sm" onclick="openCompose()" hidden>+ Post</button>
+      <div id="profile-avatar-initials" onclick="openProfile()" title="Edit profile" hidden></div>
+      <img id="profile-avatar" onclick="openProfile()" title="Edit profile" hidden>
       <button class="btn btn-muted btn-sm" onclick="logout()">Sign out</button>
     </div>
   </header>
@@ -315,11 +330,41 @@
         <button class="btn btn-muted btn-sm" onclick="lookupHandle()">Look up</button>
       </div>
       <div id="add-contact-result" style="font-size:0.85rem;color:#aaa;min-height:1.4em"></div>
+      <div id="add-contact-card" hidden class="contact-profile-card">
+        <img id="add-contact-photo" alt="" hidden>
+        <div id="add-contact-initials" class="contact-profile-initials" hidden></div>
+        <div class="contact-profile-info">
+          <div id="add-contact-display-name" class="contact-profile-name"></div>
+          <div id="add-contact-handle-display" class="contact-profile-handle"></div>
+        </div>
+      </div>
       <div id="add-contact-confirm" hidden style="display:flex;flex-direction:column;gap:0.5rem">
-        <input type="text" id="add-contact-name" placeholder="Display name">
         <button class="btn btn-primary" onclick="confirmAddContact()">Add contact</button>
       </div>
       <div id="add-contact-error" style="color:#e06c6c;font-size:0.85rem;min-height:1.2em"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ── profile modal ───────────────────────────────────────────────────────── -->
+<div id="profile-overlay" class="overlay" hidden onclick="maybeClose('profile-overlay',event)">
+  <div class="modal" style="max-width:400px">
+    <button class="modal-close" onclick="closeProfile()">&#x2715;</button>
+    <h3>Your profile</h3>
+    <div class="profile-modal-photo">
+      <img id="profile-modal-photo" alt="" hidden>
+      <div id="profile-modal-initials" class="profile-initials-lg" hidden></div>
+      <label class="btn btn-muted btn-sm" style="cursor:pointer;margin-top:0.25rem">
+        Change photo
+        <input type="file" id="profile-photo-input" accept="image/*" hidden onchange="uploadProfilePhoto(this)">
+      </label>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:0.75rem">
+      <div style="display:flex;gap:0.5rem">
+        <input type="text" id="profile-display-name" placeholder="Display name" style="flex:1">
+        <button class="btn btn-primary btn-sm" onclick="saveProfileName()">Save</button>
+      </div>
+      <div id="profile-status" style="font-size:0.85rem;min-height:1.2em"></div>
     </div>
   </div>
 </div>
@@ -475,6 +520,42 @@ async function loadIdentity() {
   const badge = document.getElementById("identity-badge");
   badge.textContent = d.display_name || identity.replace(/^[^:]+:/, "") || d.role;
   badge.title = identity;
+  if (IS_OWNER) {
+    loadProfileAvatar();
+  }
+}
+
+async function loadProfileAvatar() {
+  try {
+    const r = await apiFetch("/api/profile");
+    if (!r.ok) return;
+    const p = await r.json();
+    const avatarImg = document.getElementById("profile-avatar");
+    const avatarInit = document.getElementById("profile-avatar-initials");
+    if (p.photo_url) {
+      avatarImg.src = p.photo_url + "?t=" + Date.now();
+      avatarImg.hidden = false;
+      avatarInit.hidden = true;
+    } else {
+      const name = p.display_name || p.handle || "?";
+      avatarInit.textContent = name[0].toUpperCase();
+      avatarInit.hidden = false;
+      avatarImg.hidden = true;
+    }
+    document.getElementById("profile-display-name").value = p.display_name || "";
+    const modalImg = document.getElementById("profile-modal-photo");
+    const modalInit = document.getElementById("profile-modal-initials");
+    if (p.photo_url) {
+      modalImg.src = p.photo_url + "?t=" + Date.now();
+      modalImg.hidden = false;
+      modalInit.hidden = true;
+    } else {
+      const name = p.display_name || p.handle || "?";
+      modalInit.textContent = name[0].toUpperCase();
+      modalInit.hidden = false;
+      modalImg.hidden = true;
+    }
+  } catch {}
 }
 
 // ── views ──────────────────────────────────────────────────────────────────
@@ -536,8 +617,10 @@ function closeAddContact() { document.getElementById("add-contact-overlay").hidd
 async function lookupHandle() {
   const handle = document.getElementById("add-contact-handle").value.trim();
   const result = document.getElementById("add-contact-result");
+  const card = document.getElementById("add-contact-card");
   const confirm = document.getElementById("add-contact-confirm");
   document.getElementById("add-contact-error").textContent = "";
+  card.hidden = true;
   confirm.hidden = true;
   _pendingContact = null;
   if (!handle) return;
@@ -547,14 +630,31 @@ async function lookupHandle() {
   if (!r.ok) { result.textContent = "Lookup failed."; return; }
   const d = await r.json();
   _pendingContact = d;
-  result.textContent = "Found: " + d.server_url;
-  document.getElementById("add-contact-name").value = handle;
+  result.textContent = "";
+
+  const photoEl = document.getElementById("add-contact-photo");
+  const initEl  = document.getElementById("add-contact-initials");
+  const nameEl  = document.getElementById("add-contact-display-name");
+  const hndlEl  = document.getElementById("add-contact-handle-display");
+  const displayName = d.display_name || ("@" + handle);
+  nameEl.textContent = displayName;
+  hndlEl.textContent = "@" + handle;
+  if (d.photo_url) {
+    photoEl.src = d.photo_url;
+    photoEl.hidden = false;
+    initEl.hidden = true;
+  } else {
+    initEl.textContent = displayName[0].toUpperCase();
+    initEl.hidden = false;
+    photoEl.hidden = true;
+  }
+  card.hidden = false;
   confirm.hidden = false;
 }
 
 async function confirmAddContact() {
   if (!_pendingContact) return;
-  const name = document.getElementById("add-contact-name").value.trim() || _pendingContact.handle;
+  const name = _pendingContact.display_name || _pendingContact.handle;
   const err = document.getElementById("add-contact-error");
   err.textContent = "";
   const r = await apiFetch("/api/contacts", {
@@ -718,6 +818,8 @@ document.addEventListener("keydown", e => {
   }
   if (!document.getElementById("compose-overlay").hidden && e.key === "Escape") closeCompose();
   if (!document.getElementById("edit-overlay").hidden && e.key === "Escape") closeEdit();
+  if (!document.getElementById("profile-overlay").hidden && e.key === "Escape") closeProfile();
+  if (!document.getElementById("add-contact-overlay").hidden && e.key === "Escape") closeAddContact();
 });
 
 function navigatePost(delta) {
@@ -996,6 +1098,47 @@ function mimeIcon(mt) {
 }
 function fmtDate(ts) { if (!ts) return ""; return new Date(ts * 1000).toLocaleString(undefined, {dateStyle:"short",timeStyle:"short"}); }
 function fmtSize(b) { if (b < 1024) return b + " B"; if (b < 1048576) return (b/1024).toFixed(1) + " KB"; return (b/1048576).toFixed(1) + " MB"; }
+
+// ── profile ────────────────────────────────────────────────────────────────
+function openProfile() { loadProfileAvatar(); document.getElementById("profile-overlay").hidden = false; }
+function closeProfile() { document.getElementById("profile-overlay").hidden = true; }
+
+async function saveProfileName() {
+  const name = document.getElementById("profile-display-name").value.trim();
+  const status = document.getElementById("profile-status");
+  if (!name) { status.style.color = "#e06c6c"; status.textContent = "Name required."; return; }
+  status.style.color = "#888"; status.textContent = "Saving…";
+  const r = await apiFetch("/api/profile", {
+    method: "PUT",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({display_name: name}),
+  });
+  if (r.ok) {
+    status.style.color = "#6dbf6d"; status.textContent = "Saved.";
+    loadProfileAvatar();
+    setTimeout(() => { status.textContent = ""; }, 2000);
+  } else {
+    status.style.color = "#e06c6c"; status.textContent = "Failed to save.";
+  }
+}
+
+async function uploadProfilePhoto(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const status = document.getElementById("profile-status");
+  status.style.color = "#888"; status.textContent = "Uploading…";
+  const fd = new FormData();
+  fd.append("file", file);
+  const r = await apiFetch("/api/profile/photo", {method: "PUT", body: fd});
+  if (r.ok) {
+    status.style.color = "#6dbf6d"; status.textContent = "Photo updated.";
+    loadProfileAvatar();
+    setTimeout(() => { status.textContent = ""; }, 2000);
+  } else {
+    status.style.color = "#e06c6c"; status.textContent = "Upload failed.";
+  }
+  input.value = "";
+}
 
 // ── setup / unlock ─────────────────────────────────────────────────────────
 
