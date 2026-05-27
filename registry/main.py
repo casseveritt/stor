@@ -26,7 +26,7 @@ import uvicorn
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 DEFAULT_TTL = 14400   # 4 hours
@@ -97,6 +97,70 @@ def create_app(db_path: str) -> FastAPI:
     proxy_enabled = bool(proxy_client_id and proxy_client_secret and registry_public_url)
 
     app = FastAPI(title="contacc registry")
+
+    _INDEX_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>contacc</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #111; color: #e0e0e0;
+           display: flex; flex-direction: column; align-items: center; justify-content: center;
+           min-height: 100vh; gap: 1.5rem; padding: 2rem; }
+    h1 { font-size: 2rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; }
+    .row { display: flex; gap: 0.5rem; }
+    input { padding: 0.5rem 0.8rem; border-radius: 4px; border: 1px solid #333;
+            background: #222; color: #e0e0e0; font-size: 1rem; outline: none; width: 220px; }
+    input:focus { border-color: #4285f4; }
+    button { padding: 0.5rem 1.2rem; border-radius: 4px; border: none; background: #4285f4;
+             color: #fff; font-size: 1rem; cursor: pointer; }
+    button:hover { background: #3a78e0; }
+    #err { color: #e06c6c; font-size: 0.85rem; min-height: 1.2em; }
+  </style>
+</head>
+<body>
+  <h1>contacc</h1>
+  <div class="row">
+    <input id="handle" type="text" placeholder="your handle" autocomplete="off"
+           autocapitalize="none" onkeydown="if(event.key==='Enter')go()">
+    <button onclick="go()">Go</button>
+  </div>
+  <div id="err"></div>
+  <script>
+    async function go() {
+      const handle = document.getElementById("handle").value.trim();
+      const err = document.getElementById("err");
+      err.textContent = "";
+      if (!handle) return;
+      const r = await fetch("/lookup/" + encodeURIComponent(handle));
+      if (r.status === 404) { err.textContent = "Handle not found."; return; }
+      if (!r.ok) { err.textContent = "Registry error."; return; }
+      const d = await r.json();
+      if (d.client_url) { window.location.href = d.client_url; }
+      else if (d.server_url) { window.location.href = d.server_url; }
+      else { err.textContent = "No URL found for that handle."; }
+    }
+    const h = new URLSearchParams(location.search).get("handle");
+    if (h) { document.getElementById("handle").value = h; go(); }
+  </script>
+</body>
+</html>"""
+
+    @app.get("/", response_class=HTMLResponse)
+    def index():
+        return _INDEX_HTML
+
+    @app.get("/go/{username}")
+    def go(username: str):
+        row = con.execute(
+            "SELECT server_url, client_url FROM handles WHERE username = ?", (username,)
+        ).fetchone()
+        if not row:
+            return RedirectResponse(f"/?handle={username}", status_code=302)
+        server_url, client_url = row
+        return RedirectResponse(client_url or server_url, status_code=302)
 
     @app.get("/health")
     def health():

@@ -34,18 +34,28 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 log = logging.getLogger("contacc")
 
 
+def _client_url_from_server(node_address: str) -> str:
+    """Derive the client URL from the server URL by incrementing the port by 1."""
+    from urllib.parse import urlparse, urlunparse
+    parsed = urlparse(node_address)
+    if parsed.port:
+        return urlunparse(parsed._replace(netloc=f"{parsed.hostname}:{parsed.port + 1}"))
+    return ""
+
+
 def _registry_heartbeat(private_key: Ed25519PrivateKey, node_address: str, handle: str, registry_url: str) -> None:
     """Sign and push an update to the registry. Runs in the background; failures are logged and ignored."""
     try:
+        client_url = _client_url_from_server(node_address)
         pub_bytes = private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
         timestamp = int(time.time())
-        msg = f"contacc:update:{handle}:{node_address}::{timestamp}"
+        msg = f"contacc:update:{handle}:{node_address}:{client_url}:{timestamp}"
         signature = base64.b64encode(private_key.sign(msg.encode())).decode()
-        payload = {"server_url": node_address, "client_url": "", "ttl": 14400,
+        payload = {"server_url": node_address, "client_url": client_url, "ttl": 14400,
                    "timestamp": timestamp, "signature": signature}
         r = httpx.put(f"{registry_url.rstrip('/')}/update/{handle}", json=payload, timeout=10.0)
         if r.is_success:
-            log.info("Registry heartbeat OK: %s → %s", handle, node_address)
+            log.info("Registry heartbeat OK: %s → %s (client: %s)", handle, node_address, client_url)
         else:
             log.warning("Registry heartbeat failed %s: %s", r.status_code, r.text)
     except Exception as e:
