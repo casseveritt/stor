@@ -19,3 +19,6 @@ The Docker packaging (`Dockerfile`, `docker-compose.yml`, `deploy/docker-setup.s
 
 ## 6. Portable bundle / backup runbook
 The `data/` directory layout in Docker is the foundation for portable backups. Needs a documented backup/restore runbook and possibly a `tools/backup.sh`. The restore path (`docker compose up` with existing `data/`) already works; just needs documentation and testing.
+
+## 7. Plaintext metadata in node_config.json
+`node_config.json` stores `sso_owner_identity` (e.g. `"google:cass.everitt@gmail.com"`), `node_address`, and `registry_handle` in plaintext — readable by anyone with filesystem access, no passphrase required. The email is only used to verify incoming SSO tokens. Future hardening: consider encrypting or omitting it from the config (look it up from the encrypted DB at unlock time instead). The handle and node_address are less sensitive but still worth considering.
