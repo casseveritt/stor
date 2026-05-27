@@ -74,8 +74,12 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     @app.get("/client/login-url")
     async def client_login_url(request: Request):
-        base = str(request.base_url).rstrip("/")
-        return_to = base + "/auth/callback"
+        # CONTAC_CLIENT_URL overrides request.base_url so the return_to link
+        # uses the correct public https:// address even behind a reverse proxy.
+        import os
+        public_base = (os.environ.get("CONTAC_CLIENT_URL")
+                       or str(request.base_url)).rstrip("/")
+        return_to = public_base + "/auth/callback"
         server_login = (config.own_server + "/auth/login?provider=google&return_to="
                         + return_to)
         async with httpx.AsyncClient() as hc:

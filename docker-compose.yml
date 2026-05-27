@@ -16,6 +16,8 @@ services:
     image: contac
     restart: unless-stopped
     command: python -m client.main /data/client_config.json --host 0.0.0.0 --port 9444
+    environment:
+      CONTAC_CLIENT_URL: https://${CONTAC_DOMAIN}:8444
     volumes:
       - ./data/client:/data
     expose:
