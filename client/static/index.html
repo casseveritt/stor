@@ -21,6 +21,7 @@
     .header-left  { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
     .header-right { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
     .logo { font-size: 1.1rem; font-weight: 500; color: #fff; }
+    #handle-display { font-size: 1.05rem; font-weight: 500; color: #fff; }
     #identity-badge { font-size: 0.75rem; color: #666; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     #search-wrap { flex: 1; min-width: 0; }
     #search-input { width: 100%; padding: 0.4rem 0.7rem; border-radius: 4px; border: 1px solid #333; background: #222; color: #e0e0e0; font-size: 0.88rem; outline: none; }
@@ -222,7 +223,7 @@
 <div id="feed-view" hidden>
   <header>
     <div class="header-left">
-      <span class="logo">contacc</span>
+      <span id="handle-display" class="logo">contacc</span>
       <span id="identity-badge"></span>
     </div>
     <div id="search-wrap">
@@ -452,13 +453,13 @@ async function loadIdentity() {
   const d = await r.json();
   IS_OWNER = d.role === "owner";
   document.getElementById("compose-btn").hidden = !IS_OWNER;
-  const badge = document.getElementById("identity-badge");
   const identity = d.identity || "";
   const nodeR = await fetch(CFG.own_server + "/node");
   const nodeD = nodeR.ok ? await nodeR.json() : {};
-  const handlePart = nodeD.handle ? `@${nodeD.handle}` : "";
-  const namePart = d.display_name || identity.replace(/^[^:]+:/, "") || d.role;
-  badge.textContent = handlePart ? `${handlePart} · ${namePart}` : namePart;
+  const handleDisplay = document.getElementById("handle-display");
+  handleDisplay.textContent = nodeD.handle ? `@${nodeD.handle}` : "contacc";
+  const badge = document.getElementById("identity-badge");
+  badge.textContent = d.display_name || identity.replace(/^[^:]+:/, "") || d.role;
   badge.title = identity;
 }
 
