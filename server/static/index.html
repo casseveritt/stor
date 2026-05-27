@@ -286,6 +286,9 @@
     <div class="compose-fields">
       <input type="text" id="compose-tags" placeholder="Tags — space-separated">
       <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:#aaa;cursor:pointer">
+        <input type="checkbox" id="compose-inner-monologue" onchange="toggleInnerMonologue(this)"> Inner monologue (private journal — never shared)
+      </label>
+      <label id="compose-public-label" style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:#aaa;cursor:pointer">
         <input type="checkbox" id="compose-public"> Publish (visible to recipients)
       </label>
     </div>
@@ -479,7 +482,11 @@ function makePostCard(post, idx) {
   ).join("");
   const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleDateString() : "";
   const cc = post.comment_count || 0;
-  const vis = post.public ? '<span title="Published">&#x1F310;</span>' : '<span title="Private" style="color:#555">&#x1F512;</span>';
+  const isIM = post.post_type === "inner_monologue";
+  const vis = isIM
+    ? '<span title="Inner monologue" style="color:#8a6fc4">&#x1F4D3;</span>'
+    : post.public ? '<span title="Published">&#x1F310;</span>' : '<span title="Private" style="color:#555">&#x1F512;</span>';
+  if (isIM) div.style.borderLeft = "3px solid #8a6fc4";
   foot.innerHTML = tagHtml
     + '<span class="post-date" style="margin-left:auto">' + dateFmt + '</span>'
     + (cc ? '<span class="post-comment-count">&#x1F4AC; ' + cc + '</span>' : '')
@@ -723,12 +730,28 @@ function openCompose() {
   document.getElementById("compose-body").value = "";
   document.getElementById("compose-tags").value = "";
   document.getElementById("compose-public").checked = false;
+  document.getElementById("compose-public").disabled = false;
+  document.getElementById("compose-public-label").style.opacity = "";
+  document.getElementById("compose-inner-monologue").checked = false;
   document.getElementById("compose-progress").innerHTML = "";
   document.getElementById("compose-submit").disabled = false;
   document.getElementById("compose-overlay").hidden = false;
   document.getElementById("compose-body").focus();
 }
 function closeCompose() { document.getElementById("compose-overlay").hidden = true; }
+
+function toggleInnerMonologue(cb) {
+  const publicLabel = document.getElementById("compose-public-label");
+  const publicCheck = document.getElementById("compose-public");
+  if (cb.checked) {
+    publicLabel.style.opacity = "0.3";
+    publicCheck.disabled = true;
+    publicCheck.checked = false;
+  } else {
+    publicLabel.style.opacity = "";
+    publicCheck.disabled = false;
+  }
+}
 function dzOver(e) { e.preventDefault(); document.getElementById("drop-zone").classList.add("over"); }
 function dzOut()   { document.getElementById("drop-zone").classList.remove("over"); }
 function dzDrop(e) { e.preventDefault(); dzOut(); addFiles(e.dataTransfer.files); }
@@ -749,10 +772,12 @@ async function submitPost() {
   prog.innerHTML = '<div class="progress-item">Posting…</div>';
 
   const isPublic = document.getElementById("compose-public").checked;
+  const isInnerMonologue = document.getElementById("compose-inner-monologue").checked;
   const fd = new FormData();
   fd.append("body", bodyText);
   fd.append("tags", JSON.stringify(tags));
   fd.append("public", isPublic ? "true" : "false");
+  fd.append("post_type", isInnerMonologue ? "inner_monologue" : "post");
   for (const f of pendingFiles) fd.append("files", f);
 
   try {

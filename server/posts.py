@@ -63,8 +63,11 @@ def _comment_count(db, post_id: str) -> int:
     return row[0] if row else 0
 
 
+_VALID_POST_TYPES = {"post", "inner_monologue"}
+
+
 def _post_dict(row, db) -> dict:
-    id_, body, created_at, tags_json, is_public, deleted = row
+    id_, body, created_at, tags_json, is_public, deleted, post_type = row
     assets = _get_post_assets(db, id_, body)
     return {
         "id": id_,
@@ -72,6 +75,7 @@ def _post_dict(row, db) -> dict:
         "tags": json.loads(tags_json) if tags_json else [],
         "created_at": created_at,
         "public": bool(is_public),
+        "post_type": post_type or "post",
         "assets": assets,
         "comment_count": _comment_count(db, id_),
         "deleted": bool(deleted),
@@ -87,6 +91,7 @@ async def create_post(
     body: str = Form(default=""),
     tags: str = Form(default="[]"),
     public: str = Form(default="false"),
+    post_type: str = Form(default="post"),
     files: list[UploadFile] = File(default=[]),
 ):
     try:
@@ -94,7 +99,10 @@ async def create_post(
     except json.JSONDecodeError:
         raise HTTPException(status_code=422, detail="tags must be a JSON array")
 
-    is_public = public.lower() in ("true", "1", "yes")
+    if post_type not in _VALID_POST_TYPES:
+        raise HTTPException(status_code=422, detail=f"post_type must be one of {_VALID_POST_TYPES}")
+
+    is_public = False if post_type == "inner_monologue" else public.lower() in ("true", "1", "yes")
     db = request.app.state.db
     post_id = str(uuid.uuid4())
     now = time.time()
@@ -127,8 +135,8 @@ async def create_post(
     # record all referenced assets in post_assets
     all_ids = _asset_ids_in_order(body)
     db.execute(
-        "INSERT INTO posts (id, body, created_at, tags, is_public, deleted) VALUES (?, ?, ?, ?, ?, 0)",
-        (post_id, body, now, json.dumps(tags_list), int(is_public)),
+        "INSERT INTO posts (id, body, created_at, tags, is_public, deleted, post_type) VALUES (?, ?, ?, ?, ?, 0, ?)",
+        (post_id, body, now, json.dumps(tags_list), int(is_public), post_type),
     )
     for aid in all_ids:
         db.execute("INSERT OR IGNORE INTO post_assets (post_id, asset_id) VALUES (?, ?)", (post_id, aid))
@@ -137,7 +145,7 @@ async def create_post(
     db.commit()
 
     row = db.execute(
-        "SELECT id, body, created_at, tags, is_public, deleted FROM posts WHERE id = ?", (post_id,)
+        "SELECT id, body, created_at, tags, is_public, deleted, post_type FROM posts WHERE id = ?", (post_id,)
     ).fetchone()
     return _post_dict(row, db)
 
@@ -152,10 +160,20 @@ def get_posts(
     cursor: str = Query(default=""),
     tags: list[str] = Query(default=[]),
     q: str = Query(default=""),
+    post_type: str = Query(default="post"),
 ):
     db = request.app.state.db
     params: list = []
     conditions = ["p.deleted = 0"]
+
+    if identity.is_owner:
+        if post_type not in _VALID_POST_TYPES:
+            raise HTTPException(status_code=422, detail=f"post_type must be one of {_VALID_POST_TYPES}")
+        conditions.append("p.post_type = ?")
+        params.append(post_type)
+    else:
+        # non-owners never see inner_monologue regardless of filters
+        conditions.append("p.post_type = 'post'")
 
     if not identity.is_owner:
         if identity.is_share:
@@ -194,7 +212,7 @@ def get_posts(
 
     where = " AND ".join(conditions)
     rows = db.execute(
-        f"""SELECT p.id, p.body, p.created_at, p.tags, p.is_public, p.deleted
+        f"""SELECT p.id, p.body, p.created_at, p.tags, p.is_public, p.deleted, p.post_type
             FROM posts p WHERE {where}
             ORDER BY p.created_at DESC LIMIT ?""",
         [*params, limit + 1],
@@ -214,14 +232,18 @@ def get_posts(
 def get_post(post_id: str, request: Request, identity: OptionalAuthDep):
     db = request.app.state.db
     row = db.execute(
-        "SELECT id, body, created_at, tags, is_public, deleted FROM posts WHERE id = ? AND deleted = 0",
+        "SELECT id, body, created_at, tags, is_public, deleted, post_type FROM posts WHERE id = ? AND deleted = 0",
         (post_id,),
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    if not identity.is_owner and not row[4]:  # is_public
-        if not _check_post_access(db, post_id, identity):
-            raise HTTPException(status_code=403, detail="Access denied")
+    post_type = row[6]
+    if not identity.is_owner:
+        if post_type == "inner_monologue":
+            raise HTTPException(status_code=404, detail="Post not found")
+        if not row[4]:  # is_public
+            if not _check_post_access(db, post_id, identity):
+                raise HTTPException(status_code=403, detail="Access denied")
     return _post_dict(row, db)
 
 
@@ -267,7 +289,7 @@ def update_post(post_id: str, payload: _UpdatePostBody, request: Request, identi
 
     db.commit()
     row = db.execute(
-        "SELECT id, body, created_at, tags, is_public, deleted FROM posts WHERE id = ?", (post_id,)
+        "SELECT id, body, created_at, tags, is_public, deleted, post_type FROM posts WHERE id = ?", (post_id,)
     ).fetchone()
     return _post_dict(row, db)
 
@@ -296,12 +318,15 @@ def _check_post_access(db, post_id: str, identity) -> bool:
 
 
 def _require_post_access(db, post_id: str, identity) -> None:
-    row = db.execute("SELECT is_public FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone()
+    row = db.execute("SELECT is_public, post_type FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    if not identity.is_owner and not row[0]:
-        if not _check_post_access(db, post_id, identity):
-            raise HTTPException(status_code=403, detail="Access denied")
+    if not identity.is_owner:
+        if row[1] == "inner_monologue":
+            raise HTTPException(status_code=404, detail="Post not found")
+        if not row[0]:
+            if not _check_post_access(db, post_id, identity):
+                raise HTTPException(status_code=403, detail="Access denied")
 
 
 @router.get("/posts/{post_id}/comments")

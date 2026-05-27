@@ -94,11 +94,17 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             created_at REAL NOT NULL,
             tags       TEXT,
             is_public  INTEGER NOT NULL DEFAULT 0,
-            deleted    INTEGER NOT NULL DEFAULT 0
+            deleted    INTEGER NOT NULL DEFAULT 0,
+            post_type  TEXT NOT NULL DEFAULT 'post'
         )
     """)
     try:
         con.execute("ALTER TABLE posts ADD COLUMN is_public INTEGER NOT NULL DEFAULT 0")
+        con.commit()
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE posts ADD COLUMN post_type TEXT NOT NULL DEFAULT 'post'")
         con.commit()
     except Exception:
         pass

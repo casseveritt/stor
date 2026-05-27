@@ -1,15 +1,19 @@
-import os
-import sys
 import base64
 import logging
+import os
+import sys
+import time
 from pathlib import Path
 
+import httpx
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from .config import NodeConfig
 from .crypto import derive_master_key, derive_subkeys, decrypt_bytes
@@ -25,10 +29,27 @@ from . import write as write_module
 from . import admin as admin_module
 from . import posts as posts_module
 from . import setup as setup_module
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("contacc")
+
+
+def _registry_heartbeat(private_key: Ed25519PrivateKey, node_address: str, handle: str, registry_url: str) -> None:
+    """Sign and push an update to the registry. Runs in the background; failures are logged and ignored."""
+    try:
+        pub_bytes = private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+        timestamp = int(time.time())
+        msg = f"contacc:update:{handle}:{node_address}::{timestamp}"
+        signature = base64.b64encode(private_key.sign(msg.encode())).decode()
+        payload = {"server_url": node_address, "client_url": "", "ttl": 14400,
+                   "timestamp": timestamp, "signature": signature}
+        r = httpx.put(f"{registry_url.rstrip('/')}/update/{handle}", json=payload, timeout=10.0)
+        if r.is_success:
+            log.info("Registry heartbeat OK: %s → %s", handle, node_address)
+        else:
+            log.warning("Registry heartbeat failed %s: %s", r.status_code, r.text)
+    except Exception as e:
+        log.warning("Registry heartbeat error: %s", e)
 
 
 def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
@@ -77,6 +98,16 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
 
     app.state.initialized = True
     log.info("Node %s ready.", node_address)
+
+    if config.registry_handle and node_address:
+        registry_url = config.registry_url or config.identity_proxy_url or ""
+        if registry_url:
+            import threading
+            threading.Thread(
+                target=_registry_heartbeat,
+                args=(private_key, node_address, config.registry_handle, registry_url),
+                daemon=True,
+            ).start()
 
 
 def create_app(config_path: str | Path) -> FastAPI:

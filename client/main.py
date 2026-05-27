@@ -301,6 +301,38 @@ def create_app(config_path: str | Path) -> FastAPI:
             raise HTTPException(status_code=r.status_code)
         return r.json()
 
+    # ── contacts ──────────────────────────────────────────────────────────
+
+    @api.get("/contacts/lookup")
+    async def api_lookup_handle(handle: str = Query(...)):
+        from registry.client import lookup as registry_lookup
+        record = await registry_lookup(handle)
+        if record is None:
+            raise HTTPException(status_code=404, detail=f"Handle '{handle}' not found")
+        return {"handle": handle, "name": handle, "server_url": record["server_url"], "client_url": record.get("client_url", "")}
+
+    class ContactBody(BaseModel):
+        name: str
+        url: str
+
+    @api.post("/contacts", status_code=201)
+    def api_add_contact(body: ContactBody):
+        from client.config import ContactEntry
+        if any(c.url == body.url for c in config.contacts):
+            raise HTTPException(status_code=409, detail="Contact with this URL already exists")
+        config.contacts.append(ContactEntry(name=body.name, url=body.url))
+        config.save(config_path)
+        return {"name": body.name, "url": body.url}
+
+    @api.delete("/contacts")
+    def api_remove_contact(url: str = Query(...)):
+        before = len(config.contacts)
+        config.contacts = [c for c in config.contacts if c.url != url]
+        if len(config.contacts) == before:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        config.save(config_path)
+        return {"ok": True}
+
     app.include_router(api)
 
     # ── auth callback and static (no client auth required) ────────────────
