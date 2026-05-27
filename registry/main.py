@@ -253,6 +253,8 @@ def create_app(db_path: str) -> FastAPI:
         ttl: int = DEFAULT_TTL
         timestamp: int
         signature: str
+        display_name: str | None = None
+        photo_url: str | None = None
 
     @app.post("/register/{username}", status_code=201)
     def register(username: str, body: RegisterBody):
@@ -269,9 +271,10 @@ def create_app(db_path: str) -> FastAPI:
         now = time.time()
         con.execute(
             "INSERT INTO handles "
-            "(username, server_url, client_url, public_key, ttl, registered_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (username, body.server_url, body.client_url, body.public_key, ttl, now, now),
+            "(username, server_url, client_url, public_key, ttl, registered_at, updated_at, display_name, photo_url) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (username, body.server_url, body.client_url, body.public_key, ttl, now, now,
+             body.display_name, body.photo_url),
         )
         con.commit()
         return {"username": username, "ttl": ttl}
