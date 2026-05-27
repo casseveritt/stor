@@ -1088,9 +1088,8 @@ async function saveProfileName() {
     body: JSON.stringify({display_name: name}),
   });
   if (r.ok) {
-    status.style.color = "#6dbf6d"; status.textContent = "Saved.";
     loadProfileAvatar();
-    setTimeout(() => { status.textContent = ""; }, 2000);
+    closeProfile();
   } else {
     status.style.color = "#e06c6c"; status.textContent = "Failed to save.";
   }

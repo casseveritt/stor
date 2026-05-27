@@ -113,6 +113,8 @@ def get_photo(request: Request):
     from PIL import Image
     img = Image.open(io.BytesIO(content))
     img.thumbnail(PHOTO_THUMB)
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
 
