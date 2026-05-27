@@ -68,6 +68,36 @@ The protocol encodes the rigid structural parts — identities, assets, operatio
 
 ---
 
+## Recording for Your Future Self
+
+Most digital communication is shaped, consciously or not, by the question *who will see this?* Even nominally private content is framed around an imagined audience. This produces a subtle but pervasive self-censorship: people curate even their private thoughts around imagined judgment.
+
+contacc is designed to support a different mode of expression — one where the audience is your future self, mediated by an AI that can help you make sense of the record later. Because your data is yours and stays yours, you can afford to be more honest in how you record things: frustrations you wouldn't admit to anyone, uncertainties you haven't resolved, observations you don't yet know what to do with. Over time this creates a richer, more accurate picture of your inner life than any socially-mediated record could.
+
+This is the purpose of the **inner monologue** post type.
+
+---
+
+## Inner Monologue
+
+An inner monologue is a post that is **never shared**. It is not a draft, not a private post waiting to be published — it is a different kind of thing entirely, closer to a diary entry or a memoir note. The sharing machinery does not apply to it. There are no recipients, no public flag, no publish action.
+
+Inner monologue entries do not appear on the main timeline by default. Whether and how they surface in the client is a user preference, stored in the user's own data store. The client does not impose a policy; the user decides.
+
+The value of inner monologue entries is realized primarily through AI. A user can ask their AI agent to draw on journal entries to help draft a message, identify a pattern in their thinking over time, or reconstruct the context of a period they want to remember. The inner monologue is raw material; the AI helps distill it into something useful without requiring the user to hold all that context in their head.
+
+**AI access to inner monologue is deliberately limited.**
+
+Shared posts are already "out" — an AI agent acting on the user's behalf can reference them freely. Inner monologue entries require an explicit grant. The user decides, per session or per task, whether the AI may access their journal, and for what purpose. This is not just a privacy setting — it is load-bearing for the trust that makes honest recording possible. If the AI that helps you draft a reply to a colleague can also see your unfiltered private thoughts, those thoughts could shape the response in ways you didn't intend.
+
+The right model is **scoped capability grants**: inner monologue access is a named capability that must be explicitly enabled for a session, not something inherited from general authentication. Future work will develop specific structures to enforce this boundary — preventing inner monologue content from leaking into sessions where it was not granted — but the principle is established here.
+
+**Policy and presentation live in the data store, not the client.**
+
+How inner monologue entries are displayed, searched, or surfaced to the AI is a user preference stored alongside the data, not something the client software hard-codes. Users will evolve their own workflows over time — some will treat it as a daily journal, others as a scratchpad for things they might eventually share, others as material for AI-assisted reflection. The system should accommodate all of these without prescribing any of them.
+
+---
+
 ## A Note on Accountability
 
 The watermarking system exists precisely because content sharing mediated by fuzzy judgment — whether human or AI — is inherently imperfect. Access may be granted that in hindsight shouldn't have been; content may be shared further than intended. Watermarking ensures that the trail of accountability is embedded in the content itself, independent of whatever logic decided to share it.

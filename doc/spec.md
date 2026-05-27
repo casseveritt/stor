@@ -109,8 +109,27 @@ The following fields are defined for all assets. Metadata is mutable; content (a
 | `comment_count` | Derived | Number of top-level comments |
 | `predecessor` | Mutable | ID of the asset this one supersedes (optional) |
 | `successor` | Mutable | ID of the asset that supersedes this one (optional) |
+| `post_type` | Immutable | Post type classification (see §3.1). Defaults to `post` if absent. |
 
 Assets with a `successor` are considered superseded. Feed queries return superseded assets only when explicitly requested.
+
+### 3.1 Post Types
+
+The `post_type` field classifies an asset's intended purpose and governs sharing and access behavior.
+
+| Value | Description |
+|---|---|
+| `post` | Standard shareable content. Subject to the ACL; may be shared with recipients or published publicly. |
+| `inner_monologue` | A private journal entry. Never shared; no recipients, no public flag. Not subject to the ACL beyond owner access. Excluded from feed queries unless explicitly requested. |
+
+**`inner_monologue` constraints:**
+
+- The ACL for an inner monologue asset contains only the owner. Attempts to add recipients are rejected by the node.
+- Inner monologue assets are never included in feed responses to non-owner callers, regardless of any other access grant.
+- AI agents acting on behalf of the owner do not have access to inner monologue assets by default. Access requires an explicit, scoped capability grant for the session or task. This boundary is intentional and load-bearing: it prevents unfiltered private thoughts from leaking into sessions where they were not deliberately introduced.
+- How inner monologue entries are presented, searched, or surfaced in a client is a user preference stored in the user's own data store. The protocol imposes no presentation policy beyond the access constraints above.
+
+Future post types may be defined as extensions. Implementations must not error on unknown `post_type` values — treat them as `post` for access-control purposes and preserve the value in metadata.
 
 ---
 
