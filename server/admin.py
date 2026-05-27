@@ -1,10 +1,13 @@
 """Recipient, identity-mapping, and token management endpoints (owner only)."""
 import base64
+import io
 import json
 import time
 import uuid
+import zipfile
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .auth import OwnerDep, revoke_token
@@ -532,3 +535,28 @@ def get_recipient_feed(
         "assets": assets,
         **({"next_cursor": next_cursor} if next_cursor else {}),
     }
+
+
+@router.get("/backup")
+def download_backup(request: Request, identity: OwnerDep):
+    store_path = request.app.state.store_path
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        cfg = store_path / "node_config.json"
+        if cfg.exists():
+            zf.write(cfg, "node_config.json")
+        for name in ["db", "db-wal", "db-shm"]:
+            p = store_path / name
+            if p.exists():
+                zf.write(p, name)
+        files_dir = store_path / "files"
+        if files_dir.exists():
+            for f in files_dir.rglob("*"):
+                if f.is_file():
+                    zf.write(f, str(f.relative_to(store_path)))
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=contacc-backup.zip"},
+    )

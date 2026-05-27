@@ -137,9 +137,20 @@
     .btn-muted { background: #2a2a2a; color: #ccc; }
     .btn-muted:hover { background: #333; }
     .btn-sm { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
-    input[type=text] { padding: 0.42rem 0.7rem; border-radius: 4px; border: 1px solid #333; background: #222; color: #e0e0e0; font-size: 0.88rem; outline: none; }
-    input[type=text]:focus { border-color: #4285f4; }
+    input[type=text], input[type=password], input[type=email] { padding: 0.42rem 0.7rem; border-radius: 4px; border: 1px solid #333; background: #222; color: #e0e0e0; font-size: 0.88rem; outline: none; width: 100%; }
+    input[type=text]:focus, input[type=password]:focus, input[type=email]:focus { border-color: #4285f4; }
     [hidden] { display: none !important; }
+
+    /* ── setup / unlock ── */
+    .setup-card { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
+    .setup-inner { max-width: 420px; width: 100%; }
+    .setup-inner h1 { font-size: 1.8rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; margin-bottom: 2rem; text-align: center; }
+    .setup-tabs { display: flex; margin-bottom: 1.5rem; border-radius: 6px; overflow: hidden; border: 1px solid #333; }
+    .setup-tab { flex: 1; border-radius: 0; border: none; padding: 0.5rem; cursor: pointer; font-size: 0.88rem; transition: background 0.1s; }
+    .setup-tab.active { background: #4285f4; color: #fff; }
+    .setup-tab:not(.active) { background: #2a2a2a; color: #aaa; }
+    .setup-form { display: flex; flex-direction: column; gap: 0.75rem; }
+    .setup-error { color: #e06c6c; font-size: 0.85rem; min-height: 1.2em; }
 
     /* ── responsive ── */
     @media (max-width: 600px) {
@@ -153,6 +164,51 @@
   </style>
 </head>
 <body>
+
+<!-- ── setup (uninitialized) ───────────────────────────────────────────────── -->
+<div id="setup-view" hidden>
+  <div class="setup-card">
+    <div class="setup-inner">
+      <h1>contacc</h1>
+      <div class="setup-tabs">
+        <button class="setup-tab active" id="tab-new" onclick="showSetupTab('new')">New Identity</button>
+        <button class="setup-tab" id="tab-restore" onclick="showSetupTab('restore')">Restore Backup</button>
+      </div>
+      <div id="setup-new-form" class="setup-form">
+        <input type="email" id="setup-owner-email" placeholder="your@email.com (Google account)">
+        <input type="password" id="setup-passphrase" placeholder="Choose a passphrase">
+        <input type="password" id="setup-passphrase-confirm" placeholder="Confirm passphrase">
+        <button class="btn btn-primary" onclick="doSetupNew()">Create Identity</button>
+        <div class="setup-error" id="setup-new-error"></div>
+      </div>
+      <div id="setup-restore-form" class="setup-form" hidden>
+        <div class="drop-zone" onclick="document.getElementById('restore-file-picker').click()">
+          <div class="drop-zone-icon">&#x1F4E6;</div>
+          <div id="restore-file-label">Select backup .zip file</div>
+        </div>
+        <input type="file" id="restore-file-picker" accept=".zip" hidden onchange="pickRestoreFile(this)">
+        <input type="password" id="restore-passphrase" placeholder="Passphrase">
+        <button class="btn btn-primary" onclick="doSetupRestore()">Restore</button>
+        <div class="setup-error" id="setup-restore-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── unlock (locked) ─────────────────────────────────────────────────────── -->
+<div id="unlock-view" hidden>
+  <div class="setup-card">
+    <div class="setup-inner">
+      <h1>contacc</h1>
+      <div class="setup-form">
+        <p style="color:#888;font-size:0.9rem;text-align:center">Enter your passphrase to unlock</p>
+        <input type="password" id="unlock-passphrase" placeholder="Passphrase" onkeydown="if(event.key==='Enter')doUnlock()">
+        <button class="btn btn-primary" onclick="doUnlock()">Unlock</button>
+        <div class="setup-error" id="unlock-error"></div>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ── login ──────────────────────────────────────────────────────────────── -->
 <div id="login-view">
@@ -178,6 +234,7 @@
     </div>
     <div class="header-right">
       <button id="compose-btn" class="btn btn-primary btn-sm" onclick="openCompose()" hidden>+ Post</button>
+      <button id="backup-btn" class="btn btn-muted btn-sm" onclick="downloadBackup()" hidden>Backup</button>
       <button class="btn btn-muted btn-sm" onclick="logout()">Sign out</button>
     </div>
   </header>
@@ -280,14 +337,17 @@ async function loadIdentity() {
   const d = await r.json();
   IS_OWNER = d.role === "owner";
   document.getElementById("compose-btn").hidden = !IS_OWNER;
+  document.getElementById("backup-btn").hidden = !IS_OWNER;
   const badge = document.getElementById("identity-badge");
   badge.textContent = d.role === "owner" ? "owner" : (d.display_name || d.identity || "");
 }
 
 // ── views ──────────────────────────────────────────────────────────────────
 function showView(name) {
-  document.getElementById("login-view").hidden = name !== "login";
-  document.getElementById("feed-view").hidden  = name !== "feed";
+  document.getElementById("setup-view").hidden  = name !== "setup";
+  document.getElementById("unlock-view").hidden = name !== "unlock";
+  document.getElementById("login-view").hidden  = name !== "login";
+  document.getElementById("feed-view").hidden   = name !== "feed";
 }
 
 // ── tag sidebar ────────────────────────────────────────────────────────────
@@ -755,10 +815,107 @@ function mimeIcon(mt) {
 function fmtDate(ts) { if (!ts) return ""; return new Date(ts * 1000).toLocaleString(undefined, {dateStyle:"short",timeStyle:"short"}); }
 function fmtSize(b) { if (b < 1024) return b + " B"; if (b < 1048576) return (b/1024).toFixed(1) + " KB"; return (b/1048576).toFixed(1) + " MB"; }
 
+// ── setup / unlock ─────────────────────────────────────────────────────────
+let restoreFile = null;
+
+function showSetupTab(tab) {
+  document.getElementById("setup-new-form").hidden = tab !== "new";
+  document.getElementById("setup-restore-form").hidden = tab !== "restore";
+  document.getElementById("tab-new").classList.toggle("active", tab === "new");
+  document.getElementById("tab-restore").classList.toggle("active", tab === "restore");
+}
+
+function pickRestoreFile(input) {
+  restoreFile = input.files[0] || null;
+  document.getElementById("restore-file-label").textContent = restoreFile ? restoreFile.name : "Select backup .zip file";
+}
+
+async function doSetupNew() {
+  const email = document.getElementById("setup-owner-email").value.trim();
+  const pass = document.getElementById("setup-passphrase").value;
+  const confirm = document.getElementById("setup-passphrase-confirm").value;
+  const err = document.getElementById("setup-new-error");
+  err.textContent = "";
+  if (!email || !pass) { err.textContent = "All fields required."; return; }
+  if (pass !== confirm) { err.textContent = "Passphrases do not match."; return; }
+  try {
+    const r = await fetch("/setup/new", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({passphrase: pass, confirm_passphrase: confirm, owner_identity: "google:" + email}),
+    });
+    const d = await r.json();
+    if (!r.ok) { err.textContent = d.detail || "Error."; return; }
+    showView("login");
+  } catch { err.textContent = "Network error."; }
+}
+
+async function doSetupRestore() {
+  const pass = document.getElementById("restore-passphrase").value;
+  const err = document.getElementById("setup-restore-error");
+  err.textContent = "";
+  if (!restoreFile) { err.textContent = "Please select a backup file."; return; }
+  if (!pass) { err.textContent = "Passphrase required."; return; }
+  const fd = new FormData();
+  fd.append("bundle", restoreFile);
+  fd.append("passphrase", pass);
+  try {
+    const r = await fetch("/setup/restore", {method: "POST", body: fd});
+    const d = await r.json();
+    if (!r.ok) { err.textContent = d.detail || "Error."; return; }
+    showView("login");
+  } catch { err.textContent = "Network error."; }
+}
+
+async function doUnlock() {
+  const pass = document.getElementById("unlock-passphrase").value;
+  const err = document.getElementById("unlock-error");
+  err.textContent = "";
+  if (!pass) { err.textContent = "Passphrase required."; return; }
+  try {
+    const r = await fetch("/setup/unlock", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({passphrase: pass}),
+    });
+    const d = await r.json();
+    if (!r.ok) { err.textContent = d.detail || "Wrong passphrase."; return; }
+    const stored = localStorage.getItem("contac_token");
+    if (stored) { TOKEN = stored; const ok = await tryLoadFeed(); if (!ok) showView("login"); }
+    else showView("login");
+  } catch { err.textContent = "Network error."; }
+}
+
+async function downloadBackup() {
+  try {
+    const r = await fetch("/backup", {headers: authHeaders()});
+    if (!r.ok) { alert("Backup failed: " + r.status); return; }
+    const blob = await r.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "contacc-backup.zip";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch { alert("Backup failed: network error"); }
+}
+
 // ── init ───────────────────────────────────────────────────────────────────
-(function init() {
+(async function init() {
   const hash = window.location.hash;
   if (hash.startsWith("#token=")) { storeToken(decodeURIComponent(hash.slice(7))); history.replaceState(null,"","/"); }
+
+  try {
+    const sr = await fetch("/setup/status");
+    if (sr.ok) {
+      const sd = await sr.json();
+      if (sd.state === "uninitialized") { showView("setup"); return; }
+      if (sd.state === "locked") { showView("unlock"); return; }
+    }
+  } catch {}
+
   const stored = localStorage.getItem("contac_token");
   if (stored) { TOKEN = stored; tryLoadFeed(); }
   else showView("login");

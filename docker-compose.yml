@@ -5,8 +5,9 @@ services:
     restart: unless-stopped
     command: python -m server.main /data/node_config.json --host 0.0.0.0 --port 9443
     environment:
-      CONTACC_PASSPHRASE: ${CONTACC_PASSPHRASE}
+      CONTACC_PASSPHRASE: ${CONTACC_PASSPHRASE:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
+      CONTACC_IDENTITY_PROXY_URL: ${CONTACC_IDENTITY_PROXY_URL:-https://starkville.hopto.org:8421}
     volumes:
       - ${CONTACC_DATA_DIR}/server:/data
     expose:

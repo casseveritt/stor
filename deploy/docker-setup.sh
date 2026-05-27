@@ -36,27 +36,11 @@ if [ -z "${CONTACC_DOMAIN}" ]; then
     echo "Error: domain is required."; exit 1
 fi
 
-read -rp "Owner Google identity (e.g. google:you@gmail.com) [${CONTACC_OWNER_IDENTITY:-}]: " _oid
-CONTACC_OWNER_IDENTITY="${_oid:-${CONTACC_OWNER_IDENTITY:-}}"
-if [ -z "${CONTACC_OWNER_IDENTITY}" ]; then
-    echo "Error: owner identity is required."; exit 1
-fi
-
-if [ -z "${CONTACC_PASSPHRASE:-}" ]; then
-    read -rsp "Node passphrase (encrypts database and private key): " CONTACC_PASSPHRASE; echo
-    read -rsp "Confirm passphrase: " _confirm; echo
-    if [ "${CONTACC_PASSPHRASE}" != "${_confirm}" ]; then
-        echo "Error: passphrases do not match."; exit 1
-    fi
-fi
-
 # ── write .env ─────────────────────────────────────────────────────────────────
 
 cat > .env <<EOF
 CONTACC_DATA_DIR=${CONTACC_DATA_DIR}
 CONTACC_DOMAIN=${CONTACC_DOMAIN}
-CONTACC_PASSPHRASE=${CONTACC_PASSPHRASE}
-CONTACC_OWNER_IDENTITY=${CONTACC_OWNER_IDENTITY}
 EOF
 chmod 600 .env
 echo "==> .env written."
@@ -71,29 +55,6 @@ echo "==> Data directories ready."
 echo "==> Building contacc image (first build compiles sqlcipher — may take a few minutes)..."
 docker compose build server
 
-# ── initialize server node ─────────────────────────────────────────────────────
-
-if [ ! -f "${CONTACC_DATA_DIR}/server/node_config.json" ]; then
-    echo "==> Initializing server node..."
-    docker compose run --rm \
-        -e CONTACC_PASSPHRASE="${CONTACC_PASSPHRASE}" \
-        server \
-        python tools/init_node.py \
-            --store /data \
-            --address "https://${CONTACC_DOMAIN}:8443"
-else
-    echo "==> Server node already initialized — skipping."
-fi
-
-# ── configure identity proxy and owner identity ────────────────────────────────
-
-echo "==> Configuring authentication..."
-docker compose run --rm server \
-    python tools/configure_sso.py \
-        --config /data/node_config.json \
-        --identity-proxy-url "https://starkville.hopto.org:8421" \
-        --owner-identity "${CONTACC_OWNER_IDENTITY}"
-
 # ── initialize client ──────────────────────────────────────────────────────────
 
 if [ ! -f "${CONTACC_DATA_DIR}/client/client_config.json" ]; then
@@ -105,18 +66,6 @@ if [ ! -f "${CONTACC_DATA_DIR}/client/client_config.json" ]; then
 else
     echo "==> Client already initialized — skipping."
 fi
-
-# ── patch configs for Docker ───────────────────────────────────────────────────
-# store_path and own_server may point to old host paths when restoring from backup.
-
-python3 -c "
-import json
-p = '${CONTACC_DATA_DIR}/server/node_config.json'
-c = json.load(open(p))
-c['store_path'] = '/data'
-json.dump(c, open(p, 'w'), indent=2)
-print('==> store_path set to /data')
-"
 
 python3 -c "
 import json
@@ -136,8 +85,12 @@ docker compose up -d
 echo
 echo "==> Done!"
 echo
-echo "    Client: https://${CONTACC_DOMAIN}:8444"
-echo "    Server: https://${CONTACC_DOMAIN}:8443"
+echo "    Next: open the server URL to complete setup:"
+echo "    https://${CONTACC_DOMAIN}:8443"
 echo
-echo "    First login: open the client URL and sign in with Google."
-echo "    Logs: docker compose logs -f"
+echo "    You will be prompted to create a new identity or restore from a backup."
+echo
+echo "    Client: https://${CONTACC_DOMAIN}:8444"
+echo "    Logs:   docker compose logs -f"
+echo
+echo "    Tip: add CONTACC_PASSPHRASE=<your-passphrase> to .env for auto-unlock on restart."

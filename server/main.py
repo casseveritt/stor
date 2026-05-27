@@ -1,14 +1,13 @@
 import os
 import sys
 import base64
-import getpass
 import logging
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from cryptography.exceptions import InvalidTag
 
@@ -25,13 +24,15 @@ from . import comments as comments_module
 from . import write as write_module
 from . import admin as admin_module
 from . import posts as posts_module
+from . import setup as setup_module
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("contacc")
 
 
-def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
+def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
+    """Load keys, open DB, and populate app.state. Raises WrongPassphraseError on bad passphrase."""
     config = NodeConfig.load(config_path)
 
     salt = bytes.fromhex(config.argon2_salt)
@@ -54,27 +55,17 @@ def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
     store_path = Path(config.store_path)
     db_con = open_db(str(store_path / "db"), db_key)
     init_schema(db_con)
-    log.info("Database opened.")
 
-    app = FastAPI(title="contacc node")
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-    # CONTACC_NODE_ADDRESS env var overrides config — lets Docker deployments change
-    # the public address by updating .env without touching the data volume.
     node_address = os.environ.get("CONTACC_NODE_ADDRESS") or config.node_address
 
     app.state.db = db_con
     app.state.file_key = file_key
     app.state.store_path = store_path
+    app.state.config_path = config_path
     app.state.node_address = node_address
     app.state.watermark_enabled = config.watermark_enabled
     app.state.owner_identity = config.sso_owner_identity
     app.state.identity_proxy_url = config.identity_proxy_url
-
     app.state.sso_config = {
         "google_client_id": config.sso_google_client_id,
         "google_client_secret": config.sso_google_client_secret,
@@ -83,6 +74,35 @@ def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
 
     node_module.setup(node_address, private_key, config.watermark_enabled)
     auth_module.setup(private_key)
+
+    app.state.initialized = True
+    log.info("Node %s ready.", node_address)
+
+
+def create_app(config_path: str | Path) -> FastAPI:
+    config_path = Path(config_path)
+
+    app = FastAPI(title="contacc node")
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    app.state.initialized = False
+    app.state.config_path = config_path
+    app.state.node_address = os.environ.get("CONTACC_NODE_ADDRESS", "")
+
+    def _do_initialize(passphrase: str) -> None:
+        _initialize(app, config_path, passphrase)
+
+    app.state.do_initialize = _do_initialize
+
+    # Setup routes are always accessible
+    app.include_router(setup_module.router)
+
+    # Normal routes — blocked by middleware until initialized
     app.include_router(node_module.router)
     app.include_router(feed_module.router)
     app.include_router(assets_module.router)
@@ -101,37 +121,42 @@ def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
-    log.info("Node %s ready.", config.node_address)
+    @app.middleware("http")
+    async def init_guard(request: Request, call_next):
+        path = request.url.path
+        if not app.state.initialized and not (
+            path.startswith("/setup") or path == "/" or path.startswith("/static")
+        ):
+            state = "locked" if config_path.exists() else "uninitialized"
+            return JSONResponse({"detail": "Server not ready", "state": state}, status_code=503)
+        return await call_next(request)
+
+    # Try to initialize immediately if we have everything we need
+    passphrase = os.environ.get("CONTACC_PASSPHRASE")
+    if config_path.exists() and passphrase:
+        try:
+            _initialize(app, config_path, passphrase)
+        except WrongPassphraseError as e:
+            log.error("Wrong passphrase at startup — server will start in locked state: %s", e)
+
     return app
-
-
-def _get_passphrase(key_stdin: bool) -> str:
-    env = os.environ.get("CONTACC_PASSPHRASE")
-    if env:
-        return env
-    if key_stdin:
-        return sys.stdin.readline().rstrip("\n")
-    return getpass.getpass("Passphrase: ")
 
 
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description="Run a contacc node")
     parser.add_argument("config", help="Path to node_config.json")
-    parser.add_argument("--key-stdin", action="store_true", help="Read passphrase from stdin")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9443)
     parser.add_argument("--print-token", action="store_true", help="Print an owner token to stdout before serving")
     args = parser.parse_args()
 
-    passphrase = _get_passphrase(args.key_stdin)
-    try:
-        app = create_app(args.config, passphrase)
-    except WrongPassphraseError as e:
-        log.error("Startup failed: %s", e)
-        sys.exit(1)
+    app = create_app(args.config)
 
     if args.print_token:
+        if not app.state.initialized:
+            log.error("--print-token requires the server to be initialized (set CONTACC_PASSPHRASE)")
+            sys.exit(1)
         token = auth_module.issue_token(ttl_seconds=86400 * 30)
         print(f"Owner token: {token}", flush=True)
 
