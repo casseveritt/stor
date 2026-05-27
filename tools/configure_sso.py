@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
-"""Configure SSO credentials on an existing contacc node.
+"""Configure authentication on an existing contacc node.
 
-Usage:
+Usage — identity proxy (recommended, no Google credentials needed):
     python tools/configure_sso.py --config /path/to/node_config.json \\
-        --google-client-id <id> --google-client-secret <secret>
+        --identity-proxy-url https://starkville.hopto.org:8421 \\
+        --owner-identity google:you@gmail.com
 
-Or via environment variables:
-    CONTACC_GOOGLE_CLIENT_ID=<id> CONTACC_GOOGLE_CLIENT_SECRET=<secret> \\
-        python tools/configure_sso.py --config /path/to/node_config.json
+Usage — direct Google OAuth (advanced, requires your own OAuth credentials):
+    python tools/configure_sso.py --config /path/to/node_config.json \\
+        --google-client-id <id> --google-client-secret <secret> \\
+        --owner-identity google:you@gmail.com
 
-To clear SSO credentials (disable SSO), run with --clear.
+To clear all auth config:
+    python tools/configure_sso.py --config /path/to/node_config.json --clear
 """
 import os
 import sys
-import json
 import argparse
 from pathlib import Path
 
@@ -23,24 +25,29 @@ from server.config import NodeConfig
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Configure SSO on an existing contacc node")
+    parser = argparse.ArgumentParser(description="Configure authentication on an existing contacc node")
     parser.add_argument("--config", required=True, help="Path to node_config.json")
+    parser.add_argument(
+        "--identity-proxy-url",
+        default=os.environ.get("CONTACC_IDENTITY_PROXY_URL", ""),
+        help="URL of the shared identity proxy (env: CONTACC_IDENTITY_PROXY_URL)",
+    )
     parser.add_argument(
         "--google-client-id",
         default=os.environ.get("CONTACC_GOOGLE_CLIENT_ID", ""),
-        help="Google OAuth2 client ID (env: CONTACC_GOOGLE_CLIENT_ID)",
+        help="Google OAuth2 client ID for direct SSO (env: CONTACC_GOOGLE_CLIENT_ID)",
     )
     parser.add_argument(
         "--google-client-secret",
         default=os.environ.get("CONTACC_GOOGLE_CLIENT_SECRET", ""),
-        help="Google OAuth2 client secret (env: CONTACC_GOOGLE_CLIENT_SECRET)",
+        help="Google OAuth2 client secret for direct SSO (env: CONTACC_GOOGLE_CLIENT_SECRET)",
     )
     parser.add_argument(
         "--owner-identity",
         default="",
         help="Google identity that receives owner tokens (e.g. google:you@gmail.com)",
     )
-    parser.add_argument("--clear", action="store_true", help="Remove all SSO credentials")
+    parser.add_argument("--clear", action="store_true", help="Remove all auth configuration")
     args = parser.parse_args()
 
     config_path = Path(args.config)
@@ -54,26 +61,34 @@ def main() -> None:
         config.sso_google_client_id = None
         config.sso_google_client_secret = None
         config.sso_owner_identity = None
+        config.identity_proxy_url = None
         config.save(config_path)
-        print("SSO credentials cleared.")
+        print("Auth configuration cleared.")
         return
 
-    if not args.google_client_id or not args.google_client_secret:
+    if args.identity_proxy_url:
+        config.identity_proxy_url = args.identity_proxy_url
+        config.sso_google_client_id = None
+        config.sso_google_client_secret = None
+        print(f"Identity proxy: {args.identity_proxy_url}")
+    elif args.google_client_id and args.google_client_secret:
+        config.sso_google_client_id = args.google_client_id
+        config.sso_google_client_secret = args.google_client_secret
+        config.identity_proxy_url = None
+        print(f"Direct Google SSO configured (client ID: {args.google_client_id})")
+    else:
         print(
-            "Error: --google-client-id and --google-client-secret are required "
-            "(or set CONTACC_GOOGLE_CLIENT_ID / CONTACC_GOOGLE_CLIENT_SECRET)",
+            "Error: provide either --identity-proxy-url or both "
+            "--google-client-id and --google-client-secret",
             file=sys.stderr,
         )
         sys.exit(1)
 
-    config.sso_google_client_id = args.google_client_id
-    config.sso_google_client_secret = args.google_client_secret
     if args.owner_identity:
         config.sso_owner_identity = args.owner_identity
-    config.save(config_path)
 
-    print(f"Google SSO configured for node at {config.node_address}")
-    print(f"Client ID: {args.google_client_id}")
+    config.save(config_path)
+    print(f"Node: {config.node_address}")
     if config.sso_owner_identity:
         print(f"Owner identity: {config.sso_owner_identity}")
     print("Restart the server for changes to take effect.")

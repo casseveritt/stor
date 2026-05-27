@@ -73,6 +73,7 @@ def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
     app.state.node_address = node_address
     app.state.watermark_enabled = config.watermark_enabled
     app.state.owner_identity = config.sso_owner_identity
+    app.state.identity_proxy_url = config.identity_proxy_url
 
     app.state.sso_config = {
         "google_client_id": config.sso_google_client_id,

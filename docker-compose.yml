@@ -30,6 +30,10 @@ services:
     restart: unless-stopped
     profiles: [registry]
     command: python -m registry.main /data/registry.db --host 0.0.0.0 --port 9532
+    environment:
+      CONTACC_GOOGLE_CLIENT_ID: ${CONTACC_GOOGLE_CLIENT_ID:-}
+      CONTACC_GOOGLE_CLIENT_SECRET: ${CONTACC_GOOGLE_CLIENT_SECRET:-}
+      CONTACC_REGISTRY_URL: https://${CONTACC_DOMAIN}:8421
     volumes:
       - ${CONTACC_DATA_DIR}/registry:/data
     expose:

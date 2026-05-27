@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # First-time contacc setup with Docker.
-# Run from the repo root: bash deploy/docker-setup.sh
+# Run from the repo root: bash setup.sh
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -36,18 +36,6 @@ if [ -z "${CONTACC_DOMAIN}" ]; then
     echo "Error: domain is required."; exit 1
 fi
 
-read -rp "Google OAuth2 client ID [${CONTACC_GOOGLE_CLIENT_ID:-}]: " _gcid
-CONTACC_GOOGLE_CLIENT_ID="${_gcid:-${CONTACC_GOOGLE_CLIENT_ID:-}}"
-if [ -z "${CONTACC_GOOGLE_CLIENT_ID}" ]; then
-    echo "Error: Google client ID is required."; exit 1
-fi
-
-read -rsp "Google OAuth2 client secret: " _gcs; echo
-CONTACC_GOOGLE_CLIENT_SECRET="${_gcs:-${CONTACC_GOOGLE_CLIENT_SECRET:-}}"
-if [ -z "${CONTACC_GOOGLE_CLIENT_SECRET}" ]; then
-    echo "Error: Google client secret is required."; exit 1
-fi
-
 read -rp "Owner Google identity (e.g. google:you@gmail.com) [${CONTACC_OWNER_IDENTITY:-}]: " _oid
 CONTACC_OWNER_IDENTITY="${_oid:-${CONTACC_OWNER_IDENTITY:-}}"
 if [ -z "${CONTACC_OWNER_IDENTITY}" ]; then
@@ -68,8 +56,6 @@ cat > .env <<EOF
 CONTACC_DATA_DIR=${CONTACC_DATA_DIR}
 CONTACC_DOMAIN=${CONTACC_DOMAIN}
 CONTACC_PASSPHRASE=${CONTACC_PASSPHRASE}
-CONTACC_GOOGLE_CLIENT_ID=${CONTACC_GOOGLE_CLIENT_ID}
-CONTACC_GOOGLE_CLIENT_SECRET=${CONTACC_GOOGLE_CLIENT_SECRET}
 CONTACC_OWNER_IDENTITY=${CONTACC_OWNER_IDENTITY}
 EOF
 chmod 600 .env
@@ -91,8 +77,6 @@ if [ ! -f "${CONTACC_DATA_DIR}/server/node_config.json" ]; then
     echo "==> Initializing server node..."
     docker compose run --rm \
         -e CONTACC_PASSPHRASE="${CONTACC_PASSPHRASE}" \
-        -e CONTACC_GOOGLE_CLIENT_ID="${CONTACC_GOOGLE_CLIENT_ID}" \
-        -e CONTACC_GOOGLE_CLIENT_SECRET="${CONTACC_GOOGLE_CLIENT_SECRET}" \
         server \
         python tools/init_node.py \
             --store /data \
@@ -101,15 +85,13 @@ else
     echo "==> Server node already initialized — skipping."
 fi
 
-# ── configure SSO credentials and owner identity ───────────────────────────────
+# ── configure identity proxy and owner identity ────────────────────────────────
 
-echo "==> Configuring SSO and owner identity..."
-docker compose run --rm \
-    -e CONTACC_GOOGLE_CLIENT_ID="${CONTACC_GOOGLE_CLIENT_ID}" \
-    -e CONTACC_GOOGLE_CLIENT_SECRET="${CONTACC_GOOGLE_CLIENT_SECRET}" \
-    server \
+echo "==> Configuring authentication..."
+docker compose run --rm server \
     python tools/configure_sso.py \
         --config /data/node_config.json \
+        --identity-proxy-url "https://starkville.hopto.org:8421" \
         --owner-identity "${CONTACC_OWNER_IDENTITY}"
 
 # ── initialize client ──────────────────────────────────────────────────────────
@@ -154,8 +136,8 @@ docker compose up -d
 echo
 echo "==> Done!"
 echo
-echo "    Server: https://${CONTACC_DOMAIN}:8443"
 echo "    Client: https://${CONTACC_DOMAIN}:8444"
+echo "    Server: https://${CONTACC_DOMAIN}:8443"
 echo
 echo "    First login: open the client URL and sign in with Google."
 echo "    Logs: docker compose logs -f"
