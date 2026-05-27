@@ -249,6 +249,7 @@
     <div class="header-right">
       <button id="compose-btn" class="btn btn-primary btn-sm" onclick="openCompose()" hidden>+ Post</button>
       <button id="backup-btn" class="btn btn-muted btn-sm" onclick="downloadBackup()" hidden>Backup</button>
+      <a id="client-link" class="btn btn-muted btn-sm" style="text-decoration:none" hidden>Client →</a>
       <button class="btn btn-muted btn-sm" onclick="logout()">Sign out</button>
     </div>
   </header>
@@ -362,6 +363,11 @@ async function loadIdentity() {
   const rolePart = d.role === "owner" ? "owner" : (d.display_name || d.identity || "");
   badge.textContent = handlePart ? `${handlePart} · ${rolePart}` : rolePart;
   badge.title = nodeD.node || "";
+  const clientLink = document.getElementById("client-link");
+  if (window.location.port) {
+    clientLink.href = window.location.protocol + "//" + window.location.hostname + ":" + (parseInt(window.location.port) + 1);
+    clientLink.hidden = false;
+  }
 }
 
 // ── views ──────────────────────────────────────────────────────────────────

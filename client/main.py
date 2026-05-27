@@ -24,8 +24,8 @@ from typing import Optional
 
 import httpx
 import uvicorn
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -334,6 +334,47 @@ def create_app(config_path: str | Path) -> FastAPI:
         return {"ok": True}
 
     app.include_router(api)
+
+    # ── setup proxy (no client auth — server not initialized yet) ─────────
+
+    async def _fwd(method: str, path: str, **kwargs) -> JSONResponse:
+        try:
+            async with httpx.AsyncClient() as hc:
+                r = await hc.request(method, config.own_server + path, timeout=30, **kwargs)
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+        except httpx.RequestError as exc:
+            raise HTTPException(502, f"Could not reach server: {exc}")
+
+    @app.get("/setup/status")
+    async def proxy_setup_status():
+        return await _fwd("GET", "/setup/status")
+
+    @app.get("/setup/check-handle")
+    async def proxy_check_handle(handle: str):
+        return await _fwd("GET", f"/setup/check-handle?handle={handle}")
+
+    @app.post("/setup/new")
+    async def proxy_setup_new(request: Request):
+        return await _fwd("POST", "/setup/new", json=await request.json())
+
+    @app.post("/setup/unlock")
+    async def proxy_setup_unlock(request: Request):
+        return await _fwd("POST", "/setup/unlock", json=await request.json())
+
+    @app.post("/setup/restore")
+    async def proxy_setup_restore(bundle: UploadFile = File(...), passphrase: str = Form(...), setup_token: str = Form(...)):
+        data = await bundle.read()
+        try:
+            async with httpx.AsyncClient() as hc:
+                r = await hc.post(
+                    config.own_server + "/setup/restore",
+                    files={"bundle": (bundle.filename, data, bundle.content_type or "application/octet-stream")},
+                    data={"passphrase": passphrase, "setup_token": setup_token},
+                    timeout=60,
+                )
+            return JSONResponse(content=r.json(), status_code=r.status_code)
+        except httpx.RequestError as exc:
+            raise HTTPException(502, f"Could not reach server: {exc}")
 
     # ── auth callback and static (no client auth required) ────────────────
 
