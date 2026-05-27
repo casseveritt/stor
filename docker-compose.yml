@@ -28,6 +28,7 @@ services:
   registry:
     image: contacc
     restart: unless-stopped
+    profiles: [registry]
     command: python -m registry.main /data/registry.db --host 0.0.0.0 --port 9532
     volumes:
       - ${CONTACC_DATA_DIR}/registry:/data
@@ -45,10 +46,9 @@ services:
     environment:
       CONTACC_DOMAIN: ${CONTACC_DOMAIN}
     volumes:
-      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${CONTACC_CADDYFILE:-./deploy/Caddyfile}:/etc/caddy/Caddyfile:ro
       - ${CONTACC_DATA_DIR}/caddy:/data
       - ${CONTACC_DATA_DIR}/caddy-config:/config
     depends_on:
       - server
       - client
-      - registry

@@ -5,3 +5,7 @@
 {$CONTACC_DOMAIN}:8444 {
     reverse_proxy client:9444
 }
+
+{$CONTACC_DOMAIN}:8421 {
+    reverse_proxy registry:9532
+}

@@ -2,159 +2,103 @@
 
 Personal content-addressed data store and aggregator. Own your data; share intentionally.
 
-## Port convention
+## Running your own server
 
-Each contacc instance uses 4 ports based on a **base port** (default 8443):
+### What you need
 
-| Port        | Role                         |
-|-------------|------------------------------|
-| base        | Caddy → server (external)    |
-| base + 1    | Caddy → client (external)    |
-| base + 1000 | server process (internal)    |
-| base + 1001 | client process (internal)    |
+- A Raspberry Pi (or any Linux server) running 24/7
+- **Docker** — install with `curl -fsSL https://get.docker.com | sh`
+- **A domain name** pointed at your server's public IP. Free options:
+  - [DuckDNS](https://www.duckdns.org) — free dynamic DNS, works well on Pi
+  - Any registrar if you have a static IP
+- **Ports open** in your router/firewall: **80** (TLS cert issuance), **8443** (server), **8444** (client UI)
+- **Google OAuth2 credentials** — see below
 
-Default: base=8443 → external 8443/8444, internal 9443/9444.
-Multiple instances on the same host pick non-overlapping base values.
+### 1. Get Google OAuth2 credentials
 
-The global registry runs separately at port **8421** (internal 9532).
+contacc uses Google Sign-In for owner authentication.
 
-## Quick start (Docker)
-
-### 1. Prerequisites
-
-- Docker with Compose v2: `docker compose version`
-- A domain name with DNS pointed at your server's IP
-- The following ports open in your firewall / forwarded by your router:
-  - **80** and **443** — Caddy ACME TLS certificate issuance
-  - **8443** — contacc server
-  - **8444** — contacc client UI
-
-### 2. Set up Google OAuth2
-
-contacc uses Google SSO for owner authentication. You need OAuth2 credentials from the [Google Cloud Console](https://console.cloud.google.com/).
-
-1. Create a project (or use an existing one)
-2. Go to **APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID**
-3. Application type: **Web application**
-4. Under **Authorized redirect URIs**, add:
+1. Go to [console.cloud.google.com](https://console.cloud.google.com) → **APIs & Services → Credentials**
+2. **Create Credentials → OAuth 2.0 Client ID**, application type: **Web application**
+3. Under **Authorized redirect URIs**, add exactly:
    ```
    https://your.domain.example:8443/auth/callback
    ```
-   > This is the **server** port (8443), not the client port. Google redirects here after login;
-   > the server then forwards the browser to the client.
-5. Copy the **Client ID** and **Client Secret** — you'll need them in the next step.
+4. Copy the **Client ID** and **Client Secret**
 
-### 3. Run the setup script
+### 2. Clone and run setup
 
 ```bash
 git clone https://github.com/casseveritt/stor contacc
 cd contacc
-bash deploy/docker-setup.sh
+bash setup.sh
 ```
 
-The script will prompt for:
-- **Domain name** — e.g. `your.domain.example`
-- **Google OAuth2 Client ID and Secret** — from step 2
-- **Owner identity** — your Google account in the form `google:you@gmail.com`
-- **Passphrase** — used to encrypt the server's database and private key; keep this safe
+The script prompts for your domain, Google credentials, Google account email, and a passphrase (used to encrypt your data at rest). It then builds the Docker image, initializes your node, and starts everything.
 
-It then builds the Docker image, initializes the server node and client config, and starts all services.
+### 3. Log in
 
-### 4. First login
+Open `https://your.domain.example:8444` and click **Sign in with Google**.
 
-Open `https://your.domain.example:8444` in your browser and click **Sign in with Google**.
+That's it.
+
+---
 
 ### Day-to-day operations
 
 ```bash
-docker compose logs -f              # tail all logs
-docker compose logs -f server       # server logs only
-docker compose restart server       # restart one service
-docker compose down                 # stop everything
-docker compose up -d                # start everything
+docker compose logs -f          # tail all logs
+docker compose restart server   # restart one service
+docker compose down             # stop everything
+docker compose up -d            # start everything
 ```
 
 ### Backup and restore
 
-All persistent data lives in `$CONTACC_DATA_DIR` and credentials in `.env`. Back them up together:
-
 ```bash
+# Back up (run from the contacc repo directory)
 source .env
 tar -czf contacc-backup-$(date +%Y%m%d).tar.gz "$CONTACC_DATA_DIR" .env
-```
 
-**To restore on a new host:**
-
-```bash
-git clone https://github.com/casseveritt/stor contacc
-cd contacc
-# restore your backup (extracts data dir and .env)
+# Restore on a new host
+git clone https://github.com/casseveritt/stor contacc && cd contacc
 tar -xzf contacc-backup-YYYYMMDD.tar.gz
-# start — init is skipped automatically because the data dir already exists
 docker compose up -d
 ```
 
-> Your node's Ed25519 private key lives inside `data/server/node_config.json` (encrypted with
-> your passphrase). This key IS your identity — it's what proves ownership of your registry
-> handle. Keep your backup safe.
+> Your node's Ed25519 private key lives inside `$CONTACC_DATA_DIR/server/node_config.json`,
+> encrypted with your passphrase. This key is your identity — keep your backup safe.
 
-## Cloud deployment (AWS / GCP / etc.)
+### Registering a username (optional)
 
-The setup is the same as self-hosted, but persistent storage needs explicit attention. Cloud instance root volumes are often treated as ephemeral — terminated instances lose their data.
-
-**Recommended pattern on AWS:**
-
-1. Create an EBS volume sized for your data and attach it to the instance
-2. Format and mount it (once, on first use):
-   ```bash
-   sudo mkfs.ext4 /dev/xvdf
-   sudo mkdir /mnt/contacc
-   sudo mount /dev/xvdf /mnt/contacc
-   sudo chown $USER /mnt/contacc
-   # add to /etc/fstab for automatic remount on reboot
-   echo '/dev/xvdf /mnt/contacc ext4 defaults 0 2' | sudo tee -a /etc/fstab
-   ```
-3. Set `CONTACC_DATA_DIR=/mnt/contacc` when running the setup script
-
-This separates the instance lifecycle from the data lifecycle: you can stop, resize, or replace the EC2 instance and reattach the EBS volume to pick up exactly where you left off. The backup runbook (`tar $CONTACC_DATA_DIR .env`) still works the same way, and EBS snapshots give you an additional cloud-native backup option.
-
-GCP and Azure have equivalent persistent disk offerings; the pattern is the same — mount the disk, point `CONTACC_DATA_DIR` at the mount.
-
-## Registry
-
-contacc nodes register a human-readable handle in a shared registry at
-`https://starkville.hopto.org:8421`. This lets contacts find your current server URL by handle
-even if you move hosts.
+The shared registry at `starkville.hopto.org:8421` maps human-readable handles to server URLs,
+so contacts can find you by name even if you change hosts.
 
 ```bash
-# Register your handle (run once after setup)
+# Register (run once after setup, requires Python and httpx in your venv)
 CONTACC_PASSPHRASE=... python tools/register_node.py \
-    data/server/node_config.json \
+    "$CONTACC_DATA_DIR/server/node_config.json" \
     --handle yourname \
     --client-url https://your.domain.example:8444
 
-# Look up any handle
-curl https://starkville.hopto.org:8421/lookup/yourname
-
-# Update after moving servers (re-run with --update)
+# Update after moving to a new domain
 CONTACC_PASSPHRASE=... python tools/register_node.py \
-    data/server/node_config.json \
-    --handle yourname \
-    --client-url https://your.domain.example:8444 \
-    --update
+    "$CONTACC_DATA_DIR/server/node_config.json" \
+    --handle yourname --client-url https://new.domain:8444 --update
 ```
 
-Only the Ed25519 key that originally registered a handle can update it — the registry never
-stores or sees your passphrase.
+Only the Ed25519 key that originally registered a handle can update it.
+
+---
 
 ## Architecture
 
 | Component | Directory | Internal port | External port | Description |
 |-----------|-----------|--------------|--------------|-------------|
 | Server node | `server/` | 9443 | 8443 | FastAPI + SQLCipher DB + AES-256-GCM assets. Ed25519 identity. Google SSO. |
-| Client aggregator | `client/` | 9444 | 8444 | FastAPI proxy; aggregates content from one or more server nodes. |
-| Registry | `registry/` | 9532 | 8421 | Global username → server/client URL directory with TTL-based caching. |
-| Caddy | — | — | 80, 443, 8443, 8444 | Reverse proxy with automatic TLS. |
+| Client UI | `client/` | 9444 | 8444 | FastAPI + browser UI; aggregates content from one or more server nodes. |
+| Registry | `registry/` | 9532 | 8421 | Shared username → server/client URL directory. Not run by most users. |
+| Caddy | — | — | 80, 8443, 8444 | Reverse proxy with automatic TLS. |
 
 ## Authentication flow
 
@@ -171,32 +115,60 @@ The callback URI must be registered in the Google Cloud Console and must exactly
 
 ## Data storage
 
-All persistent data uses **bind-mount volumes** — plain host directories, not Docker-managed volumes. The root of these directories is set by `CONTACC_DATA_DIR` in `.env` (e.g. `/opt/contacc`), which keeps data entirely outside the repo:
+All persistent data uses **bind-mount volumes** — plain host directories, not Docker-managed volumes. The root is set by `CONTACC_DATA_DIR` in `.env` (default `~/contacc`), keeping data entirely outside the repo:
 
 | Host path | Container path | Contents |
 |-----------|---------------|----------|
 | `$CONTACC_DATA_DIR/server/` | `/data` | Encrypted SQLCipher DB, asset files, `node_config.json` |
 | `$CONTACC_DATA_DIR/client/` | `/data` | `client_config.json` |
-| `$CONTACC_DATA_DIR/registry/` | `/data` | `registry.db` (plain SQLite) |
 | `$CONTACC_DATA_DIR/caddy/` | `/data` | TLS certificates (managed by Caddy) |
 
-Because the data is on the host filesystem you can inspect, back up, or restore it directly without Docker commands. This is what makes the backup runbook simple — `tar $CONTACC_DATA_DIR .env` captures everything.
+You can inspect, back up, or restore data directly without any Docker commands.
 
 ## Environment variables
 
-The `.env` file at the repo root is loaded by Docker Compose and feeds credentials and runtime config into containers:
+| Variable | Purpose |
+|----------|---------|
+| `CONTACC_DATA_DIR` | Where persistent data lives on the host (default `~/contacc`) |
+| `CONTACC_DOMAIN` | Domain name for TLS certificates and public URLs |
+| `CONTACC_PASSPHRASE` | Decrypts the Ed25519 private key and derives DB/file encryption keys at startup |
+| `CONTACC_GOOGLE_CLIENT_ID` | Google OAuth2 client ID |
+| `CONTACC_GOOGLE_CLIENT_SECRET` | Google OAuth2 client secret |
+| `CONTACC_OWNER_IDENTITY` | Google identity of the owner, e.g. `google:you@gmail.com` |
+| `CONTACC_NODE_ADDRESS` | Overrides `node_address` in config; ensures the OAuth callback URI is the correct public `https://` URL |
+| `CONTACC_CLIENT_URL` | Ensures the OAuth `return_to` URL is `https://` not the internal `http://` seen behind Caddy |
+| `CONTACC_CADDYFILE` | Path to Caddyfile (default `./deploy/Caddyfile`; set to `./deploy/Caddyfile.registry` for registry operators) |
+| `COMPOSE_PROFILES` | Set to `registry` to also start the registry service |
 
-| Variable | Used by | Purpose |
-|----------|---------|---------|
-| `CONTACC_DOMAIN` | Caddy, server, client | Domain name for TLS certificate and public URLs |
-| `CONTACC_PASSPHRASE` | server | Decrypts the Ed25519 private key and derives DB/file encryption keys at startup; not stored after boot |
-| `CONTACC_GOOGLE_CLIENT_ID` | server | Google OAuth2 client ID |
-| `CONTACC_GOOGLE_CLIENT_SECRET` | server | Google OAuth2 client secret |
-| `CONTACC_OWNER_IDENTITY` | server (init only) | Google identity that receives owner privileges, e.g. `google:you@gmail.com` |
-| `CONTACC_NODE_ADDRESS` | server | Overrides `node_address` in `node_config.json`; used to build the OAuth callback URI so it's always the correct public `https://` URL |
-| `CONTACC_CLIENT_URL` | client | Overrides `request.base_url`; ensures the OAuth `return_to` URL is `https://` not the internal `http://` address seen behind Caddy |
+## Cloud deployment (AWS / GCP / etc.)
 
-`CONTACC_NODE_ADDRESS` and `CONTACC_CLIENT_URL` exist because Caddy terminates TLS — the app containers only ever see plain `http://` requests, so they can't infer the correct public URL on their own. Setting these in `.env` also means changing your domain only requires updating `.env` and restarting, with no changes to the data volume.
+The setup is the same as self-hosted, but persistent storage needs explicit attention — cloud instance root volumes are often treated as ephemeral.
+
+**Recommended pattern on AWS:**
+
+1. Attach an EBS volume and mount it:
+   ```bash
+   sudo mkfs.ext4 /dev/xvdf
+   sudo mkdir /mnt/contacc && sudo mount /dev/xvdf /mnt/contacc
+   sudo chown $USER /mnt/contacc
+   echo '/dev/xvdf /mnt/contacc ext4 defaults 0 2' | sudo tee -a /etc/fstab
+   ```
+2. Set `CONTACC_DATA_DIR=/mnt/contacc` when running `setup.sh`
+
+You can then stop, resize, or replace the EC2 instance and reattach the volume to resume exactly where you left off. GCP and Azure have equivalent persistent disk offerings.
+
+## Port convention
+
+Each contacc instance uses 4 ports based on a **base port** (default 8443):
+
+| Port        | Role                      |
+|-------------|---------------------------|
+| base        | Caddy → server (external) |
+| base + 1    | Caddy → client (external) |
+| base + 1000 | server process (internal) |
+| base + 1001 | client process (internal) |
+
+Multiple instances on the same host pick non-overlapping base values.
 
 ## Native / development setup
 
@@ -204,21 +176,13 @@ The `.env` file at the repo root is loaded by Docker Compose and feeds credentia
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Initialize server node
 python tools/init_node.py --store ~/contacc-node --address https://your.domain:8443 \
     --google-client-id <id> --google-client-secret <secret>
-
-# Configure owner identity
 python tools/configure_sso.py --config ~/contacc-node/node_config.json \
     --owner-identity google:you@gmail.com
-
-# Initialize client
 python tools/init_client.py --config ~/contacc-client/client_config.json \
     --own-server https://your.domain:8443
 
-# Run server (reads CONTACC_PASSPHRASE from environment)
 CONTACC_PASSPHRASE=... python -m server.main ~/contacc-node/node_config.json --port 9443
-
-# Run client
 python -m client.main ~/contacc-client/client_config.json --port 9444
 ```
