@@ -133,6 +133,48 @@ stores or sees your passphrase.
 | Registry | `registry/` | 9532 | 8421 | Global username → server/client URL directory with TTL-based caching. |
 | Caddy | — | — | 80, 443, 8443, 8444 | Reverse proxy with automatic TLS. |
 
+## Authentication flow
+
+Login uses Google OAuth2 with the server acting as the OAuth client (not the browser-facing UI):
+
+1. You visit the **client** (port 8444) and click "Sign in with Google"
+2. The client redirects your browser to Google with a callback URL pointing at the **server** (`https://your.domain:8443/auth/callback`)
+3. Google authenticates you and redirects back to the server with a short-lived auth code
+4. The server exchanges the code for a Google ID token, verifies your identity against `sso_owner_identity` in `node_config.json`
+5. If it matches, the server issues a 30-day owner JWT and redirects your browser to the client with the token in the URL fragment (`/#token=...`)
+6. The client stores the token in the browser and sends it as a `Bearer` header on all subsequent API calls to the server
+
+The callback URI must be registered in the Google Cloud Console and must exactly match what the server constructs at runtime. The `CONTACC_NODE_ADDRESS` env var ensures this is always the correct public `https://` URL even though the server internally receives requests over plain `http://` from Caddy.
+
+## Data storage
+
+All persistent data uses **bind-mount volumes** — plain host directories, not Docker-managed volumes:
+
+| Host path (relative to repo) | Container path | Contents |
+|------------------------------|---------------|----------|
+| `./data/server/` | `/data` | Encrypted SQLCipher DB, asset files, `node_config.json` |
+| `./data/client/` | `/data` | `client_config.json` |
+| `./data/registry/` | `/data` | `registry.db` (plain SQLite) |
+| `./data/caddy/` | `/data` | TLS certificates (managed by Caddy) |
+
+Because the data is on the host filesystem you can inspect, back up, or restore it directly without Docker commands. This is what makes the backup runbook simple — `tar data/ .env` captures everything.
+
+## Environment variables
+
+The `.env` file at the repo root is loaded by Docker Compose and feeds credentials and runtime config into containers:
+
+| Variable | Used by | Purpose |
+|----------|---------|---------|
+| `CONTACC_DOMAIN` | Caddy, server, client | Domain name for TLS certificate and public URLs |
+| `CONTACC_PASSPHRASE` | server | Decrypts the Ed25519 private key and derives DB/file encryption keys at startup; not stored after boot |
+| `CONTACC_GOOGLE_CLIENT_ID` | server | Google OAuth2 client ID |
+| `CONTACC_GOOGLE_CLIENT_SECRET` | server | Google OAuth2 client secret |
+| `CONTACC_OWNER_IDENTITY` | server (init only) | Google identity that receives owner privileges, e.g. `google:you@gmail.com` |
+| `CONTACC_NODE_ADDRESS` | server | Overrides `node_address` in `node_config.json`; used to build the OAuth callback URI so it's always the correct public `https://` URL |
+| `CONTACC_CLIENT_URL` | client | Overrides `request.base_url`; ensures the OAuth `return_to` URL is `https://` not the internal `http://` address seen behind Caddy |
+
+`CONTACC_NODE_ADDRESS` and `CONTACC_CLIENT_URL` exist because Caddy terminates TLS — the app containers only ever see plain `http://` requests, so they can't infer the correct public URL on their own. Setting these in `.env` also means changing your domain only requires updating `.env` and restarting, with no changes to the data volume.
+
 ## Native / development setup
 
 ```bash
