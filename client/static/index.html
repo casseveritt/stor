@@ -17,9 +17,9 @@
     header { background: #1a1a1a; padding: 0.6rem 1rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2a2a2a; position: sticky; top: 0; z-index: 20; gap: 0.5rem; }
     .header-left  { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
     .header-right { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
-    .logo { font-size: 1.1rem; font-weight: 500; color: #fff; }
-    #handle-display { font-size: 1.05rem; font-weight: 500; color: #fff; }
-    #identity-badge { font-size: 0.75rem; color: #666; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .logo { font-size: 1.1rem; font-weight: 600; color: #fff; }
+    .logo-sep { color: #444; font-size: 1.1rem; font-weight: 300; margin: 0 -0.25rem; }
+    #handle-display { font-size: 1.05rem; font-weight: 400; color: #aaa; }
     #search-wrap { flex: 1; min-width: 0; }
     #search-input { width: 100%; padding: 0.4rem 0.7rem; border-radius: 4px; border: 1px solid #333; background: #222; color: #e0e0e0; font-size: 0.88rem; outline: none; }
     #search-input:focus { border-color: #4285f4; }
@@ -233,8 +233,8 @@
     <div class="header-left">
       <img src="/static/favicon.svg" height="22" style="display:block">
       <span class="logo">contacc</span>
+      <span class="logo-sep">/</span>
       <span id="handle-display"></span>
-      <span id="identity-badge"></span>
     </div>
     <div id="search-wrap">
       <input type="text" id="search-input" placeholder="Search posts…" oninput="scheduleSearch(this.value)">
@@ -250,7 +250,7 @@
     <nav id="sidebar">
       <div class="sidebar-section">
         <div class="sidebar-head" style="display:flex;justify-content:space-between;align-items:center">
-          Servers
+          Contacts
           <button class="btn btn-muted btn-sm" onclick="openAddContact()" style="font-size:0.7rem;padding:0.15rem 0.5rem">+ Add</button>
         </div>
         <div id="server-list"></div>
@@ -489,11 +489,9 @@ async function loadIdentity() {
   const identity = d.identity || "";
   const nodeR = await fetch("/node");
   const nodeD = nodeR.ok ? await nodeR.json() : {};
-  const handleDisplay = document.getElementById("handle-display");
-  handleDisplay.textContent = nodeD.handle ? `@${nodeD.handle}` : "";
-  const badge = document.getElementById("identity-badge");
-  badge.textContent = d.display_name || identity.replace(/^[^:]+:/, "") || d.role;
-  badge.title = identity;
+  const handle = nodeD.handle || "";
+  document.getElementById("handle-display").textContent = handle ? `@${handle}` : "";
+  if (handle) document.title = `contacc / @${handle}`;
   if (IS_OWNER) {
     loadProfileAvatar();
   }
@@ -543,7 +541,8 @@ function showView(name) {
 // ── server sidebar ─────────────────────────────────────────────────────────
 function renderServerList() {
   const list = document.getElementById("server-list");
-  list.innerHTML = (CFG.servers || []).map((s, i) => {
+  const allBtn = '<button class="server-btn' + (activeServer === null ? " active" : "") + '" onclick="setActiveServer(-1)"><span>All</span></button>';
+  const serverBtns = (CFG.servers || []).map((s, i) => {
     const status = serverStatuses[s.url] || (s.authenticated ? "wait" : "err");
     const handle = serverHandles[s.url];
     const label = handle ? `@${handle}` : esc(s.name);
@@ -551,7 +550,8 @@ function renderServerList() {
       + '<span>' + label + '</span>'
       + '<span class="server-dot ' + status + '"></span>'
       + '</button>';
-  }).join("");
+  });
+  list.innerHTML = allBtn + serverBtns.join("");
 }
 
 async function fetchServerHandles() {
@@ -568,8 +568,12 @@ async function fetchServerHandles() {
 }
 
 function setActiveServer(i) {
-  const url = CFG.servers[i].url;
-  activeServer = (activeServer === url) ? null : url;
+  if (i === -1) {
+    activeServer = null;
+  } else {
+    const url = CFG.servers[i].url;
+    activeServer = (activeServer === url) ? null : url;
+  }
   renderServerList();
   resetFeed();
 }

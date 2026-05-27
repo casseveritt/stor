@@ -166,27 +166,63 @@ def create_app(config_path: str | Path) -> FastAPI:
         cursor: str = "",
         q: str = "",
         tags: list[str] = Query(default=[]),
+        limit: int = 20,
     ):
-        src = server or config.own_server
-        if not _token(src):
-            raise HTTPException(status_code=401, detail="Not authenticated for this server")
+        if server:
+            # single-server fetch
+            src = server
+            if not _token(src):
+                raise HTTPException(status_code=401, detail="Not authenticated for this server")
+            params: list[tuple[str, str]] = [("limit", str(limit))]
+            if cursor: params.append(("cursor", cursor))
+            if q: params.append(("q", q))
+            for t in tags: params.append(("tags", t))
+            async with httpx.AsyncClient() as hc:
+                r = await hc.get(src + "/posts", params=params, headers=_headers(src))
+            if not r.is_success:
+                raise HTTPException(status_code=r.status_code)
+            data = r.json()
+            name = _server_name(src)
+            for post in data.get("posts", []):
+                post["_server_url"] = src
+                post["_server_name"] = name
+            return data
 
-        params: list[tuple[str, str]] = [("limit", "20")]
-        if cursor: params.append(("cursor", cursor))
-        if q: params.append(("q", q))
-        for t in tags: params.append(("tags", t))
+        # aggregate all servers
+        servers = _all_servers()
+        params_base: list[tuple[str, str]] = [("limit", str(limit))]
+        if cursor: params_base.append(("cursor", cursor))
+        if q: params_base.append(("q", q))
+        for t in tags: params_base.append(("tags", t))
 
-        async with httpx.AsyncClient() as hc:
-            r = await hc.get(src + "/posts", params=params, headers=_headers(src))
-        if not r.is_success:
-            raise HTTPException(status_code=r.status_code)
+        async def _fetch_one(url: str):
+            tok = _token(url)
+            if not tok:
+                return []
+            try:
+                async with httpx.AsyncClient() as hc:
+                    r = await hc.get(url + "/posts", params=params_base, headers=_headers(url), timeout=10.0)
+                if not r.is_success:
+                    return []
+                data = r.json()
+                name = _server_name(url)
+                for post in data.get("posts", []):
+                    post["_server_url"] = url
+                    post["_server_name"] = name
+                return data.get("posts", [])
+            except Exception:
+                return []
 
-        data = r.json()
-        name = _server_name(src)
-        for post in data.get("posts", []):
-            post["_server_url"] = src
-            post["_server_name"] = name
-        return data
+        import asyncio
+        results = await asyncio.gather(*[_fetch_one(url) for url in servers])
+        merged = sorted(
+            [p for batch in results for p in batch],
+            key=lambda p: p.get("created_at", 0),
+            reverse=True,
+        )[:limit]
+
+        next_cursor = str(merged[-1]["created_at"]) if len(merged) == limit else None
+        return {"posts": merged, "next_cursor": next_cursor}
 
     # ── posts ─────────────────────────────────────────────────────────────
 
