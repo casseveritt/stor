@@ -63,10 +63,14 @@ def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # CONTAC_NODE_ADDRESS env var overrides config — lets Docker deployments change
+    # the public address by updating .env without touching the data volume.
+    node_address = os.environ.get("CONTAC_NODE_ADDRESS") or config.node_address
+
     app.state.db = db_con
     app.state.file_key = file_key
     app.state.store_path = store_path
-    app.state.node_address = config.node_address
+    app.state.node_address = node_address
     app.state.watermark_enabled = config.watermark_enabled
     app.state.owner_identity = config.sso_owner_identity
 
@@ -76,7 +80,7 @@ def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
     }
     app.state.sso_exchange_google = sso_module.exchange_google_code
 
-    node_module.setup(config.node_address, private_key, config.watermark_enabled)
+    node_module.setup(node_address, private_key, config.watermark_enabled)
     auth_module.setup(private_key)
     app.include_router(node_module.router)
     app.include_router(feed_module.router)

@@ -6,6 +6,7 @@ services:
     command: python -m server.main /data/node_config.json --host 0.0.0.0 --port 9443
     environment:
       CONTAC_PASSPHRASE: ${CONTAC_PASSPHRASE}
+      CONTAC_NODE_ADDRESS: https://${CONTAC_DOMAIN}:8443
     volumes:
       - ./data/server:/data
     expose:
@@ -36,7 +37,6 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
-      - "443:443"
       - "8421:8421"
       - "8443:8443"
       - "8444:8444"
