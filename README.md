@@ -16,51 +16,122 @@ Each contac instance uses 4 ports based on a **base port** (default 8443):
 Default: base=8443 → external 8443/8444, internal 9443/9444.
 Multiple instances on the same host pick non-overlapping base values.
 
+The global registry runs separately at port **8421** (internal 9532).
+
 ## Quick start (Docker)
 
-### Prerequisites
+### 1. Prerequisites
 
-- Docker with Compose v2 (`docker compose version`)
-- A domain name pointed at your server
-- Ports 80, 443, 8443, and 8444 open in your firewall
-- [Google OAuth2 credentials](https://console.cloud.google.com/) with redirect URI:
-  `https://your.domain.example:8444/auth/callback`
+- Docker with Compose v2: `docker compose version`
+- A domain name with DNS pointed at your server's IP
+- The following ports open in your firewall / forwarded by your router:
+  - **80** and **443** — Caddy ACME TLS certificate issuance
+  - **8443** — contac server
+  - **8444** — contac client UI
 
-### First-time setup
+### 2. Set up Google OAuth2
+
+contac uses Google SSO for owner authentication. You need OAuth2 credentials from the [Google Cloud Console](https://console.cloud.google.com/).
+
+1. Create a project (or use an existing one)
+2. Go to **APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID**
+3. Application type: **Web application**
+4. Under **Authorized redirect URIs**, add:
+   ```
+   https://your.domain.example:8443/auth/callback
+   ```
+   > This is the **server** port (8443), not the client port. Google redirects here after login;
+   > the server then forwards the browser to the client.
+5. Copy the **Client ID** and **Client Secret** — you'll need them in the next step.
+
+### 3. Run the setup script
 
 ```bash
-git clone <repo-url> contac && cd contac
+git clone https://github.com/casseveritt/stor contac
+cd contac
 bash deploy/docker-setup.sh
 ```
 
-The script prompts for your domain, Google OAuth credentials, and a passphrase (used to encrypt the database), then initializes the node and starts all services.
+The script will prompt for:
+- **Domain name** — e.g. `your.domain.example`
+- **Google OAuth2 Client ID and Secret** — from step 2
+- **Owner identity** — your Google account in the form `google:you@gmail.com`
+- **Passphrase** — used to encrypt the server's database and private key; keep this safe
 
-Once done, open `https://your.domain.example:8444` and sign in with Google.
+It then builds the Docker image, initializes the server node and client config, and starts all services.
 
-### Day-to-day
+### 4. First login
+
+Open `https://your.domain.example:8444` in your browser and click **Sign in with Google**.
+
+### Day-to-day operations
 
 ```bash
-docker compose logs -f          # tail logs
-docker compose restart server   # restart server
-docker compose down             # stop everything
-docker compose up -d            # start everything
+docker compose logs -f              # tail all logs
+docker compose logs -f server       # server logs only
+docker compose restart server       # restart one service
+docker compose down                 # stop everything
+docker compose up -d                # start everything
 ```
 
-### Backup
+### Backup and restore
 
-All persistent data lives in `./data/`. Back it up and it all comes with you:
+All persistent data lives in `./data/` and credentials in `.env`. Back them up together:
 
 ```bash
 tar -czf contac-backup-$(date +%Y%m%d).tar.gz data/ .env
 ```
 
-To restore on a new host: clone the repo, restore `data/` and `.env`, then `docker compose up -d`.
+**To restore on a new host:**
+
+```bash
+git clone https://github.com/casseveritt/stor contac
+cd contac
+# restore your backup
+tar -xzf contac-backup-YYYYMMDD.tar.gz
+# start — init is skipped automatically because data/ already exists
+docker compose up -d
+```
+
+> Your node's Ed25519 private key lives inside `data/server/node_config.json` (encrypted with
+> your passphrase). This key IS your identity — it's what proves ownership of your registry
+> handle. Keep your backup safe.
+
+## Registry
+
+contac nodes register a human-readable handle in a shared registry at
+`https://starkville.hopto.org:8421`. This lets contacts find your current server URL by handle
+even if you move hosts.
+
+```bash
+# Register your handle (run once after setup)
+CONTAC_PASSPHRASE=... python tools/register_node.py \
+    data/server/node_config.json \
+    --handle yourname \
+    --client-url https://your.domain.example:8444
+
+# Look up any handle
+curl https://starkville.hopto.org:8421/lookup/yourname
+
+# Update after moving servers (re-run with --update)
+CONTAC_PASSPHRASE=... python tools/register_node.py \
+    data/server/node_config.json \
+    --handle yourname \
+    --client-url https://your.domain.example:8444 \
+    --update
+```
+
+Only the Ed25519 key that originally registered a handle can update it — the registry never
+stores or sees your passphrase.
 
 ## Architecture
 
-- **Server node** (`server/`) — FastAPI + SQLCipher encrypted database + AES-256-GCM asset encryption. Ed25519 node identity. Google OAuth/OIDC SSO. Runs on port 9443 (external: 8443 via Caddy).
-- **Client aggregator** (`client/`) — FastAPI proxy that aggregates content from one or more server nodes. Runs on port 9444 (external: 8444 via Caddy).
-- **Caddy** — reverse proxy with automatic TLS.
+| Component | Directory | Internal port | External port | Description |
+|-----------|-----------|--------------|--------------|-------------|
+| Server node | `server/` | 9443 | 8443 | FastAPI + SQLCipher DB + AES-256-GCM assets. Ed25519 identity. Google SSO. |
+| Client aggregator | `client/` | 9444 | 8444 | FastAPI proxy; aggregates content from one or more server nodes. |
+| Registry | `registry/` | 9532 | 8421 | Global username → server/client URL directory with TTL-based caching. |
+| Caddy | — | — | 80, 443, 8443, 8444 | Reverse proxy with automatic TLS. |
 
 ## Native / development setup
 
@@ -68,14 +139,19 @@ To restore on a new host: clone the repo, restore `data/` and `.env`, then `dock
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# Initialize server
-python tools/init_node.py --store ~/contac-node --address https://your.domain:8443
+# Initialize server node
+python tools/init_node.py --store ~/contac-node --address https://your.domain:8443 \
+    --google-client-id <id> --google-client-secret <secret>
+
+# Configure owner identity
+python tools/configure_sso.py --config ~/contac-node/node_config.json \
+    --owner-identity google:you@gmail.com
 
 # Initialize client
 python tools/init_client.py --config ~/contac-client/client_config.json \
     --own-server https://your.domain:8443
 
-# Run server
+# Run server (reads CONTAC_PASSPHRASE from environment)
 CONTAC_PASSPHRASE=... python -m server.main ~/contac-node/node_config.json --port 9443
 
 # Run client
