@@ -454,7 +454,7 @@ async function loadIdentity() {
   IS_OWNER = d.role === "owner";
   document.getElementById("compose-btn").hidden = !IS_OWNER;
   const identity = d.identity || "";
-  const nodeR = await fetch(CFG.own_server + "/node");
+  const nodeR = await fetch("/node");
   const nodeD = nodeR.ok ? await nodeR.json() : {};
   const handleDisplay = document.getElementById("handle-display");
   handleDisplay.textContent = nodeD.handle ? `@${nodeD.handle}` : "contacc";
@@ -488,7 +488,8 @@ function renderServerList() {
 async function fetchServerHandles() {
   for (const s of CFG.servers || []) {
     try {
-      const r = await fetch(s.url + "/node");
+      const nodeUrl = s.url === CFG.own_server ? "/node" : s.url + "/node";
+      const r = await fetch(nodeUrl);
       if (r.ok) {
         const d = await r.json();
         if (d.handle) { serverHandles[s.url] = d.handle; renderServerList(); }

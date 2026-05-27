@@ -345,6 +345,10 @@ def create_app(config_path: str | Path) -> FastAPI:
         except httpx.RequestError as exc:
             raise HTTPException(502, f"Could not reach server: {exc}")
 
+    @app.get("/node")
+    async def proxy_node():
+        return await _fwd("GET", "/node")
+
     @app.get("/setup/status")
     async def proxy_setup_status():
         return await _fwd("GET", "/setup/status")
