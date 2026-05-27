@@ -98,6 +98,28 @@ docker compose up -d
 > your passphrase). This key IS your identity — it's what proves ownership of your registry
 > handle. Keep your backup safe.
 
+## Cloud deployment (AWS / GCP / etc.)
+
+The setup is the same as self-hosted, but persistent storage needs explicit attention. Cloud instance root volumes are often treated as ephemeral — terminated instances lose their data.
+
+**Recommended pattern on AWS:**
+
+1. Create an EBS volume sized for your data and attach it to the instance
+2. Format and mount it (once, on first use):
+   ```bash
+   sudo mkfs.ext4 /dev/xvdf
+   sudo mkdir /mnt/contacc
+   sudo mount /dev/xvdf /mnt/contacc
+   sudo chown $USER /mnt/contacc
+   # add to /etc/fstab for automatic remount on reboot
+   echo '/dev/xvdf /mnt/contacc ext4 defaults 0 2' | sudo tee -a /etc/fstab
+   ```
+3. Set `CONTACC_DATA_DIR=/mnt/contacc` when running the setup script
+
+This separates the instance lifecycle from the data lifecycle: you can stop, resize, or replace the EC2 instance and reattach the EBS volume to pick up exactly where you left off. The backup runbook (`tar $CONTACC_DATA_DIR .env`) still works the same way, and EBS snapshots give you an additional cloud-native backup option.
+
+GCP and Azure have equivalent persistent disk offerings; the pattern is the same — mount the disk, point `CONTACC_DATA_DIR` at the mount.
+
 ## Registry
 
 contacc nodes register a human-readable handle in a shared registry at

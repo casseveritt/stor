@@ -27,8 +27,8 @@ if [ -f .env ]; then
     set -a; source .env; set +a
 fi
 
-read -rp "Data directory [${CONTACC_DATA_DIR:-/opt/contacc}]: " _datadir
-CONTACC_DATA_DIR="${_datadir:-${CONTACC_DATA_DIR:-/opt/contacc}}"
+read -rp "Data directory [${CONTACC_DATA_DIR:-${HOME}/contacc}]: " _datadir
+CONTACC_DATA_DIR="${_datadir:-${CONTACC_DATA_DIR:-${HOME}/contacc}}"
 
 read -rp "Domain name [${CONTACC_DOMAIN:-your.domain.example}]: " _domain
 CONTACC_DOMAIN="${_domain:-${CONTACC_DOMAIN:-}}"
