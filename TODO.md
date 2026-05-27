@@ -20,5 +20,14 @@ The Docker packaging (`Dockerfile`, `docker-compose.yml`, `deploy/docker-setup.s
 ## 6. Portable bundle / backup runbook
 The `data/` directory layout in Docker is the foundation for portable backups. Needs a documented backup/restore runbook and possibly a `tools/backup.sh`. The restore path (`docker compose up` with existing `data/`) already works; just needs documentation and testing.
 
-## 7. Plaintext metadata in node_config.json
+## 7. User profile: display name and photo
+Each server needs a user profile (display name, profile photo). The profile should be public — no auth required — so the registry and prospective contacts can show it during handle lookup and "add contact" flows.
+
+Key pieces:
+- **Server**: store display name (in DB or node_config) and profile photo (encrypted in file store, decrypted and served via public `GET /profile` + `GET /profile/photo` endpoints). Add profile settings to client UI (set name, upload photo).
+- **Registry**: add `display_name` and `photo_url` columns to its DB; accept them in the heartbeat/update payload; return them in `GET /lookup/{handle}`.
+- **Registry web UI**: show display name + photo thumbnail when a handle resolves, so users can confirm identity before adding a contact.
+- **Client "add contact"**: show the profile card (photo + display name) after registry lookup, before confirming the add.
+
+## 8. Plaintext metadata in node_config.json
 `node_config.json` stores `sso_owner_identity` (e.g. `"google:cass.everitt@gmail.com"`), `node_address`, and `registry_handle` in plaintext — readable by anyone with filesystem access, no passphrase required. The email is only used to verify incoming SSO tokens. Future hardening: consider encrypting or omitting it from the config (look it up from the encrypted DB at unlock time instead). The handle and node_address are less sensitive but still worth considering.
