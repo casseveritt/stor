@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Initialize a new contac node: generate keys, derive subkeys, encrypt store."""
+"""Initialize a new contacc node: generate keys, derive subkeys, encrypt store."""
 import os
 import sys
 import json
@@ -21,15 +21,15 @@ from server.crypto import (
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Initialize a contac node")
+    parser = argparse.ArgumentParser(description="Initialize a contacc node")
     parser.add_argument("--store", required=True, help="Path to the store directory")
     parser.add_argument("--address", required=True, help="Public node address (e.g. https://node.example.com)")
     parser.add_argument("--watermark", action="store_true", help="Enable watermarking")
     parser.add_argument("--key-stdin", action="store_true", help="Read passphrase from stdin (no confirmation)")
-    parser.add_argument("--google-client-id", default=os.environ.get("CONTAC_GOOGLE_CLIENT_ID", ""),
-                        help="Google OAuth2 client ID for SSO (env: CONTAC_GOOGLE_CLIENT_ID)")
-    parser.add_argument("--google-client-secret", default=os.environ.get("CONTAC_GOOGLE_CLIENT_SECRET", ""),
-                        help="Google OAuth2 client secret for SSO (env: CONTAC_GOOGLE_CLIENT_SECRET)")
+    parser.add_argument("--google-client-id", default=os.environ.get("CONTACC_GOOGLE_CLIENT_ID", ""),
+                        help="Google OAuth2 client ID for SSO (env: CONTACC_GOOGLE_CLIENT_ID)")
+    parser.add_argument("--google-client-secret", default=os.environ.get("CONTACC_GOOGLE_CLIENT_SECRET", ""),
+                        help="Google OAuth2 client secret for SSO (env: CONTACC_GOOGLE_CLIENT_SECRET)")
     args = parser.parse_args()
 
     store_path = Path(args.store)
@@ -42,7 +42,7 @@ def main() -> None:
     store_path.mkdir(parents=True, exist_ok=True)
     (store_path / "files").mkdir(exist_ok=True)
 
-    env = os.environ.get("CONTAC_PASSPHRASE")
+    env = os.environ.get("CONTACC_PASSPHRASE")
     if env:
         passphrase = env
     elif args.key_stdin:

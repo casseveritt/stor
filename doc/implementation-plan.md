@@ -1,4 +1,4 @@
-# contac Implementation Plan
+# contacc Implementation Plan
 
 ## Approach
 
@@ -33,8 +33,8 @@ All data at rest is encrypted. Decryption keys exist only in process memory for 
 
 At node initialization the owner chooses a passphrase. A random 16-byte Argon2id salt is generated and stored in the node config file (plaintext — it is not secret). On every startup the passphrase is run through Argon2id with that salt to produce a 32-byte master key. Two subkeys are then derived via HKDF:
 
-- `db_key = HKDF(master_key, info="contac-db")`
-- `file_key = HKDF(master_key, info="contac-files")`
+- `db_key = HKDF(master_key, info="contacc-db")`
+- `file_key = HKDF(master_key, info="contacc-files")`
 
 The master key and both subkeys exist only in memory. If the server process stops, the keys are gone; the next startup requires the passphrase again.
 

@@ -77,7 +77,7 @@ class TestInitNode:
     def test_env_var_passphrase(self, tmp_path):
         r = run(self.INIT, "--store", str(tmp_path / "node"),
                 "--address", "http://localhost:8000",
-                env_extra={"CONTAC_PASSPHRASE": PASSPHRASE})
+                env_extra={"CONTACC_PASSPHRASE": PASSPHRASE})
         assert r.returncode == 0, r.stderr
 
     def test_prints_public_key(self, tmp_path):
@@ -194,7 +194,7 @@ class TestPrintToken:
 
         # Patch uvicorn.run to avoid actually starting a server
         with patch("uvicorn.run"), \
-             patch("sys.argv", ["contac", str(print_token_store / "node_config.json"),
+             patch("sys.argv", ["contacc", str(print_token_store / "node_config.json"),
                                 "--print-token",
                                 "--key-stdin"]), \
              patch("sys.stdin.readline", return_value=PASSPHRASE + "\n"), \

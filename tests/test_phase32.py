@@ -61,12 +61,12 @@ class TestInitNodeSSO:
 
     def test_init_google_env_vars(self, tmp_path, monkeypatch):
         store = tmp_path / "env_sso_node"
-        monkeypatch.setenv("CONTAC_GOOGLE_CLIENT_ID", "env-client-id")
-        monkeypatch.setenv("CONTAC_GOOGLE_CLIENT_SECRET", "env-secret")
+        monkeypatch.setenv("CONTACC_GOOGLE_CLIENT_ID", "env-client-id")
+        monkeypatch.setenv("CONTACC_GOOGLE_CLIENT_SECRET", "env-secret")
         import os
         env = {**os.environ,
-               "CONTAC_GOOGLE_CLIENT_ID": "env-client-id",
-               "CONTAC_GOOGLE_CLIENT_SECRET": "env-secret"}
+               "CONTACC_GOOGLE_CLIENT_ID": "env-client-id",
+               "CONTACC_GOOGLE_CLIENT_SECRET": "env-secret"}
         r = subprocess.run(
             [PYTHON, str(ROOT / "tools/init_node.py"),
              "--store", str(store),
@@ -163,8 +163,8 @@ class TestConfigureSSO:
     def test_configure_env_vars(self, node_config):
         import os
         env = {**os.environ,
-               "CONTAC_GOOGLE_CLIENT_ID": "env-id",
-               "CONTAC_GOOGLE_CLIENT_SECRET": "env-secret"}
+               "CONTACC_GOOGLE_CLIENT_ID": "env-id",
+               "CONTACC_GOOGLE_CLIENT_SECRET": "env-secret"}
         r = subprocess.run(
             [PYTHON, str(ROOT / "tools/configure_sso.py"),
              "--config", str(node_config)],

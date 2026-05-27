@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""contac MCP server — exposes a personal data node as Claude tools.
+"""contacc MCP server — exposes a personal data node as Claude tools.
 
 Usage:
     python tools/mcp_server.py --node-url https://your.node --token <owner-or-recipient-token>
 
 Or via environment variables:
-    CONTAC_NODE_URL=https://your.node CONTAC_TOKEN=<token> python tools/mcp_server.py
+    CONTACC_NODE_URL=https://your.node CONTACC_TOKEN=<token> python tools/mcp_server.py
 
 Configure in Claude Code (claude_code_settings.json or .claude/settings.json):
     {
       "mcpServers": {
-        "contac": {
+        "contacc": {
           "command": "/path/to/.venv/bin/python",
           "args": ["/path/to/tools/mcp_server.py",
                    "--node-url", "https://your.node",
@@ -28,7 +28,7 @@ import httpx
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP(
-    "contac",
+    "contacc",
     instructions="Personal data node — search assets, read text content, browse feed and tags",
 )
 
@@ -81,7 +81,7 @@ def _delete(path: str) -> None:
 
 @mcp.tool()
 def node_info() -> str:
-    """Get information about this contac node: address, public key, watermark policy,
+    """Get information about this contacc node: address, public key, watermark policy,
     and counts of public posts and assets.
     For full statistics (owner only) the response also includes total/private counts,
     storage bytes, recipient count, and comment count if the token has owner access.
@@ -122,7 +122,7 @@ def search_assets(
     limit: int = 20,
     include_superseded: bool = False,
 ) -> str:
-    """Search assets in the contac node.
+    """Search assets in the contacc node.
 
     q: substring match on asset titles.
     media_type: exact MIME type filter, e.g. "image/jpeg" or "text/plain".
@@ -396,24 +396,24 @@ def comment_on_post(post_id: str, body: str, parent_id: str = "") -> str:
 
 def main() -> None:
     import argparse
-    parser = argparse.ArgumentParser(description="contac MCP server")
+    parser = argparse.ArgumentParser(description="contacc MCP server")
     parser.add_argument(
         "--node-url",
-        default=os.environ.get("CONTAC_NODE_URL", ""),
-        help="contac node base URL (env: CONTAC_NODE_URL)",
+        default=os.environ.get("CONTACC_NODE_URL", ""),
+        help="contacc node base URL (env: CONTACC_NODE_URL)",
     )
     parser.add_argument(
         "--token",
-        default=os.environ.get("CONTAC_TOKEN", ""),
-        help="auth token — owner or recipient (env: CONTAC_TOKEN)",
+        default=os.environ.get("CONTACC_TOKEN", ""),
+        help="auth token — owner or recipient (env: CONTACC_TOKEN)",
     )
     args = parser.parse_args()
 
     if not args.node_url:
-        print("Error: --node-url or CONTAC_NODE_URL is required", file=sys.stderr)
+        print("Error: --node-url or CONTACC_NODE_URL is required", file=sys.stderr)
         sys.exit(1)
     if not args.token:
-        print("Error: --token or CONTAC_TOKEN is required", file=sys.stderr)
+        print("Error: --token or CONTACC_TOKEN is required", file=sys.stderr)
         sys.exit(1)
 
     _setup(args.node_url, args.token)

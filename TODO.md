@@ -1,10 +1,10 @@
-# contac to-do list
+# contacc to-do list
 
 ## 1. Registry startup heartbeat
 On server startup, if `registry_handle` is configured in `node_config.json`, automatically sign and push the current `node_address` to the registry using the in-memory decrypted private key. This makes the registry self-maintaining — move servers, restart, registry updates itself. `tools/register_node.py` becomes admin/recovery only.
 
 ## 2. Username ownership and identity portability
-The encrypted private key in `node_config.json` IS the contac identity — whoever holds it owns the registry handle. Two things needed:
+The encrypted private key in `node_config.json` IS the contacc identity — whoever holds it owns the registry handle. Two things needed:
 - `docker-setup.sh` restore-from-backup path already skips `init_node.py` (correct), but should also run registry `--update` instead of `--register` on first boot after restore.
 - `tools/export_identity.py`: package just the key material (encrypted key + argon2 salt/params) separately from the database and assets. Enables seeding a fresh instance with an existing identity without a full backup restore.
 

@@ -1,23 +1,23 @@
 services:
   server:
     build: .
-    image: contac
+    image: contacc
     restart: unless-stopped
     command: python -m server.main /data/node_config.json --host 0.0.0.0 --port 9443
     environment:
-      CONTAC_PASSPHRASE: ${CONTAC_PASSPHRASE}
-      CONTAC_NODE_ADDRESS: https://${CONTAC_DOMAIN}:8443
+      CONTACC_PASSPHRASE: ${CONTACC_PASSPHRASE}
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
     volumes:
       - ./data/server:/data
     expose:
       - "9443"
 
   client:
-    image: contac
+    image: contacc
     restart: unless-stopped
     command: python -m client.main /data/client_config.json --host 0.0.0.0 --port 9444
     environment:
-      CONTAC_CLIENT_URL: https://${CONTAC_DOMAIN}:8444
+      CONTACC_CLIENT_URL: https://${CONTACC_DOMAIN}:8444
     volumes:
       - ./data/client:/data
     expose:
@@ -26,7 +26,7 @@ services:
       - server
 
   registry:
-    image: contac
+    image: contacc
     restart: unless-stopped
     command: python -m registry.main /data/registry.db --host 0.0.0.0 --port 9532
     volumes:
@@ -43,7 +43,7 @@ services:
       - "8443:8443"
       - "8444:8444"
     environment:
-      CONTAC_DOMAIN: ${CONTAC_DOMAIN}
+      CONTACC_DOMAIN: ${CONTACC_DOMAIN}
     volumes:
       - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
       - ./data/caddy:/data

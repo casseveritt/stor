@@ -1,11 +1,11 @@
-"""contac registry — global username → {server_url, client_url} directory.
+"""contacc registry — global username → {server_url, client_url} directory.
 
 DNS-like: entries carry a TTL; clients cache locally and re-query on expiry.
 All writes are authenticated with the node's Ed25519 private key via a
 signed canonical message that includes a timestamp to prevent replays.
 
 Signature message format:
-  "contac:{action}:{username}:{server_url}:{client_url}:{timestamp}"
+  "contacc:{action}:{username}:{server_url}:{client_url}:{timestamp}"
   where action is "register" or "update"
 """
 import base64
@@ -63,7 +63,7 @@ def create_app(db_path: str) -> FastAPI:
     """)
     con.commit()
 
-    app = FastAPI(title="contac registry")
+    app = FastAPI(title="contacc registry")
 
     @app.get("/health")
     def health():
@@ -102,7 +102,7 @@ def create_app(db_path: str) -> FastAPI:
                                 detail="Username must be 1–32 chars: letters, digits, _ or -")
         _check_timestamp(body.timestamp)
         ttl = _clamp_ttl(body.ttl)
-        msg = f"contac:register:{username}:{body.server_url}:{body.client_url}:{body.timestamp}"
+        msg = f"contacc:register:{username}:{body.server_url}:{body.client_url}:{body.timestamp}"
         if not _verify_sig(body.public_key, msg, body.signature):
             raise HTTPException(status_code=401, detail="Invalid signature")
         if con.execute("SELECT 1 FROM handles WHERE username = ?", (username,)).fetchone():
@@ -133,7 +133,7 @@ def create_app(db_path: str) -> FastAPI:
         if not row:
             raise HTTPException(status_code=404, detail="Username not found")
         ttl = _clamp_ttl(body.ttl)
-        msg = f"contac:update:{username}:{body.server_url}:{body.client_url}:{body.timestamp}"
+        msg = f"contacc:update:{username}:{body.server_url}:{body.client_url}:{body.timestamp}"
         if not _verify_sig(row[0], msg, body.signature):
             raise HTTPException(status_code=401, detail="Invalid signature")
         con.execute(
@@ -148,7 +148,7 @@ def create_app(db_path: str) -> FastAPI:
 
 def main() -> None:
     import argparse
-    parser = argparse.ArgumentParser(description="Run the contac registry")
+    parser = argparse.ArgumentParser(description="Run the contacc registry")
     parser.add_argument("db", help="Path to registry SQLite database")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9532)

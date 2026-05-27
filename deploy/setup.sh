@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# contac node setup script
+# contacc node setup script
 # Run once after cloning the repo to set up the virtual environment,
 # initialize the node store, and optionally install the systemd service.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-STORE_DIR="${HOME}/.local/share/contac"
-CONFIG_DIR="${HOME}/.config/contac"
+STORE_DIR="${HOME}/.local/share/contacc"
+CONFIG_DIR="${HOME}/.config/contacc"
 VENV="${REPO_DIR}/.venv"
 
-echo "==> contac setup"
+echo "==> contacc setup"
 echo "    repo:   ${REPO_DIR}"
 echo "    store:  ${STORE_DIR}"
 
@@ -40,9 +40,9 @@ chmod 700 "${CONFIG_DIR}"
 ENV_FILE="${CONFIG_DIR}/env"
 if [ ! -f "${ENV_FILE}" ]; then
     echo "==> Creating ${ENV_FILE} ..."
-    read -rsp "Passphrase (for CONTAC_PASSPHRASE in env file): " PASSPHRASE
+    read -rsp "Passphrase (for CONTACC_PASSPHRASE in env file): " PASSPHRASE
     echo
-    printf 'CONTAC_PASSPHRASE=%s\n' "${PASSPHRASE}" > "${ENV_FILE}"
+    printf 'CONTACC_PASSPHRASE=%s\n' "${PASSPHRASE}" > "${ENV_FILE}"
     chmod 600 "${ENV_FILE}"
     echo "==> Written to ${ENV_FILE} (chmod 600)."
 else
@@ -58,20 +58,20 @@ echo "==> Issuing an owner token (you will be prompted for your passphrase)..."
 echo
 read -rp "Install systemd service? [y/N] " INSTALL_SERVICE
 if [[ "${INSTALL_SERVICE}" =~ ^[Yy]$ ]]; then
-    SERVICE_SRC="${REPO_DIR}/deploy/contac.service"
+    SERVICE_SRC="${REPO_DIR}/deploy/contacc.service"
     # Patch WorkingDirectory and ExecStart to point at this repo
-    sed "s|/home/cass/src/stor|${REPO_DIR}|g; s|/home/cass/.config/contac|${CONFIG_DIR}|g; s|/home/cass/.local/share/contac|${STORE_DIR}|g; s|User=cass|User=$(id -un)|g" \
-        "${SERVICE_SRC}" > /tmp/contac.service
-    sudo cp /tmp/contac.service /etc/systemd/system/contac.service
+    sed "s|/home/cass/src/stor|${REPO_DIR}|g; s|/home/cass/.config/contacc|${CONFIG_DIR}|g; s|/home/cass/.local/share/contacc|${STORE_DIR}|g; s|User=cass|User=$(id -un)|g" \
+        "${SERVICE_SRC}" > /tmp/contacc.service
+    sudo cp /tmp/contacc.service /etc/systemd/system/contacc.service
     sudo systemctl daemon-reload
-    sudo systemctl enable contac
-    sudo systemctl start contac
+    sudo systemctl enable contacc
+    sudo systemctl start contacc
     echo "==> Service installed and started."
-    echo "    Logs: journalctl -u contac -f"
+    echo "    Logs: journalctl -u contacc -f"
 else
     echo
     echo "==> To start manually:"
-    echo "    CONTAC_PASSPHRASE=\$(grep CONTAC_PASSPHRASE ${ENV_FILE} | cut -d= -f2-) \\"
+    echo "    CONTACC_PASSPHRASE=\$(grep CONTACC_PASSPHRASE ${ENV_FILE} | cut -d= -f2-) \\"
     echo "    ${VENV}/bin/python -m server.main ${CONFIG_FILE} --host 127.0.0.1 --port 8000"
 fi
 

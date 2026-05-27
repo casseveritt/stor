@@ -62,7 +62,7 @@ def image_asset(store, client, token):
 @pytest.fixture(scope="module")
 def text_asset(store, client, token):
     """A plaintext file (non-image) to exercise the thumbnail 415 path."""
-    content = b"hello contac"
+    content = b"hello contacc"
     content_hash = "cafebabe" * 8
     file_key = client.app.state.file_key
     _store_file(store, file_key, content, content_hash)

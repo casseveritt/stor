@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Change the passphrase protecting a contac node.
+"""Change the passphrase protecting a contacc node.
 
 Re-encrypts three things with the new passphrase:
   - The private key in node_config.json
@@ -30,7 +30,7 @@ from server.db import WrongPassphraseError
 
 
 def _read_passphrase(prompt: str, confirm: bool = False) -> str:
-    env = os.environ.get("CONTAC_PASSPHRASE")
+    env = os.environ.get("CONTACC_PASSPHRASE")
     if env and not confirm:
         return env
     while True:
@@ -45,7 +45,7 @@ def _read_passphrase(prompt: str, confirm: bool = False) -> str:
 
 def main() -> None:
     import argparse
-    parser = argparse.ArgumentParser(description="Change passphrase on a contac node")
+    parser = argparse.ArgumentParser(description="Change passphrase on a contacc node")
     parser.add_argument("--config", required=True, help="Path to node_config.json")
     parser.add_argument("--old-passphrase-stdin", action="store_true",
                         help="Read old passphrase from stdin (first line)")
@@ -140,7 +140,7 @@ def main() -> None:
     config.encrypted_private_key = base64.b64encode(new_encrypted_privkey).decode()
     config.save(config_path)
 
-    print("Done. Update CONTAC_PASSPHRASE in ~/.config/contac/secrets and restart the service.")
+    print("Done. Update CONTACC_PASSPHRASE in ~/.config/contacc/secrets and restart the service.")
 
 
 if __name__ == "__main__":

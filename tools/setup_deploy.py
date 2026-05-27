@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Generate deployment artifacts for a contac node.
+"""Generate deployment artifacts for a contacc node.
 
 Reads node_config.json and produces:
   - Caddyfile       — reverse-proxy config for Caddy (HTTPS + TLS termination)
-  - contac.service  — systemd user service unit
+  - contacc.service  — systemd user service unit
 
 Usage:
     python tools/setup_deploy.py --config /path/to/node_config.json [--port 8765] [--out deploy/]
@@ -32,7 +32,7 @@ CADDYFILE_TEMPLATE = """\
 
 SERVICE_TEMPLATE = """\
 [Unit]
-Description=contac personal data node
+Description=contacc personal data node
 After=network-online.target
 Wants=network-online.target
 
@@ -52,7 +52,7 @@ WantedBy=default.target
 
 INSTRUCTIONS_TEMPLATE = """\
 ─────────────────────────────────────────────────────────────────────
-contac deployment setup for {node_address}
+contacc deployment setup for {node_address}
 ─────────────────────────────────────────────────────────────────────
 
 1. Install Caddy (if not already installed):
@@ -76,15 +76,15 @@ contac deployment setup for {node_address}
    mkdir -p {secrets_dir}
    touch {secrets_file}
    chmod 600 {secrets_file}
-   echo "CONTAC_PASSPHRASE=your-passphrase-here" >> {secrets_file}
+   echo "CONTACC_PASSPHRASE=your-passphrase-here" >> {secrets_file}
 
 4. Install the systemd service:
 
    mkdir -p ~/.config/systemd/user
-   cp {out_dir}/contac.service ~/.config/systemd/user/contac.service
+   cp {out_dir}/contacc.service ~/.config/systemd/user/contacc.service
    systemctl --user daemon-reload
-   systemctl --user enable contac
-   systemctl --user start contac
+   systemctl --user enable contacc
+   systemctl --user start contacc
 
 5. Allow the service to run after logout (linger):
 
@@ -92,8 +92,8 @@ contac deployment setup for {node_address}
 
 6. Check status:
 
-   systemctl --user status contac
-   journalctl --user -u contac -f
+   systemctl --user status contacc
+   journalctl --user -u contacc -f
 
 ─────────────────────────────────────────────────────────────────────
 Node will be available at: {node_address}
@@ -102,9 +102,9 @@ Node will be available at: {node_address}
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate contac deployment artifacts")
+    parser = argparse.ArgumentParser(description="Generate contacc deployment artifacts")
     parser.add_argument("--config", required=True, help="Path to node_config.json")
-    parser.add_argument("--port", type=int, default=9443, help="Local bind port for contac (default: 9443)")
+    parser.add_argument("--port", type=int, default=9443, help="Local bind port for contacc (default: 9443)")
     parser.add_argument("--https-port", type=int, default=443,
                         help="External HTTPS port Caddy listens on (default: 443; use 8443 if 443 is taken)")
     parser.add_argument("--out", default="deploy", help="Output directory (default: deploy/)")
@@ -142,7 +142,7 @@ def main() -> None:
     python = repo_dir / ".venv" / "bin" / "python"
     username = os.environ.get("USER", os.environ.get("LOGNAME", ""))
     home = Path.home()
-    secrets_dir = home / ".config" / "contac"
+    secrets_dir = home / ".config" / "contacc"
     secrets_file = secrets_dir / "secrets"
 
     # Caddy uses "domain:port" in the site address only when port != 443
@@ -157,7 +157,7 @@ def main() -> None:
         port=args.port,
         secrets_file=secrets_file,
     )
-    (out_dir / "contac.service").write_text(service)
+    (out_dir / "contacc.service").write_text(service)
 
     instructions = INSTRUCTIONS_TEMPLATE.format(
         node_address=config.node_address,

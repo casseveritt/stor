@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Review pending comment edit/deletion requests for a contac node."""
+"""Review pending comment edit/deletion requests for a contacc node."""
 import sys
 import base64
 import getpass

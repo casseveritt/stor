@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# First-time contac setup with Docker.
+# First-time contacc setup with Docker.
 # Run from the repo root: bash deploy/docker-setup.sh
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "${REPO_DIR}"
 
-echo "==> contac Docker setup"
+echo "==> contacc Docker setup"
 echo
 
 # ── prerequisites ──────────────────────────────────────────────────────────────
@@ -27,34 +27,34 @@ if [ -f .env ]; then
     set -a; source .env; set +a
 fi
 
-read -rp "Domain name [${CONTAC_DOMAIN:-your.domain.example}]: " _domain
-CONTAC_DOMAIN="${_domain:-${CONTAC_DOMAIN:-}}"
-if [ -z "${CONTAC_DOMAIN}" ]; then
+read -rp "Domain name [${CONTACC_DOMAIN:-your.domain.example}]: " _domain
+CONTACC_DOMAIN="${_domain:-${CONTACC_DOMAIN:-}}"
+if [ -z "${CONTACC_DOMAIN}" ]; then
     echo "Error: domain is required."; exit 1
 fi
 
-read -rp "Google OAuth2 client ID [${CONTAC_GOOGLE_CLIENT_ID:-}]: " _gcid
-CONTAC_GOOGLE_CLIENT_ID="${_gcid:-${CONTAC_GOOGLE_CLIENT_ID:-}}"
-if [ -z "${CONTAC_GOOGLE_CLIENT_ID}" ]; then
+read -rp "Google OAuth2 client ID [${CONTACC_GOOGLE_CLIENT_ID:-}]: " _gcid
+CONTACC_GOOGLE_CLIENT_ID="${_gcid:-${CONTACC_GOOGLE_CLIENT_ID:-}}"
+if [ -z "${CONTACC_GOOGLE_CLIENT_ID}" ]; then
     echo "Error: Google client ID is required."; exit 1
 fi
 
 read -rsp "Google OAuth2 client secret: " _gcs; echo
-CONTAC_GOOGLE_CLIENT_SECRET="${_gcs:-${CONTAC_GOOGLE_CLIENT_SECRET:-}}"
-if [ -z "${CONTAC_GOOGLE_CLIENT_SECRET}" ]; then
+CONTACC_GOOGLE_CLIENT_SECRET="${_gcs:-${CONTACC_GOOGLE_CLIENT_SECRET:-}}"
+if [ -z "${CONTACC_GOOGLE_CLIENT_SECRET}" ]; then
     echo "Error: Google client secret is required."; exit 1
 fi
 
-read -rp "Owner Google identity (e.g. google:you@gmail.com) [${CONTAC_OWNER_IDENTITY:-}]: " _oid
-CONTAC_OWNER_IDENTITY="${_oid:-${CONTAC_OWNER_IDENTITY:-}}"
-if [ -z "${CONTAC_OWNER_IDENTITY}" ]; then
+read -rp "Owner Google identity (e.g. google:you@gmail.com) [${CONTACC_OWNER_IDENTITY:-}]: " _oid
+CONTACC_OWNER_IDENTITY="${_oid:-${CONTACC_OWNER_IDENTITY:-}}"
+if [ -z "${CONTACC_OWNER_IDENTITY}" ]; then
     echo "Error: owner identity is required."; exit 1
 fi
 
-if [ -z "${CONTAC_PASSPHRASE:-}" ]; then
-    read -rsp "Node passphrase (encrypts database and private key): " CONTAC_PASSPHRASE; echo
+if [ -z "${CONTACC_PASSPHRASE:-}" ]; then
+    read -rsp "Node passphrase (encrypts database and private key): " CONTACC_PASSPHRASE; echo
     read -rsp "Confirm passphrase: " _confirm; echo
-    if [ "${CONTAC_PASSPHRASE}" != "${_confirm}" ]; then
+    if [ "${CONTACC_PASSPHRASE}" != "${_confirm}" ]; then
         echo "Error: passphrases do not match."; exit 1
     fi
 fi
@@ -62,11 +62,11 @@ fi
 # ── write .env ─────────────────────────────────────────────────────────────────
 
 cat > .env <<EOF
-CONTAC_DOMAIN=${CONTAC_DOMAIN}
-CONTAC_PASSPHRASE=${CONTAC_PASSPHRASE}
-CONTAC_GOOGLE_CLIENT_ID=${CONTAC_GOOGLE_CLIENT_ID}
-CONTAC_GOOGLE_CLIENT_SECRET=${CONTAC_GOOGLE_CLIENT_SECRET}
-CONTAC_OWNER_IDENTITY=${CONTAC_OWNER_IDENTITY}
+CONTACC_DOMAIN=${CONTACC_DOMAIN}
+CONTACC_PASSPHRASE=${CONTACC_PASSPHRASE}
+CONTACC_GOOGLE_CLIENT_ID=${CONTACC_GOOGLE_CLIENT_ID}
+CONTACC_GOOGLE_CLIENT_SECRET=${CONTACC_GOOGLE_CLIENT_SECRET}
+CONTACC_OWNER_IDENTITY=${CONTACC_OWNER_IDENTITY}
 EOF
 chmod 600 .env
 echo "==> .env written."
@@ -78,7 +78,7 @@ echo "==> Data directories ready."
 
 # ── build image ────────────────────────────────────────────────────────────────
 
-echo "==> Building contac image (first build compiles sqlcipher — may take a few minutes)..."
+echo "==> Building contacc image (first build compiles sqlcipher — may take a few minutes)..."
 docker compose build server
 
 # ── initialize server node ─────────────────────────────────────────────────────
@@ -86,13 +86,13 @@ docker compose build server
 if [ ! -f data/server/node_config.json ]; then
     echo "==> Initializing server node..."
     docker compose run --rm \
-        -e CONTAC_PASSPHRASE="${CONTAC_PASSPHRASE}" \
-        -e CONTAC_GOOGLE_CLIENT_ID="${CONTAC_GOOGLE_CLIENT_ID}" \
-        -e CONTAC_GOOGLE_CLIENT_SECRET="${CONTAC_GOOGLE_CLIENT_SECRET}" \
+        -e CONTACC_PASSPHRASE="${CONTACC_PASSPHRASE}" \
+        -e CONTACC_GOOGLE_CLIENT_ID="${CONTACC_GOOGLE_CLIENT_ID}" \
+        -e CONTACC_GOOGLE_CLIENT_SECRET="${CONTACC_GOOGLE_CLIENT_SECRET}" \
         server \
         python tools/init_node.py \
             --store /data \
-            --address "https://${CONTAC_DOMAIN}:8443"
+            --address "https://${CONTACC_DOMAIN}:8443"
 else
     echo "==> Server node already initialized — skipping."
 fi
@@ -101,12 +101,12 @@ fi
 
 echo "==> Configuring SSO and owner identity..."
 docker compose run --rm \
-    -e CONTAC_GOOGLE_CLIENT_ID="${CONTAC_GOOGLE_CLIENT_ID}" \
-    -e CONTAC_GOOGLE_CLIENT_SECRET="${CONTAC_GOOGLE_CLIENT_SECRET}" \
+    -e CONTACC_GOOGLE_CLIENT_ID="${CONTACC_GOOGLE_CLIENT_ID}" \
+    -e CONTACC_GOOGLE_CLIENT_SECRET="${CONTACC_GOOGLE_CLIENT_SECRET}" \
     server \
     python tools/configure_sso.py \
         --config /data/node_config.json \
-        --owner-identity "${CONTAC_OWNER_IDENTITY}"
+        --owner-identity "${CONTACC_OWNER_IDENTITY}"
 
 # ── initialize client ──────────────────────────────────────────────────────────
 
@@ -150,8 +150,8 @@ docker compose up -d
 echo
 echo "==> Done!"
 echo
-echo "    Server: https://${CONTAC_DOMAIN}:8443"
-echo "    Client: https://${CONTAC_DOMAIN}:8444"
+echo "    Server: https://${CONTACC_DOMAIN}:8443"
+echo "    Client: https://${CONTACC_DOMAIN}:8444"
 echo
 echo "    First login: open the client URL and sign in with Google."
 echo "    Logs: docker compose logs -f"

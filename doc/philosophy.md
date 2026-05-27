@@ -1,4 +1,4 @@
-# contac Design Philosophy
+# contacc Design Philosophy
 
 *This document is aspirational and non-normative. It captures the intent and thinking behind the system's design for the benefit of implementers and future contributors. Nothing here overrides or extends the protocol specification.*
 
@@ -6,7 +6,7 @@
 
 ## The Protocol as Substrate
 
-The `contac` protocol defines the mechanics of how content is stored, addressed, protected, and exchanged. It deliberately says very little about *why* content is shared with a particular recipient at a particular time, or *how* a client decides what to do with the content it receives. Those decisions are left to the edges — to the node owner and the client user respectively.
+The `contacc` protocol defines the mechanics of how content is stored, addressed, protected, and exchanged. It deliberately says very little about *why* content is shared with a particular recipient at a particular time, or *how* a client decides what to do with the content it receives. Those decisions are left to the edges — to the node owner and the client user respectively.
 
 This is intentional. The protocol is a substrate, not a policy engine.
 

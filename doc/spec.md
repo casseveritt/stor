@@ -1,4 +1,4 @@
-# contac Federation Protocol — Abstract Specification
+# contacc Federation Protocol — Abstract Specification
 
 ## Status: Draft
 

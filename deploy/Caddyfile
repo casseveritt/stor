@@ -1,11 +1,11 @@
-{$CONTAC_DOMAIN}:8443 {
+{$CONTACC_DOMAIN}:8443 {
     reverse_proxy server:9443
 }
 
-{$CONTAC_DOMAIN}:8444 {
+{$CONTACC_DOMAIN}:8444 {
     reverse_proxy client:9444
 }
 
-{$CONTAC_DOMAIN}:8421 {
+{$CONTACC_DOMAIN}:8421 {
     reverse_proxy registry:9532
 }

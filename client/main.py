@@ -1,4 +1,4 @@
-"""contac client process — API-first personal aggregator.
+"""contacc client process — API-first personal aggregator.
 
 Exposes /api/... routes that any frontend (web UI, mobile app) can consume.
 The client manages authentication to server nodes internally; frontends
@@ -39,7 +39,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     config = ClientConfig.load(config_path)
     tokens: dict[str, str] = load_tokens(config_path)
 
-    app = FastAPI(title="contac client")
+    app = FastAPI(title="contacc client")
     app.state.config = config
     app.state.config_path = config_path
 
@@ -74,10 +74,10 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     @app.get("/client/login-url")
     async def client_login_url(request: Request):
-        # CONTAC_CLIENT_URL overrides request.base_url so the return_to link
+        # CONTACC_CLIENT_URL overrides request.base_url so the return_to link
         # uses the correct public https:// address even behind a reverse proxy.
         import os
-        public_base = (os.environ.get("CONTAC_CLIENT_URL")
+        public_base = (os.environ.get("CONTACC_CLIENT_URL")
                        or str(request.base_url)).rstrip("/")
         return_to = public_base + "/auth/callback"
         server_login = (config.own_server + "/auth/login?provider=google&return_to="
@@ -323,7 +323,7 @@ def create_app(config_path: str | Path) -> FastAPI:
 
 def main() -> None:
     import argparse
-    parser = argparse.ArgumentParser(description="Run the contac client")
+    parser = argparse.ArgumentParser(description="Run the contacc client")
     parser.add_argument("config", help="Path to client_config.json")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9444)

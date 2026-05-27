@@ -31,23 +31,23 @@ class TestHealthEndpoint:
         assert "public_key" in data
 
 
-# ── CONTAC_PASSPHRASE env var ─────────────────────────────────────────────────
+# ── CONTACC_PASSPHRASE env var ─────────────────────────────────────────────────
 
 class TestEnvPassphrase:
     def test_env_passphrase_used_when_set(self, monkeypatch):
         from server.main import _get_passphrase
-        monkeypatch.setenv("CONTAC_PASSPHRASE", "secret-from-env")
+        monkeypatch.setenv("CONTACC_PASSPHRASE", "secret-from-env")
         assert _get_passphrase(key_stdin=False) == "secret-from-env"
 
     def test_env_passphrase_overrides_stdin_flag(self, monkeypatch):
         from server.main import _get_passphrase
-        monkeypatch.setenv("CONTAC_PASSPHRASE", "env-wins")
+        monkeypatch.setenv("CONTACC_PASSPHRASE", "env-wins")
         # key_stdin=True should still return env var value
         assert _get_passphrase(key_stdin=True) == "env-wins"
 
     def test_no_env_var_falls_through(self, monkeypatch):
         from server.main import _get_passphrase
-        monkeypatch.delenv("CONTAC_PASSPHRASE", raising=False)
+        monkeypatch.delenv("CONTACC_PASSPHRASE", raising=False)
         # Can't test interactive prompt; just verify it doesn't crash when
         # env is absent and we mock stdin
         import io
@@ -59,15 +59,15 @@ class TestEnvPassphrase:
 
 class TestDeployFiles:
     def test_service_file_exists(self):
-        assert (REPO_ROOT / "deploy" / "contac.service").exists()
+        assert (REPO_ROOT / "deploy" / "contacc.service").exists()
 
     def test_service_file_has_required_sections(self):
-        content = (REPO_ROOT / "deploy" / "contac.service").read_text()
+        content = (REPO_ROOT / "deploy" / "contacc.service").read_text()
         for section in ("[Unit]", "[Service]", "[Install]"):
             assert section in content
 
     def test_service_file_references_env_file(self):
-        content = (REPO_ROOT / "deploy" / "contac.service").read_text()
+        content = (REPO_ROOT / "deploy" / "contacc.service").read_text()
         assert "EnvironmentFile" in content
 
     def test_env_example_exists(self):
@@ -75,7 +75,7 @@ class TestDeployFiles:
 
     def test_env_example_has_passphrase_key(self):
         content = (REPO_ROOT / "deploy" / "env.example").read_text()
-        assert "CONTAC_PASSPHRASE" in content
+        assert "CONTACC_PASSPHRASE" in content
 
     def test_nginx_conf_exists(self):
         assert (REPO_ROOT / "deploy" / "nginx.conf.example").exists()

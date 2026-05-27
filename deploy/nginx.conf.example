@@ -1,8 +1,8 @@
-# nginx reverse proxy for contac
-# Place in /etc/nginx/sites-available/contac and symlink to sites-enabled/
+# nginx reverse proxy for contacc
+# Place in /etc/nginx/sites-available/contacc and symlink to sites-enabled/
 #
 # Assumes:
-#   - contac running on 127.0.0.1:8000
+#   - contacc running on 127.0.0.1:8000
 #   - TLS certificates at the paths below (e.g. from certbot)
 #   - Replace your.domain.example with your actual domain
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Initialize a contac client configuration.
+"""Initialize a contacc client configuration.
 
 Usage:
-    python tools/init_client.py --config ~/contac-client/client_config.json \\
+    python tools/init_client.py --config ~/contacc-client/client_config.json \\
         --own-server https://starkville.hopto.org:8443
 """
 import sys
@@ -15,9 +15,9 @@ from client.config import ClientConfig
 
 def main() -> None:
     import argparse
-    parser = argparse.ArgumentParser(description="Initialize a contac client")
+    parser = argparse.ArgumentParser(description="Initialize a contacc client")
     parser.add_argument("--config", required=True, help="Path to client_config.json")
-    parser.add_argument("--own-server", required=True, help="URL of your contac server node")
+    parser.add_argument("--own-server", required=True, help="URL of your contacc server node")
     args = parser.parse_args()
 
     config_path = Path(args.config)

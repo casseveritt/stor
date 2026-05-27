@@ -28,7 +28,7 @@ from . import posts as posts_module
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
-log = logging.getLogger("contac")
+log = logging.getLogger("contacc")
 
 
 def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
@@ -56,16 +56,16 @@ def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
     init_schema(db_con)
     log.info("Database opened.")
 
-    app = FastAPI(title="contac node")
+    app = FastAPI(title="contacc node")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
         allow_methods=["*"],
         allow_headers=["*"],
     )
-    # CONTAC_NODE_ADDRESS env var overrides config — lets Docker deployments change
+    # CONTACC_NODE_ADDRESS env var overrides config — lets Docker deployments change
     # the public address by updating .env without touching the data volume.
-    node_address = os.environ.get("CONTAC_NODE_ADDRESS") or config.node_address
+    node_address = os.environ.get("CONTACC_NODE_ADDRESS") or config.node_address
 
     app.state.db = db_con
     app.state.file_key = file_key
@@ -105,7 +105,7 @@ def create_app(config_path: str | Path, passphrase: str) -> FastAPI:
 
 
 def _get_passphrase(key_stdin: bool) -> str:
-    env = os.environ.get("CONTAC_PASSPHRASE")
+    env = os.environ.get("CONTACC_PASSPHRASE")
     if env:
         return env
     if key_stdin:
@@ -115,7 +115,7 @@ def _get_passphrase(key_stdin: bool) -> str:
 
 def main() -> None:
     import argparse
-    parser = argparse.ArgumentParser(description="Run a contac node")
+    parser = argparse.ArgumentParser(description="Run a contacc node")
     parser.add_argument("config", help="Path to node_config.json")
     parser.add_argument("--key-stdin", action="store_true", help="Read passphrase from stdin")
     parser.add_argument("--host", default="0.0.0.0")

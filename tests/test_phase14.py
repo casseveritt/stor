@@ -92,7 +92,7 @@ class TestRootEndpoint:
 
     def test_html_contains_app_name(self, client):
         r = client.get("/")
-        assert b"contac" in r.content
+        assert b"contacc" in r.content
 
     def test_html_has_login_elements(self, client):
         r = client.get("/")

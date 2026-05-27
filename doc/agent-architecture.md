@@ -1,12 +1,12 @@
-# contac Agent Architecture
+# contacc Agent Architecture
 
-*This document captures the dual-agent model for contac: one agent per user on the server side, one on the client side. It is non-normative design intent, not a protocol specification. It should inform protocol extensions and implementation decisions.*
+*This document captures the dual-agent model for contacc: one agent per user on the server side, one on the client side. It is non-normative design intent, not a protocol specification. It should inform protocol extensions and implementation decisions.*
 
 ---
 
 ## Overview
 
-Each user's contac deployment consists of two agents operating at a process boundary:
+Each user's contacc deployment consists of two agents operating at a process boundary:
 
 - A **server agent** that manages what the user shares with others
 - A **client agent** that manages what the user sees from others

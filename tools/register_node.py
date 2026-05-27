@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Register or update a contac node's handle in the registry.
+"""Register or update a contacc node's handle in the registry.
 
 Usage (first time):
     python tools/register_node.py /path/to/node_config.json --handle yourname \\
@@ -32,7 +32,7 @@ from registry.client import REGISTRY_URL
 
 
 def _get_passphrase() -> str:
-    env = os.environ.get("CONTAC_PASSPHRASE")
+    env = os.environ.get("CONTACC_PASSPHRASE")
     if env:
         return env
     return getpass.getpass("Passphrase: ")
@@ -48,10 +48,10 @@ def _load_private_key(config: dict, passphrase: str) -> Ed25519PrivateKey:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Register/update a contac node handle")
+    parser = argparse.ArgumentParser(description="Register/update a contacc node handle")
     parser.add_argument("config", help="Path to node_config.json")
     parser.add_argument("--handle", required=True, help="Username to register (letters, digits, _ or -)")
-    parser.add_argument("--client-url", default="", help="URL of your contac client aggregator")
+    parser.add_argument("--client-url", default="", help="URL of your contacc client aggregator")
     parser.add_argument("--ttl", type=int, default=14400, help="Cache TTL in seconds (default: 14400 = 4h)")
     parser.add_argument("--registry", default=REGISTRY_URL, help=f"Registry URL (default: {REGISTRY_URL})")
     parser.add_argument("--update", action="store_true", help="Update an existing registration")
@@ -70,7 +70,7 @@ def main() -> None:
     timestamp = int(time.time())
     action = "update" if args.update else "register"
 
-    msg = f"contac:{action}:{args.handle}:{server_url}:{client_url}:{timestamp}"
+    msg = f"contacc:{action}:{args.handle}:{server_url}:{client_url}:{timestamp}"
     signature = base64.b64encode(private_key.sign(msg.encode())).decode()
 
     payload = {

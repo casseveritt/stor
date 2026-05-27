@@ -1,10 +1,10 @@
-# contac
+# contacc
 
 Personal content-addressed data store and aggregator. Own your data; share intentionally.
 
 ## Port convention
 
-Each contac instance uses 4 ports based on a **base port** (default 8443):
+Each contacc instance uses 4 ports based on a **base port** (default 8443):
 
 | Port        | Role                         |
 |-------------|------------------------------|
@@ -26,12 +26,12 @@ The global registry runs separately at port **8421** (internal 9532).
 - A domain name with DNS pointed at your server's IP
 - The following ports open in your firewall / forwarded by your router:
   - **80** and **443** — Caddy ACME TLS certificate issuance
-  - **8443** — contac server
-  - **8444** — contac client UI
+  - **8443** — contacc server
+  - **8444** — contacc client UI
 
 ### 2. Set up Google OAuth2
 
-contac uses Google SSO for owner authentication. You need OAuth2 credentials from the [Google Cloud Console](https://console.cloud.google.com/).
+contacc uses Google SSO for owner authentication. You need OAuth2 credentials from the [Google Cloud Console](https://console.cloud.google.com/).
 
 1. Create a project (or use an existing one)
 2. Go to **APIs & Services → Credentials → Create Credentials → OAuth 2.0 Client ID**
@@ -47,8 +47,8 @@ contac uses Google SSO for owner authentication. You need OAuth2 credentials fro
 ### 3. Run the setup script
 
 ```bash
-git clone https://github.com/casseveritt/stor contac
-cd contac
+git clone https://github.com/casseveritt/stor contacc
+cd contacc
 bash deploy/docker-setup.sh
 ```
 
@@ -79,16 +79,16 @@ docker compose up -d                # start everything
 All persistent data lives in `./data/` and credentials in `.env`. Back them up together:
 
 ```bash
-tar -czf contac-backup-$(date +%Y%m%d).tar.gz data/ .env
+tar -czf contacc-backup-$(date +%Y%m%d).tar.gz data/ .env
 ```
 
 **To restore on a new host:**
 
 ```bash
-git clone https://github.com/casseveritt/stor contac
-cd contac
+git clone https://github.com/casseveritt/stor contacc
+cd contacc
 # restore your backup
-tar -xzf contac-backup-YYYYMMDD.tar.gz
+tar -xzf contacc-backup-YYYYMMDD.tar.gz
 # start — init is skipped automatically because data/ already exists
 docker compose up -d
 ```
@@ -99,13 +99,13 @@ docker compose up -d
 
 ## Registry
 
-contac nodes register a human-readable handle in a shared registry at
+contacc nodes register a human-readable handle in a shared registry at
 `https://starkville.hopto.org:8421`. This lets contacts find your current server URL by handle
 even if you move hosts.
 
 ```bash
 # Register your handle (run once after setup)
-CONTAC_PASSPHRASE=... python tools/register_node.py \
+CONTACC_PASSPHRASE=... python tools/register_node.py \
     data/server/node_config.json \
     --handle yourname \
     --client-url https://your.domain.example:8444
@@ -114,7 +114,7 @@ CONTAC_PASSPHRASE=... python tools/register_node.py \
 curl https://starkville.hopto.org:8421/lookup/yourname
 
 # Update after moving servers (re-run with --update)
-CONTAC_PASSPHRASE=... python tools/register_node.py \
+CONTACC_PASSPHRASE=... python tools/register_node.py \
     data/server/node_config.json \
     --handle yourname \
     --client-url https://your.domain.example:8444 \
@@ -140,20 +140,20 @@ python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # Initialize server node
-python tools/init_node.py --store ~/contac-node --address https://your.domain:8443 \
+python tools/init_node.py --store ~/contacc-node --address https://your.domain:8443 \
     --google-client-id <id> --google-client-secret <secret>
 
 # Configure owner identity
-python tools/configure_sso.py --config ~/contac-node/node_config.json \
+python tools/configure_sso.py --config ~/contacc-node/node_config.json \
     --owner-identity google:you@gmail.com
 
 # Initialize client
-python tools/init_client.py --config ~/contac-client/client_config.json \
+python tools/init_client.py --config ~/contacc-client/client_config.json \
     --own-server https://your.domain:8443
 
-# Run server (reads CONTAC_PASSPHRASE from environment)
-CONTAC_PASSPHRASE=... python -m server.main ~/contac-node/node_config.json --port 9443
+# Run server (reads CONTACC_PASSPHRASE from environment)
+CONTACC_PASSPHRASE=... python -m server.main ~/contacc-node/node_config.json --port 9443
 
 # Run client
-python -m client.main ~/contac-client/client_config.json --port 9444
+python -m client.main ~/contacc-client/client_config.json --port 9444
 ```

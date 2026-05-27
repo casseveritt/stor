@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Configure SSO credentials on an existing contac node.
+"""Configure SSO credentials on an existing contacc node.
 
 Usage:
     python tools/configure_sso.py --config /path/to/node_config.json \\
         --google-client-id <id> --google-client-secret <secret>
 
 Or via environment variables:
-    CONTAC_GOOGLE_CLIENT_ID=<id> CONTAC_GOOGLE_CLIENT_SECRET=<secret> \\
+    CONTACC_GOOGLE_CLIENT_ID=<id> CONTACC_GOOGLE_CLIENT_SECRET=<secret> \\
         python tools/configure_sso.py --config /path/to/node_config.json
 
 To clear SSO credentials (disable SSO), run with --clear.
@@ -23,17 +23,17 @@ from server.config import NodeConfig
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Configure SSO on an existing contac node")
+    parser = argparse.ArgumentParser(description="Configure SSO on an existing contacc node")
     parser.add_argument("--config", required=True, help="Path to node_config.json")
     parser.add_argument(
         "--google-client-id",
-        default=os.environ.get("CONTAC_GOOGLE_CLIENT_ID", ""),
-        help="Google OAuth2 client ID (env: CONTAC_GOOGLE_CLIENT_ID)",
+        default=os.environ.get("CONTACC_GOOGLE_CLIENT_ID", ""),
+        help="Google OAuth2 client ID (env: CONTACC_GOOGLE_CLIENT_ID)",
     )
     parser.add_argument(
         "--google-client-secret",
-        default=os.environ.get("CONTAC_GOOGLE_CLIENT_SECRET", ""),
-        help="Google OAuth2 client secret (env: CONTAC_GOOGLE_CLIENT_SECRET)",
+        default=os.environ.get("CONTACC_GOOGLE_CLIENT_SECRET", ""),
+        help="Google OAuth2 client secret (env: CONTACC_GOOGLE_CLIENT_SECRET)",
     )
     parser.add_argument(
         "--owner-identity",
@@ -61,7 +61,7 @@ def main() -> None:
     if not args.google_client_id or not args.google_client_secret:
         print(
             "Error: --google-client-id and --google-client-secret are required "
-            "(or set CONTAC_GOOGLE_CLIENT_ID / CONTAC_GOOGLE_CLIENT_SECRET)",
+            "(or set CONTACC_GOOGLE_CLIENT_ID / CONTACC_GOOGLE_CLIENT_SECRET)",
             file=sys.stderr,
         )
         sys.exit(1)

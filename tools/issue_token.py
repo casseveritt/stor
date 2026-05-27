@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Issue auth tokens for a contac node.
+"""Issue auth tokens for a contacc node.
 
 Without --recipient: issues an Ed25519-signed owner token (no DB write).
 With --recipient <identity>: issues a DB-backed recipient token (requires
@@ -38,7 +38,7 @@ def _load_private_key(config: NodeConfig, passphrase: str) -> Ed25519PrivateKey:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Issue a contac auth token")
+    parser = argparse.ArgumentParser(description="Issue a contacc auth token")
     parser.add_argument("config", help="Path to node_config.json")
     parser.add_argument("--ttl", type=int, default=86400 * 30, help="Lifetime in seconds (default: 30 days)")
     parser.add_argument("--recipient", help="Recipient identity (provider:identifier) for a DB-backed token")

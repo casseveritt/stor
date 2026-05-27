@@ -47,7 +47,7 @@ class TestSetupDeploy:
 
     def test_generates_service_file(self, node_config, tmp_path):
         r, out_dir = _run(node_config, out_dir=tmp_path / "deploy")
-        assert (out_dir / "contac.service").exists()
+        assert (out_dir / "contacc.service").exists()
 
     def test_caddyfile_contains_domain(self, node_config, tmp_path):
         r, out_dir = _run(node_config, out_dir=tmp_path / "deploy")
@@ -61,22 +61,22 @@ class TestSetupDeploy:
 
     def test_service_contains_config_path(self, node_config, tmp_path):
         r, out_dir = _run(node_config, out_dir=tmp_path / "deploy")
-        content = (out_dir / "contac.service").read_text()
+        content = (out_dir / "contacc.service").read_text()
         assert str(node_config) in content
 
     def test_service_contains_port(self, node_config, tmp_path):
         r, out_dir = _run(node_config, out_dir=tmp_path / "deploy")
-        content = (out_dir / "contac.service").read_text()
+        content = (out_dir / "contacc.service").read_text()
         assert "--port 8765" in content
 
     def test_service_binds_localhost(self, node_config, tmp_path):
         r, out_dir = _run(node_config, out_dir=tmp_path / "deploy")
-        content = (out_dir / "contac.service").read_text()
+        content = (out_dir / "contacc.service").read_text()
         assert "127.0.0.1" in content
 
     def test_service_references_secrets_file(self, node_config, tmp_path):
         r, out_dir = _run(node_config, out_dir=tmp_path / "deploy")
-        content = (out_dir / "contac.service").read_text()
+        content = (out_dir / "contacc.service").read_text()
         assert "EnvironmentFile=" in content
         assert "secrets" in content
 

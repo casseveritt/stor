@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Import files from a directory into a contac node store."""
+"""Import files from a directory into a contacc node store."""
 import argparse
 import base64
 import getpass
@@ -127,7 +127,7 @@ def _open_store(config: NodeConfig, passphrase: str):
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Import files into a contac node")
+    parser = argparse.ArgumentParser(description="Import files into a contacc node")
     parser.add_argument("config", help="Path to node_config.json")
     parser.add_argument("source", help="Directory to import from")
     parser.add_argument("--tags", nargs="*", default=[], metavar="TAG",

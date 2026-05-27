@@ -1,4 +1,4 @@
-"""Phase 18: MCP server — contac as Claude tools."""
+"""Phase 18: MCP server — contacc as Claude tools."""
 import base64
 import json
 import sys
@@ -230,11 +230,11 @@ class TestConfiguration:
         # restore live client for subsequent tests (live_mcp fixture doesn't re-run)
 
     def test_env_vars_recognized(self, monkeypatch):
-        monkeypatch.setenv("CONTAC_NODE_URL", "http://my-node")
-        monkeypatch.setenv("CONTAC_TOKEN", "my-tok")
+        monkeypatch.setenv("CONTACC_NODE_URL", "http://my-node")
+        monkeypatch.setenv("CONTACC_TOKEN", "my-tok")
         import importlib, argparse
         # Verify env vars set (actual startup tested via live_mcp above)
-        assert os.environ.get("CONTAC_NODE_URL") == "http://my-node"
+        assert os.environ.get("CONTACC_NODE_URL") == "http://my-node"
 
 
 import os
