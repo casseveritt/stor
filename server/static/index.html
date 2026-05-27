@@ -146,6 +146,9 @@
     .setup-card { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
     .setup-inner { max-width: 420px; width: 100%; }
     .setup-inner h1 { font-size: 1.8rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; margin-bottom: 2rem; text-align: center; }
+    .setup-logo { display: flex; align-items: center; justify-content: center; gap: 0.6rem; margin-bottom: 2rem; }
+    .setup-logo img { height: 44px; }
+    .setup-logo span { font-size: 1.8rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; }
     .setup-tabs { display: flex; margin-bottom: 1.5rem; border-radius: 6px; overflow: hidden; border: 1px solid #333; }
     .setup-tab { flex: 1; border-radius: 0; border: none; padding: 0.5rem; cursor: pointer; font-size: 0.88rem; transition: background 0.1s; }
     .setup-tab.active { background: #4285f4; color: #fff; }
@@ -170,7 +173,7 @@
 <div id="setup-view" hidden>
   <div class="setup-card">
     <div class="setup-inner">
-      <h1>contacc</h1>
+      <div class="setup-logo"><img src="/static/favicon.svg"><span>contacc</span></div>
 
       <!-- Step 1: token entry -->
       <div id="setup-token-step" class="setup-form">
@@ -214,7 +217,7 @@
 <div id="unlock-view" hidden>
   <div class="setup-card">
     <div class="setup-inner">
-      <h1>contacc</h1>
+      <div class="setup-logo"><img src="/static/favicon.svg"><span>contacc</span></div>
       <div class="setup-form">
         <p style="color:#888;font-size:0.9rem;text-align:center">Enter your passphrase to unlock</p>
         <input type="password" id="unlock-passphrase" placeholder="Passphrase" onkeydown="if(event.key==='Enter')doUnlock()">
@@ -241,7 +244,8 @@
 <div id="feed-view" hidden>
   <header>
     <div class="header-left">
-      <span class="logo">contac</span>
+      <img src="/static/favicon.svg" height="22" style="display:block">
+      <span class="logo">contacc</span>
       <span id="identity-badge"></span>
     </div>
     <div id="search-wrap">

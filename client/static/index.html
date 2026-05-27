@@ -138,6 +138,9 @@
     .setup-card { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 2rem; }
     .setup-inner { max-width: 420px; width: 100%; }
     .setup-inner h1 { font-size: 1.8rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; margin-bottom: 2rem; text-align: center; }
+    .setup-logo { display: flex; align-items: center; justify-content: center; gap: 0.6rem; margin-bottom: 2rem; }
+    .setup-logo img { height: 44px; }
+    .setup-logo span { font-size: 1.8rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; }
     .setup-tabs { display: flex; margin-bottom: 1.5rem; border-radius: 6px; overflow: hidden; border: 1px solid #333; }
     .setup-tab { flex: 1; border-radius: 0; border: none; padding: 0.5rem; cursor: pointer; font-size: 0.88rem; transition: background 0.1s; }
     .setup-tab.active { background: #4285f4; color: #fff; }
@@ -159,7 +162,7 @@
 <div id="setup-view" hidden>
   <div class="setup-card">
     <div class="setup-inner">
-      <h1>contacc</h1>
+      <div class="setup-logo"><img src="/static/favicon.svg"><span>contacc</span></div>
       <div id="setup-token-step" class="setup-form">
         <p style="color:#888;font-size:0.9rem;text-align:center">Enter your setup token to continue.</p>
         <input type="text" id="setup-token-input" placeholder="Setup token" autocomplete="off" onkeydown="if(event.key==='Enter')acceptSetupToken()">
@@ -196,7 +199,7 @@
 <div id="unlock-view" hidden>
   <div class="setup-card">
     <div class="setup-inner">
-      <h1>contacc</h1>
+      <div class="setup-logo"><img src="/static/favicon.svg"><span>contacc</span></div>
       <div class="setup-form">
         <p style="color:#888;font-size:0.9rem;text-align:center">Enter your passphrase to unlock the server.</p>
         <input type="password" id="unlock-passphrase" placeholder="Passphrase" onkeydown="if(event.key==='Enter')doUnlock()">
@@ -209,7 +212,7 @@
 
 <!-- ── server login ────────────────────────────────────────────────────────── -->
 <div id="login-view" hidden>
-  <h1>contacc</h1>
+  <div class="setup-logo"><img src="/static/favicon.svg"><span>contacc</span></div>
   <div id="login-server"></div>
   <button class="btn btn-primary" onclick="loginGoogle()">Sign in with Google</button>
   <span class="divider">— or paste a token —</span>
@@ -224,6 +227,7 @@
 <div id="feed-view" hidden>
   <header>
     <div class="header-left">
+      <img src="/static/favicon.svg" height="22" style="display:block">
       <span class="logo">contacc</span>
       <span id="handle-display"></span>
       <span id="identity-badge"></span>
@@ -300,22 +304,22 @@
   </div>
 </div>
 
-<!-- ── add contacct modal ──────────────────────────────────────────────────── -->
-<div id="add-contacct-overlay" class="overlay" hidden onclick="maybeClose('add-contacct-overlay',event)">
+<!-- ── add contact modal ──────────────────────────────────────────────────── -->
+<div id="add-contact-overlay" class="overlay" hidden onclick="maybeClose('add-contact-overlay',event)">
   <div class="modal" style="max-width:400px">
     <button class="modal-close" onclick="closeAddContact()">&#x2715;</button>
-    <h3>Add contacct</h3>
+    <h3>Add contact</h3>
     <div style="display:flex;flex-direction:column;gap:0.75rem">
       <div style="display:flex;gap:0.5rem">
-        <input type="text" id="add-contacct-handle" placeholder="username" style="flex:1" onkeydown="if(event.key==='Enter')lookupHandle()">
+        <input type="text" id="add-contact-handle" placeholder="username" style="flex:1" onkeydown="if(event.key==='Enter')lookupHandle()">
         <button class="btn btn-muted btn-sm" onclick="lookupHandle()">Look up</button>
       </div>
-      <div id="add-contacct-result" style="font-size:0.85rem;color:#aaa;min-height:1.4em"></div>
-      <div id="add-contacct-confirm" hidden style="display:flex;flex-direction:column;gap:0.5rem">
-        <input type="text" id="add-contacct-name" placeholder="Display name">
-        <button class="btn btn-primary" onclick="confirmAddContact()">Add contacct</button>
+      <div id="add-contact-result" style="font-size:0.85rem;color:#aaa;min-height:1.4em"></div>
+      <div id="add-contact-confirm" hidden style="display:flex;flex-direction:column;gap:0.5rem">
+        <input type="text" id="add-contact-name" placeholder="Display name">
+        <button class="btn btn-primary" onclick="confirmAddContact()">Add contact</button>
       </div>
-      <div id="add-contacct-error" style="color:#e06c6c;font-size:0.85rem;min-height:1.2em"></div>
+      <div id="add-contact-error" style="color:#e06c6c;font-size:0.85rem;min-height:1.2em"></div>
     </div>
   </div>
 </div>
@@ -515,51 +519,51 @@ function setActiveServer(i) {
   resetFeed();
 }
 
-// ── add contacct ────────────────────────────────────────────────────────────
+// ── add contact ────────────────────────────────────────────────────────────
 let _pendingContact = null;
 
 function openAddContact() {
-  document.getElementById("add-contacct-handle").value = "";
-  document.getElementById("add-contacct-result").textContent = "";
-  document.getElementById("add-contacct-error").textContent = "";
-  document.getElementById("add-contacct-confirm").hidden = true;
-  document.getElementById("add-contacct-overlay").hidden = false;
-  document.getElementById("add-contacct-handle").focus();
+  document.getElementById("add-contact-handle").value = "";
+  document.getElementById("add-contact-result").textContent = "";
+  document.getElementById("add-contact-error").textContent = "";
+  document.getElementById("add-contact-confirm").hidden = true;
+  document.getElementById("add-contact-overlay").hidden = false;
+  document.getElementById("add-contact-handle").focus();
   _pendingContact = null;
 }
-function closeAddContact() { document.getElementById("add-contacct-overlay").hidden = true; }
+function closeAddContact() { document.getElementById("add-contact-overlay").hidden = true; }
 
 async function lookupHandle() {
-  const handle = document.getElementById("add-contacct-handle").value.trim();
-  const result = document.getElementById("add-contacct-result");
-  const confirm = document.getElementById("add-contacct-confirm");
-  document.getElementById("add-contacct-error").textContent = "";
+  const handle = document.getElementById("add-contact-handle").value.trim();
+  const result = document.getElementById("add-contact-result");
+  const confirm = document.getElementById("add-contact-confirm");
+  document.getElementById("add-contact-error").textContent = "";
   confirm.hidden = true;
   _pendingContact = null;
   if (!handle) return;
   result.textContent = "Looking up…";
-  const r = await apiFetch("/api/contaccts/lookup?handle=" + encodeURIComponent(handle));
+  const r = await apiFetch("/api/contacts/lookup?handle=" + encodeURIComponent(handle));
   if (r.status === 404) { result.textContent = "Handle not found."; return; }
   if (!r.ok) { result.textContent = "Lookup failed."; return; }
   const d = await r.json();
   _pendingContact = d;
   result.textContent = "Found: " + d.server_url;
-  document.getElementById("add-contacct-name").value = handle;
+  document.getElementById("add-contact-name").value = handle;
   confirm.hidden = false;
 }
 
 async function confirmAddContact() {
   if (!_pendingContact) return;
-  const name = document.getElementById("add-contacct-name").value.trim() || _pendingContact.handle;
-  const err = document.getElementById("add-contacct-error");
+  const name = document.getElementById("add-contact-name").value.trim() || _pendingContact.handle;
+  const err = document.getElementById("add-contact-error");
   err.textContent = "";
-  const r = await apiFetch("/api/contaccts", {
+  const r = await apiFetch("/api/contacts", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({name, url: _pendingContact.server_url}),
   });
-  if (r.status === 409) { err.textContent = "Already in your contaccts."; return; }
-  if (!r.ok) { err.textContent = "Failed to add contacct."; return; }
+  if (r.status === 409) { err.textContent = "Already in your contacts."; return; }
+  if (!r.ok) { err.textContent = "Failed to add contact."; return; }
   closeAddContact();
   const cfg = await (await apiFetch("/api/config")).json();
   CFG = cfg;
