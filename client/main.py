@@ -326,7 +326,8 @@ def main() -> None:
     args = parser.parse_args()
 
     app = create_app(args.config)
-    uvicorn.run(app, host=args.host, port=args.port)
+    uvicorn.run(app, host=args.host, port=args.port,
+                proxy_headers=True, forwarded_allow_ips="*")
 
 
 if __name__ == "__main__":
