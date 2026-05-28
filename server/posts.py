@@ -195,8 +195,21 @@ def get_posts(
             conditions.append("p.is_public = 1")
 
     if q:
-        conditions.append("p.body LIKE ?")
-        params.append(f"%{q}%")
+        from . import node as _node
+        handle = _node._registry_handle or ""
+        profile_row = db.execute("SELECT display_name FROM profile WHERE id = 1").fetchone()
+        display_name = (profile_row[0] or "") if profile_row else ""
+        q_lower = q.lower()
+        if q_lower in handle.lower() or (display_name and q_lower in display_name.lower()):
+            pass  # query matches this node's identity — return all posts unfiltered
+        else:
+            conditions.append(
+                "(p.body LIKE ? OR EXISTS ("
+                "  SELECT 1 FROM comments c"
+                "  WHERE c.post_id = p.id AND c.body LIKE ? AND c.deleted = 0"
+                "))"
+            )
+            params.extend([f"%{q}%", f"%{q}%"])
 
     if cursor:
         conditions.append("p.created_at < ?")
