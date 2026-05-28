@@ -41,6 +41,9 @@
     .server-dot.ok   { background: #4caf50; }
     .server-dot.err  { background: #e06c6c; }
     .server-dot.wait { background: #555; }
+    .contact-remove { display: none; font-size: 0.7rem; color: #666; line-height: 1; padding: 0 2px; margin-left: auto; }
+    .server-btn:hover .contact-remove { display: inline; }
+    .contact-remove:hover { color: #e06c6c; }
     #tag-list { display: flex; flex-direction: column; gap: 0.25rem; }
     .tag-btn { background: none; border: none; text-align: left; cursor: pointer; padding: 0.3rem 0.5rem; border-radius: 4px; font-size: 0.82rem; color: #888; display: flex; justify-content: space-between; align-items: center; }
     .tag-btn:hover { background: #222; color: #ccc; }
@@ -564,9 +567,20 @@ function renderServerList() {
     return '<button class="server-btn' + (activeServer === s.url ? " active" : "") + '" onclick="setActiveServer(' + globalIdx + ')" title="' + esc(s.name) + '">'
       + '<span>' + label + '</span>'
       + '<span class="server-dot ' + status + '"></span>'
+      + '<span class="contact-remove" onclick="event.stopPropagation();removeContact(' + JSON.stringify(s.url) + ')" title="Remove contact">✕</span>'
       + '</button>';
   });
   list.innerHTML = allBtn + serverBtns.join("");
+}
+
+async function removeContact(url) {
+  if (!confirm("Remove this contact?")) return;
+  const r = await apiFetch("/api/contacts?" + new URLSearchParams({url}), {method: "DELETE"});
+  if (!r.ok) { alert("Failed to remove contact."); return; }
+  if (activeServer === url) setActiveServer(-1);
+  const cfg = await (await apiFetch("/api/config")).json();
+  CFG = cfg;
+  renderServerList();
 }
 
 async function fetchServerHandles() {
