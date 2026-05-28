@@ -410,13 +410,18 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def api_backup():
         if not _token(config.own_server):
             raise HTTPException(status_code=401, detail="Not authenticated")
+        import io, zipfile
         from fastapi.responses import Response as _Resp
         async with httpx.AsyncClient() as hc:
             r = await hc.get(config.own_server + "/backup", headers=_headers(config.own_server), timeout=120.0)
         if not r.is_success:
             raise HTTPException(status_code=r.status_code, detail="Backup failed")
+        # Append client data so restore is complete
+        buf = io.BytesIO(r.content)
+        with zipfile.ZipFile(buf, "a", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("client_config.json", config_path.read_text())
         return _Resp(
-            content=r.content,
+            content=buf.getvalue(),
             media_type="application/zip",
             headers={"Content-Disposition": "attachment; filename=contacc-backup.zip"},
         )
@@ -464,7 +469,19 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     @app.post("/setup/restore")
     async def proxy_setup_restore(bundle: UploadFile = File(...), passphrase: str = Form(...), setup_token: str = Form(...)):
+        import io, json as _json, zipfile
+        from client.config import ContactEntry
         data = await bundle.read()
+        # Restore client data from bundle before forwarding server data
+        try:
+            zf = zipfile.ZipFile(io.BytesIO(data))
+            if "client_config.json" in zf.namelist():
+                client_data = _json.loads(zf.read("client_config.json"))
+                # Restore contacts; keep own_server from current bootstrap
+                config.contacts = [ContactEntry(**c) for c in client_data.get("contacts", [])]
+                config.save(config_path)
+        except Exception:
+            pass
         try:
             async with httpx.AsyncClient() as hc:
                 r = await hc.post(

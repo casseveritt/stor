@@ -17,9 +17,29 @@ class ClientConfig:
 
     @classmethod
     def load(cls, path: str | Path) -> "ClientConfig":
-        data = json.loads(Path(path).read_text())
+        p = Path(path)
+        if not p.exists():
+            own_server = cls._bootstrap_own_server()
+            cfg = cls(own_server=own_server)
+            cfg.save(p)
+            return cfg
+        data = json.loads(p.read_text())
         contacts = [ContactEntry(**c) for c in data.get("contacts", [])]
         return cls(own_server=data["own_server"], contacts=contacts)
+
+    @staticmethod
+    def _bootstrap_own_server() -> str:
+        import os
+        from urllib.parse import urlparse, urlunparse
+        client_url = os.environ.get("CONTACC_CLIENT_URL", "")
+        if client_url:
+            parsed = urlparse(client_url)
+            if parsed.port:
+                server_url = urlunparse(parsed._replace(netloc=f"{parsed.hostname}:{parsed.port - 1}"))
+                return server_url
+        raise RuntimeError(
+            "No client_config.json and CONTACC_CLIENT_URL is not set — cannot bootstrap client config"
+        )
 
     def save(self, path: str | Path) -> None:
         data = {
