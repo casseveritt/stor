@@ -94,9 +94,31 @@ def _read_content(store_path: Path, content_hash: str, file_key: bytes) -> bytes
     return decrypt_bytes(file_path.read_bytes(), file_key)
 
 
-def _require_acl(db, asset_id: str, identity):
-    if not check_acl(db, asset_id, identity):
-        raise HTTPException(status_code=403, detail="Access denied")
+def _require_acl(db, asset_id: str, identity, request: Request | None = None):
+    if check_acl(db, asset_id, identity):
+        return
+    # Federation: check X-Origin-Server against post visibility, same logic as posts.py
+    origin = request.headers.get("X-Origin-Server", "") if request else ""
+    if origin:
+        is_contact = bool(db.execute(
+            "SELECT 1 FROM contacts WHERE server_url = ?", (origin,)
+        ).fetchone())
+        row = db.execute(
+            "SELECT p.visibility FROM posts p JOIN post_assets pa ON p.id = pa.post_id "
+            "WHERE pa.asset_id = ? "
+            "ORDER BY CASE p.visibility WHEN 'public' THEN 0 WHEN 'authenticated' THEN 1 "
+            "WHEN 'contacts' THEN 2 ELSE 3 END LIMIT 1",
+            (asset_id,),
+        ).fetchone()
+        if row:
+            vis = row[0]
+            if vis == "public":
+                return
+            if vis == "authenticated":
+                return
+            if vis == "contacts" and is_contact:
+                return
+    raise HTTPException(status_code=403, detail="Access denied")
 
 
 def _apply_watermark_if_needed(content: bytes, media_type: str, request: Request, identity) -> bytes:
@@ -123,7 +145,7 @@ def fetch_asset_meta(asset_id: str, request: Request, identity: OptionalAuthDep)
     asset = _get_asset_row(db, asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
-    _require_acl(db, asset_id, identity)
+    _require_acl(db, asset_id, identity, request)
     log_access(db, asset_id, identity, "fetch_meta")
     asset["node"] = str(request.base_url).rstrip("/")
     return asset
@@ -135,7 +157,7 @@ def fetch_thumbnail(asset_id: str, request: Request, identity: OptionalAuthDep):
     asset = _get_asset_row(db, asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
-    _require_acl(db, asset_id, identity)
+    _require_acl(db, asset_id, identity, request)
 
     if not asset["media_type"].startswith("image/"):
         raise HTTPException(status_code=415, detail="Thumbnail not available for this media type")
@@ -172,7 +194,7 @@ def fetch_asset(asset_id: str, request: Request, identity: OptionalAuthDep):
     asset = _get_asset_row(db, asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
-    _require_acl(db, asset_id, identity)
+    _require_acl(db, asset_id, identity, request)
 
     try:
         content = _read_content(
@@ -199,7 +221,7 @@ def fetch_asset_history(asset_id: str, request: Request, identity: OptionalAuthD
     asset = _get_asset_row(db, asset_id)
     if asset is None:
         raise HTTPException(status_code=404, detail="Asset not found")
-    _require_acl(db, asset_id, identity)
+    _require_acl(db, asset_id, identity, request)
 
     chain = _build_history_chain(db, asset_id)
     return {

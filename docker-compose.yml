@@ -14,8 +14,8 @@ x-env: &proxy-env
   CONTACC_IDENTITY_PROXY_URL: ${CONTACC_IDENTITY_PROXY_URL:-https://starkville.hopto.org:8421}
 
 services:
-  # ── slot 1 (default) ──────────────────────────────────────────────────────
-  server:
+  # ── node 1 ────────────────────────────────────────────────────────────────
+  server-1:
     <<: *server
     build: .
     environment:
@@ -23,192 +23,212 @@ services:
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
     volumes:
-      - ${CONTACC_DATA_DIR}/server:/data
+      - ${CONTACC_DATA_DIR}/server-1:/data
 
-  client:
+  client-1:
     <<: *client
     environment:
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
+      CONTACC_SERVER_URL: http://server-1:9443
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE:-}
     volumes:
-      - ${CONTACC_DATA_DIR}/client:/data
-    depends_on: [server]
+      - ${CONTACC_DATA_DIR}/client-1:/data
+    depends_on: [server-1]
 
-  # ── slot 2 ────────────────────────────────────────────────────────────────
+  # ── node 2 ────────────────────────────────────────────────────────────────
   server-2:
     <<: *server
-    profiles: [slot2]
+    profiles: [node2]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_2:-}
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8445
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8444
     volumes:
       - ${CONTACC_DATA_DIR}/server-2:/data
 
   client-2:
     <<: *client
-    profiles: [slot2]
+    profiles: [node2]
     environment:
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8445
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8444
+      CONTACC_SERVER_URL: http://server-2:9443
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_2:-}
     volumes:
       - ${CONTACC_DATA_DIR}/client-2:/data
     depends_on: [server-2]
 
-  # ── slot 3 ────────────────────────────────────────────────────────────────
+  # ── node 3 ────────────────────────────────────────────────────────────────
   server-3:
     <<: *server
-    profiles: [slot3]
+    profiles: [node3]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_3:-}
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8447
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8445
     volumes:
       - ${CONTACC_DATA_DIR}/server-3:/data
 
   client-3:
     <<: *client
-    profiles: [slot3]
+    profiles: [node3]
     environment:
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8447
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8445
+      CONTACC_SERVER_URL: http://server-3:9443
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_3:-}
     volumes:
       - ${CONTACC_DATA_DIR}/client-3:/data
     depends_on: [server-3]
 
-  # ── slot 4 ────────────────────────────────────────────────────────────────
+  # ── node 4 ────────────────────────────────────────────────────────────────
   server-4:
     <<: *server
-    profiles: [slot4]
+    profiles: [node4]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_4:-}
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8449
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8446
     volumes:
       - ${CONTACC_DATA_DIR}/server-4:/data
 
   client-4:
     <<: *client
-    profiles: [slot4]
+    profiles: [node4]
     environment:
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8449
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8446
+      CONTACC_SERVER_URL: http://server-4:9443
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_4:-}
     volumes:
       - ${CONTACC_DATA_DIR}/client-4:/data
     depends_on: [server-4]
 
-  # ── slot 5 ────────────────────────────────────────────────────────────────
+  # ── node 5 ────────────────────────────────────────────────────────────────
   server-5:
     <<: *server
-    profiles: [slot5]
+    profiles: [node5]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_5:-}
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8451
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8447
     volumes:
       - ${CONTACC_DATA_DIR}/server-5:/data
 
   client-5:
     <<: *client
-    profiles: [slot5]
+    profiles: [node5]
     environment:
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8451
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8447
+      CONTACC_SERVER_URL: http://server-5:9443
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_5:-}
     volumes:
       - ${CONTACC_DATA_DIR}/client-5:/data
     depends_on: [server-5]
 
-  # ── slot 6 ────────────────────────────────────────────────────────────────
+  # ── node 6 ────────────────────────────────────────────────────────────────
   server-6:
     <<: *server
-    profiles: [slot6]
+    profiles: [node6]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_6:-}
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8453
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8448
     volumes:
       - ${CONTACC_DATA_DIR}/server-6:/data
 
   client-6:
     <<: *client
-    profiles: [slot6]
+    profiles: [node6]
     environment:
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8453
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8448
+      CONTACC_SERVER_URL: http://server-6:9443
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_6:-}
     volumes:
       - ${CONTACC_DATA_DIR}/client-6:/data
     depends_on: [server-6]
 
-  # ── slot 7 ────────────────────────────────────────────────────────────────
+  # ── node 7 ────────────────────────────────────────────────────────────────
   server-7:
     <<: *server
-    profiles: [slot7]
+    profiles: [node7]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_7:-}
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8455
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8449
     volumes:
       - ${CONTACC_DATA_DIR}/server-7:/data
 
   client-7:
     <<: *client
-    profiles: [slot7]
+    profiles: [node7]
     environment:
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8455
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8449
+      CONTACC_SERVER_URL: http://server-7:9443
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_7:-}
     volumes:
       - ${CONTACC_DATA_DIR}/client-7:/data
     depends_on: [server-7]
 
-  # ── slot 8 ────────────────────────────────────────────────────────────────
+  # ── node 8 ────────────────────────────────────────────────────────────────
   server-8:
     <<: *server
-    profiles: [slot8]
+    profiles: [node8]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_8:-}
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8457
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8450
     volumes:
       - ${CONTACC_DATA_DIR}/server-8:/data
 
   client-8:
     <<: *client
-    profiles: [slot8]
+    profiles: [node8]
     environment:
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8457
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8450
+      CONTACC_SERVER_URL: http://server-8:9443
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_8:-}
     volumes:
       - ${CONTACC_DATA_DIR}/client-8:/data
     depends_on: [server-8]
 
-  # ── slot 9 ────────────────────────────────────────────────────────────────
+  # ── node 9 ────────────────────────────────────────────────────────────────
   server-9:
     <<: *server
-    profiles: [slot9]
+    profiles: [node9]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_9:-}
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8459
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8451
     volumes:
       - ${CONTACC_DATA_DIR}/server-9:/data
 
   client-9:
     <<: *client
-    profiles: [slot9]
+    profiles: [node9]
     environment:
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8459
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8451
+      CONTACC_SERVER_URL: http://server-9:9443
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_9:-}
     volumes:
       - ${CONTACC_DATA_DIR}/client-9:/data
     depends_on: [server-9]
 
-  # ── slot 10 ───────────────────────────────────────────────────────────────
+  # ── node 10 ───────────────────────────────────────────────────────────────
   server-10:
     <<: *server
-    profiles: [slot10]
+    profiles: [node10]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_10:-}
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8461
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8452
     volumes:
       - ${CONTACC_DATA_DIR}/server-10:/data
 
   client-10:
     <<: *client
-    profiles: [slot10]
+    profiles: [node10]
     environment:
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8461
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8452
+      CONTACC_SERVER_URL: http://server-10:9443
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_10:-}
     volumes:
       - ${CONTACC_DATA_DIR}/client-10:/data
     depends_on: [server-10]
@@ -235,15 +255,15 @@ services:
       - "80:80"
       - "8421:8421"
       - "8443:8443"
+      - "8444:8444"
       - "8445:8445"
+      - "8446:8446"
       - "8447:8447"
+      - "8448:8448"
       - "8449:8449"
+      - "8450:8450"
       - "8451:8451"
-      - "8453:8453"
-      - "8455:8455"
-      - "8457:8457"
-      - "8459:8459"
-      - "8461:8461"
+      - "8452:8452"
     environment:
       CONTACC_DOMAIN: ${CONTACC_DOMAIN}
     volumes:
@@ -251,5 +271,5 @@ services:
       - ${CONTACC_DATA_DIR}/caddy:/data
       - ${CONTACC_DATA_DIR}/caddy-config:/config
     depends_on:
-      - server
-      - client
+      - server-1
+      - client-1

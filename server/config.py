@@ -20,6 +20,7 @@ class NodeConfig:
     identity_proxy_url: str | None = None
     registry_handle: str | None = None
     registry_url: str | None = None
+    internal_token: str | None = None
 
     @classmethod
     def load(cls, path: str | Path) -> "NodeConfig":

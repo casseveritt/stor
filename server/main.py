@@ -1,6 +1,7 @@
 import base64
 import logging
 import os
+import secrets
 import sys
 import time
 from pathlib import Path
@@ -116,6 +117,7 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
     node_module.setup(node_address, private_key, config.watermark_enabled, config.registry_handle)
     auth_module.setup(private_key)
 
+    app.state.internal_token = config.internal_token
     app.state.initialized = True
     log.info("Node %s ready.", node_address)
 
@@ -197,11 +199,16 @@ def create_app(config_path: str | Path) -> FastAPI:
     @app.middleware("http")
     async def init_guard(request: Request, call_next):
         path = request.url.path
-        if not app.state.initialized and not (
-            path.startswith("/setup") or path == "/" or path.startswith("/static")
-        ):
+        is_setup_path = path.startswith("/setup") or path == "/" or path.startswith("/static")
+        if not app.state.initialized and not is_setup_path:
             state = "locked" if config_path.exists() else "uninitialized"
             return JSONResponse({"detail": "Server not ready", "state": state}, status_code=503)
+        if app.state.initialized and not is_setup_path:
+            internal_token = getattr(app.state, "internal_token", None)
+            if internal_token:
+                provided = request.headers.get("x-contacc-internal", "")
+                if not secrets.compare_digest(provided, internal_token):
+                    return JSONResponse({"detail": "Unauthorized"}, status_code=403)
         return await call_next(request)
 
     # Try to initialize immediately if we have everything we need

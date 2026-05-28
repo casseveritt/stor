@@ -16,6 +16,9 @@ Server OAuth flow:
   2. Browser completes OAuth; server redirects to /auth/callback#token=<token>
   3. callback.html POSTs server token to /client/session, stores client token
 """
+import base64
+import logging
+import os
 import secrets
 import sys
 import time
@@ -31,7 +34,29 @@ from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from client.config import ClientConfig, load_tokens, save_tokens
+from client.config import ClientConfig, NodeKey, load_tokens, save_tokens
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+log = logging.getLogger("contacc")
+
+
+def _load_private_key(node_key: NodeKey, passphrase: str):
+    """Decrypt and return the Ed25519 private key, or None on failure."""
+    try:
+        from server.crypto import derive_master_key, decrypt_bytes
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        salt = bytes.fromhex(node_key.argon2_salt)
+        master_key = derive_master_key(
+            passphrase, salt,
+            node_key.argon2_time_cost,
+            node_key.argon2_memory_cost,
+            node_key.argon2_parallelism,
+        )
+        privkey_bytes = decrypt_bytes(base64.b64decode(node_key.encrypted_private_key), master_key)
+        return Ed25519PrivateKey.from_private_bytes(privkey_bytes)
+    except Exception as e:
+        log.warning("Could not load node private key: %s", e)
+        return None
 
 
 def create_app(config_path: str | Path) -> FastAPI:
@@ -42,6 +67,20 @@ def create_app(config_path: str | Path) -> FastAPI:
     app = FastAPI(title="contacc client")
     app.state.config = config
     app.state.config_path = config_path
+
+    # Decrypt private key at startup if we have key material and passphrase
+    passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
+    if config.node_key and passphrase:
+        app.state.private_key = _load_private_key(config.node_key, passphrase)
+        if app.state.private_key:
+            log.info("Node private key loaded.")
+    else:
+        app.state.private_key = None
+
+    # Internal server URL — use CONTACC_SERVER_URL if set (avoids external loop
+    # when Caddy routes everything to the client).  Falls back to own_server so
+    # local dev without Docker still works.
+    _server = os.environ.get("CONTACC_SERVER_URL", "").rstrip("/") or config.own_server
 
     static_dir = Path(__file__).parent / "static"
 
@@ -59,8 +98,8 @@ def create_app(config_path: str | Path) -> FastAPI:
         if not server_token:
             raise HTTPException(status_code=401, detail="No server token — sign in first")
         async with httpx.AsyncClient() as hc:
-            r = await hc.get(config.own_server + "/auth/me",
-                             headers={"Authorization": f"Bearer {server_token}"})
+            r = await hc.get(_server + "/auth/me",
+                             headers={"Authorization": f"Bearer {server_token}", **_internal_headers()})
         if not r.is_success:
             raise HTTPException(status_code=401, detail="Server token invalid or expired")
         if r.json().get("role") != "owner":
@@ -75,10 +114,10 @@ def create_app(config_path: str | Path) -> FastAPI:
     @app.get("/client/login-url")
     async def client_login_url(request: Request):
         return_to = config.own_server.rstrip("/") + "/auth/callback"
-        server_login = (config.own_server + "/auth/login?provider=google&return_to="
+        server_login = (_server + "/auth/login?provider=google&return_to="
                         + return_to)
         async with httpx.AsyncClient() as hc:
-            r = await hc.get(server_login)
+            r = await hc.get(server_login, headers=_internal_headers())
         if not r.is_success:
             raise HTTPException(status_code=502, detail="Server login unavailable")
         return {"auth_url": r.json()["auth_url"]}
@@ -99,9 +138,22 @@ def create_app(config_path: str | Path) -> FastAPI:
     def _token(server_url: str) -> Optional[str]:
         return tokens.get(server_url)
 
+    def _internal_headers() -> dict:
+        return {"x-contacc-internal": config.internal_token} if config.internal_token else {}
+
+    def _call_url(server_url: str) -> str:
+        """Map own_server to the internal Docker URL for actual httpx calls."""
+        return _server if server_url == config.own_server else server_url
+
     def _headers(server_url: str) -> dict:
+        if server_url == config.own_server:
+            h = _internal_headers()
+        else:
+            h = {"X-Origin-Server": config.own_server}
         t = _token(server_url)
-        return {"Authorization": f"Bearer {t}"} if t else {}
+        if t:
+            h["Authorization"] = f"Bearer {t}"
+        return h
 
     def _server_name(url: str) -> str:
         if url == config.own_server:
@@ -148,7 +200,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def api_me(server: str = ""):
         src = server or config.own_server
         async with httpx.AsyncClient() as hc:
-            r = await hc.get(src + "/auth/me", headers=_headers(src))
+            r = await hc.get(_call_url(src) + "/auth/me", headers=_headers(src))
         if not r.is_success:
             raise HTTPException(status_code=r.status_code)
         return r.json()
@@ -212,9 +264,10 @@ def create_app(config_path: str | Path) -> FastAPI:
             if not _token(url) and url == config.own_server:
                 return []
             try:
+                fetch_url = _server if url == config.own_server else url
                 fetch_headers = {**_headers(url), "X-Origin-Server": config.own_server}
                 async with httpx.AsyncClient() as hc:
-                    r = await hc.get(url + "/posts", params=params_base, headers=fetch_headers, timeout=10.0)
+                    r = await hc.get(fetch_url + "/posts", params=params_base, headers=fetch_headers, timeout=10.0)
                 if r.is_success:
                     data = r.json()
                     name = _server_name(url)
@@ -264,7 +317,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         content_type = request.headers.get("content-type", "")
         async with httpx.AsyncClient() as hc:
             r = await hc.post(
-                config.own_server + "/posts",
+                _server + "/posts",
                 content=body,
                 headers={**_headers(config.own_server), "content-type": content_type},
                 timeout=60.0,
@@ -283,7 +336,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         payload = await request.json()
         async with httpx.AsyncClient() as hc:
             r = await hc.patch(
-                config.own_server + f"/posts/{post_id}",
+                _server + f"/posts/{post_id}",
                 json=payload,
                 headers=_headers(config.own_server),
             )
@@ -300,7 +353,7 @@ def create_app(config_path: str | Path) -> FastAPI:
             raise HTTPException(status_code=401, detail="Not authenticated")
         async with httpx.AsyncClient() as hc:
             r = await hc.delete(
-                config.own_server + f"/posts/{post_id}",
+                _server + f"/posts/{post_id}",
                 headers=_headers(config.own_server),
             )
         if not r.is_success:
@@ -310,7 +363,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def api_get_comments(post_id: str, server: str = ""):
         src = server or config.own_server
         async with httpx.AsyncClient() as hc:
-            r = await hc.get(src + f"/posts/{post_id}/comments", headers=_headers(src))
+            r = await hc.get(_call_url(src) + f"/posts/{post_id}/comments", headers=_headers(src))
         if not r.is_success:
             raise HTTPException(status_code=r.status_code)
         return r.json()
@@ -322,7 +375,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         headers = {**_headers(src), "X-Origin-Server": config.own_server}
         async with httpx.AsyncClient() as hc:
             r = await hc.post(
-                src + f"/posts/{post_id}/comments",
+                _call_url(src) + f"/posts/{post_id}/comments",
                 json=payload,
                 headers=headers,
             )
@@ -336,7 +389,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def api_asset_thumb(asset_id: str, server: str = ""):
         src = server or config.own_server
         async with httpx.AsyncClient() as hc:
-            r = await hc.get(src + f"/assets/{asset_id}/thumb", headers=_headers(src))
+            r = await hc.get(_call_url(src) + f"/assets/{asset_id}/thumb", headers=_headers(src))
         if not r.is_success:
             raise HTTPException(status_code=r.status_code)
         return StreamingResponse(iter([r.content]),
@@ -346,7 +399,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def api_asset(asset_id: str, server: str = ""):
         src = server or config.own_server
         async with httpx.AsyncClient() as hc:
-            r = await hc.get(src + f"/assets/{asset_id}", headers=_headers(src))
+            r = await hc.get(_call_url(src) + f"/assets/{asset_id}", headers=_headers(src))
         if not r.is_success:
             raise HTTPException(status_code=r.status_code)
         return StreamingResponse(
@@ -361,7 +414,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def api_tags(server: str = ""):
         src = server or config.own_server
         async with httpx.AsyncClient() as hc:
-            r = await hc.get(src + "/tags", headers=_headers(src))
+            r = await hc.get(_call_url(src) + "/tags", headers=_headers(src))
         if not r.is_success:
             raise HTTPException(status_code=r.status_code)
         return r.json()
@@ -371,7 +424,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     @api.get("/profile")
     async def api_profile():
         async with httpx.AsyncClient() as hc:
-            r = await hc.get(config.own_server + "/profile", timeout=10)
+            r = await hc.get(_server + "/profile", headers=_internal_headers(), timeout=10)
         if not r.is_success:
             raise HTTPException(status_code=r.status_code)
         return r.json()
@@ -383,7 +436,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         payload = await request.json()
         async with httpx.AsyncClient() as hc:
             r = await hc.put(
-                config.own_server + "/profile",
+                _server + "/profile",
                 json=payload,
                 headers=_headers(config.own_server),
                 timeout=10,
@@ -399,7 +452,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         content = await file.read()
         async with httpx.AsyncClient() as hc:
             r = await hc.put(
-                config.own_server + "/profile/photo",
+                _server + "/profile/photo",
                 files={"file": (file.filename, content, file.content_type or "image/jpeg")},
                 headers=_headers(config.own_server),
                 timeout=30,
@@ -438,7 +491,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         if _token(config.own_server):
             async with httpx.AsyncClient() as hc:
                 await hc.post(
-                    config.own_server + "/contacts",
+                    _server + "/contacts",
                     json={"server_url": body.url, "name": body.name, "handle": body.handle},
                     headers=_headers(config.own_server),
                     timeout=10.0,
@@ -452,7 +505,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         import io, zipfile
         from fastapi.responses import Response as _Resp
         async with httpx.AsyncClient() as hc:
-            r = await hc.get(config.own_server + "/backup", headers=_headers(config.own_server), timeout=120.0)
+            r = await hc.get(_server + "/backup", headers=_headers(config.own_server), timeout=120.0)
         if not r.is_success:
             raise HTTPException(status_code=r.status_code, detail="Backup failed")
         # Append client data so restore is complete
@@ -476,7 +529,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         if _token(config.own_server):
             async with httpx.AsyncClient() as hc:
                 await hc.delete(
-                    config.own_server + "/contacts",
+                    _server + "/contacts",
                     params={"server_url": url},
                     headers=_headers(config.own_server),
                     timeout=10.0,
@@ -484,6 +537,28 @@ def create_app(config_path: str | Path) -> FastAPI:
         return {"ok": True}
 
     app.include_router(api)
+
+    # ── setup intercepts: capture key material returned by server ─────────────
+
+    @app.post("/setup/new")
+    async def proxy_setup_new(request: Request):
+        payload = await request.json()
+        try:
+            async with httpx.AsyncClient() as hc:
+                r = await hc.post(_server + "/setup/new", json=payload, timeout=30)
+        except httpx.RequestError as exc:
+            raise HTTPException(502, f"Could not reach server: {exc}")
+        data = r.json()
+        if r.is_success and "node_key" in data:
+            config.node_key = NodeKey(**data["node_key"])
+            config.internal_token = data.get("internal_token")
+            config.save(config_path)
+            passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
+            if passphrase:
+                app.state.private_key = _load_private_key(config.node_key, passphrase)
+            return JSONResponse({"status": data.get("status"), "node_address": data.get("node_address")},
+                                status_code=r.status_code)
+        return JSONResponse(content=data, status_code=r.status_code)
 
     # ── setup restore proxy (client extracts client_config.json from bundle) ──
 
@@ -505,21 +580,42 @@ def create_app(config_path: str | Path) -> FastAPI:
         try:
             async with httpx.AsyncClient() as hc:
                 r = await hc.post(
-                    config.own_server + "/setup/restore",
+                    _server + "/setup/restore",
                     files={"bundle": (bundle.filename, data, bundle.content_type or "application/octet-stream")},
                     data={"passphrase": passphrase, "setup_token": setup_token},
                     timeout=60,
                 )
-            return JSONResponse(content=r.json(), status_code=r.status_code)
+            resp = r.json()
         except httpx.RequestError as exc:
             raise HTTPException(502, f"Could not reach server: {exc}")
+        if r.is_success and "node_key" in resp:
+            config.node_key = NodeKey(**resp["node_key"])
+            config.internal_token = resp.get("internal_token")
+            config.save(config_path)
+            passphrase_env = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
+            if passphrase_env:
+                app.state.private_key = _load_private_key(config.node_key, passphrase_env)
+        return JSONResponse(content={"status": resp.get("status")}, status_code=r.status_code)
 
     # ── auth callback and static (no client auth required) ────────────────
 
     _NC = {"Cache-Control": "no-cache"}
 
     @app.get("/auth/callback")
-    def auth_callback():
+    async def auth_callback(request: Request):
+        if request.query_params:
+            # SSO completion — proxy to server's internal /auth/callback
+            async with httpx.AsyncClient() as hc:
+                r = await hc.get(
+                    _server + "/auth/callback",
+                    params=dict(request.query_params),
+                    headers=_internal_headers(),
+                    follow_redirects=False,
+                )
+            if r.is_redirect:
+                from fastapi.responses import RedirectResponse as _Redir
+                return _Redir(url=r.headers["location"], status_code=r.status_code)
+            return JSONResponse(content=r.json(), status_code=r.status_code)
         return FileResponse(static_dir / "callback.html", headers=_NC)
 
     @app.get("/")
@@ -528,6 +624,56 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
+    # ── catch-all: proxy everything else to the server ────────────────────
+    _STRIP_INBOUND = {"host", "x-contacc-internal", "x-contacc-role", "x-contacc-identity"}
+
+    @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    async def proxy_to_server(path: str, request: Request):
+        body = await request.body()
+        fwd_headers = {k: v for k, v in request.headers.items() if k.lower() not in _STRIP_INBOUND}
+        if config.internal_token:
+            fwd_headers["x-contacc-internal"] = config.internal_token
+        client = httpx.AsyncClient()
+        try:
+            server_req = client.build_request(
+                method=request.method,
+                url=_server + "/" + path,
+                params=dict(request.query_params),
+                content=body,
+                headers=fwd_headers,
+            )
+            r = await client.send(server_req, stream=True, follow_redirects=False)
+        except httpx.RequestError as exc:
+            await client.aclose()
+            raise HTTPException(status_code=502, detail=f"Server unreachable: {exc}")
+
+        if r.is_redirect:
+            location = r.headers.get("location", "/")
+            await r.aclose()
+            await client.aclose()
+            from fastapi.responses import RedirectResponse as _Redir
+            return _Redir(url=location, status_code=r.status_code)
+
+        proxy_headers = {
+            k: v for k, v in r.headers.items()
+            if k.lower() not in ("transfer-encoding", "content-encoding", "content-length")
+        }
+
+        async def _stream():
+            try:
+                async for chunk in r.aiter_bytes():
+                    yield chunk
+            finally:
+                await r.aclose()
+                await client.aclose()
+
+        return StreamingResponse(
+            _stream(),
+            status_code=r.status_code,
+            headers=proxy_headers,
+            media_type=r.headers.get("content-type"),
+        )
 
     return app
 

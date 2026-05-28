@@ -12,9 +12,20 @@ class ContactEntry:
 
 
 @dataclass
+class NodeKey:
+    argon2_salt: str
+    encrypted_private_key: str
+    argon2_time_cost: int = 3
+    argon2_memory_cost: int = 65536
+    argon2_parallelism: int = 4
+
+
+@dataclass
 class ClientConfig:
     own_server: str
     contacts: list[ContactEntry] = field(default_factory=list)
+    node_key: NodeKey | None = None
+    internal_token: str | None = None
 
     @classmethod
     def load(cls, path: str | Path) -> "ClientConfig":
@@ -26,7 +37,13 @@ class ClientConfig:
             return cfg
         data = json.loads(p.read_text())
         contacts = [ContactEntry(**c) for c in data.get("contacts", [])]
-        return cls(own_server=data["own_server"], contacts=contacts)
+        node_key = NodeKey(**data["node_key"]) if "node_key" in data else None
+        return cls(
+            own_server=data["own_server"],
+            contacts=contacts,
+            node_key=node_key,
+            internal_token=data.get("internal_token"),
+        )
 
     @staticmethod
     def _bootstrap_own_server() -> str:
@@ -39,10 +56,14 @@ class ClientConfig:
         )
 
     def save(self, path: str | Path) -> None:
-        data = {
+        data: dict = {
             "own_server": self.own_server,
             "contacts": [dataclasses.asdict(c) for c in self.contacts],
         }
+        if self.node_key:
+            data["node_key"] = dataclasses.asdict(self.node_key)
+        if self.internal_token:
+            data["internal_token"] = self.internal_token
         Path(path).write_text(json.dumps(data, indent=2) + "\n")
 
 

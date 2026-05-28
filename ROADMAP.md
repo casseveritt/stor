@@ -24,7 +24,63 @@ restore — copy the key file, start up, data-less but identity intact.
 Decide what (if anything) belongs in the registry beyond `{server_url, client_url, public_key, ttl}`.
 Display name and photo_url are already being pushed by the heartbeat. Mostly a policy question now.
 
-**5. Fresh VM end-to-end test**
+**5. Client API test suite**
+Comprehensive pytest suite covering every endpoint the client exposes to the browser. Goals:
+catch regressions early (e.g. missing `_internal_headers()` on profile GET), and document
+the contract between frontend and client layer.
+
+Scope — one test per client `/api/` route, plus the special-cased routes:
+
+*Auth & session*
+- `GET /client/login-url` → returns `{auth_url}`
+- `POST /client/session` with valid server token → issues session token
+- `POST /client/session` with bad token → 401
+- `GET /auth/callback` with query params → proxies to server and follows redirect
+- `GET /auth/callback` without query params → serves `callback.html`
+- `GET /api/auth/me` → returns role/identity from server
+
+*Config*
+- `GET /api/config` → own_server, servers list, contacts
+
+*Posts & feed*
+- `GET /api/feed` (own + contacts)
+- `GET /posts?limit=N` passthrough
+- `POST /api/posts` (owner only)
+- `PATCH /api/posts/{id}`
+- `DELETE /api/posts/{id}`
+- `GET /api/posts/{id}/comments`
+- `POST /api/posts/{id}/comments`
+
+*Profile*
+- `GET /api/profile` → proxied to server with internal token (regression: was missing headers)
+- `PUT /api/profile` → requires owner token
+- `PUT /api/profile/photo` → multipart, requires owner token
+
+*Assets*
+- `GET /api/assets/{id}/thumb`
+- `GET /api/assets/{id}`
+
+*Contacts*
+- `GET /api/contacts/lookup?handle=`
+- `POST /api/contacts`
+- `DELETE /api/contacts?url=`
+
+*Backup/restore*
+- `GET /api/backup` → zip with client_config appended
+- `POST /api/restore`
+
+*Admin*
+- `GET /api/admin/...` (whatever admin routes are exposed)
+
+*Setup intercepts*
+- `POST /setup/new` → captures `node_key` + `internal_token` into `client_config.json`
+- `POST /setup/restore` → same
+
+Test approach: spin up a real server + client pair with `httpx.AsyncClient` against ASGI
+(no Docker required). Use a temp directory for data, short argon2 params for speed. Mock
+the identity proxy / Google SSO exchange only at the boundary. Run with `pytest -x`.
+
+**6. Fresh VM end-to-end test**
 Validate the full flow (Caddy TLS, Google SSO via identity proxy, setup wizard, backup/restore)
 on a clean cloud VM — not the Pi. The identity proxy means zero Google Console setup for new
 users; worth confirming end-to-end.

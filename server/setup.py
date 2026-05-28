@@ -115,7 +115,7 @@ def setup_new(body: NewBody, request: Request):
 
     _check_handle_available(body.handle, registry_url)
 
-    _create_node_config(config_path, node_address, identity_proxy_url, body.owner_identity, body.passphrase, body.handle)
+    key_material = _create_node_config(config_path, node_address, identity_proxy_url, body.owner_identity, body.passphrase, body.handle)
 
     try:
         app.state.do_initialize(body.passphrase)
@@ -123,7 +123,18 @@ def setup_new(body: NewBody, request: Request):
         raise HTTPException(500, "Failed to initialize after setup")
 
     _consume_token(app)
-    return {"status": "ok", "node_address": node_address}
+    return {
+        "status": "ok",
+        "node_address": node_address,
+        "node_key": {
+            "argon2_salt": key_material["argon2_salt"],
+            "argon2_time_cost": key_material["argon2_time_cost"],
+            "argon2_memory_cost": key_material["argon2_memory_cost"],
+            "argon2_parallelism": key_material["argon2_parallelism"],
+            "encrypted_private_key": key_material["encrypted_private_key"],
+        },
+        "internal_token": key_material["internal_token"],
+    }
 
 
 class UnlockBody(BaseModel):
@@ -185,13 +196,31 @@ async def setup_restore(request: Request, bundle: UploadFile = File(...), passph
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(zf.read(name))
 
+    # Ensure internal_token exists (may be absent in older backups)
+    store_path = Path(app.state.config_path).parent
+    config_path = store_path / "node_config.json"
+    config_data = json.loads(config_path.read_text())
+    if "internal_token" not in config_data:
+        config_data["internal_token"] = secrets.token_urlsafe(32)
+        config_path.write_text(json.dumps(config_data, indent=2))
+
     try:
         app.state.do_initialize(passphrase)
     except WrongPassphraseError:
         raise HTTPException(500, "Failed to initialize after restore")
 
     _consume_token(app)
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "node_key": {
+            "argon2_salt": config_data["argon2_salt"],
+            "argon2_time_cost": config_data.get("argon2_time_cost", 3),
+            "argon2_memory_cost": config_data.get("argon2_memory_cost", 65536),
+            "argon2_parallelism": config_data.get("argon2_parallelism", 4),
+            "encrypted_private_key": config_data["encrypted_private_key"],
+        },
+        "internal_token": config_data["internal_token"],
+    }
 
 
 def _create_node_config(
@@ -201,7 +230,7 @@ def _create_node_config(
     owner_identity: str,
     passphrase: str,
     handle: str,
-) -> None:
+) -> dict:
     """Generate keys, initialize DB, and write node_config.json."""
     import os as _os
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -228,6 +257,7 @@ def _create_node_config(
     init_schema(db_con)
     db_con.close()
 
+    internal_token = secrets.token_urlsafe(32)
     config = {
         "node_address": node_address,
         "store_path": str(store_path),
@@ -239,6 +269,15 @@ def _create_node_config(
         "watermark_enabled": False,
         "sso_owner_identity": owner_identity,
         "identity_proxy_url": identity_proxy_url,
+        "registry_handle": handle,
+        "internal_token": internal_token,
     }
-    config["registry_handle"] = handle
     config_path.write_text(json.dumps(config, indent=2))
+    return {
+        "argon2_salt": salt.hex(),
+        "argon2_time_cost": ARGON2_TIME_COST,
+        "argon2_memory_cost": ARGON2_MEMORY_COST,
+        "argon2_parallelism": ARGON2_PARALLELISM,
+        "encrypted_private_key": base64.b64encode(encrypted_privkey).decode(),
+        "internal_token": internal_token,
+    }

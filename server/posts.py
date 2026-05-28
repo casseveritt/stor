@@ -427,7 +427,7 @@ def _is_known_contact(db, server_url: str) -> bool:
 @router.get("/posts/{post_id}/comments")
 def fetch_post_comments(post_id: str, request: Request, identity: OptionalAuthDep):
     db = request.app.state.db
-    _require_post_access(db, post_id, identity)
+    _require_post_access(db, post_id, identity, request.headers.get("X-Origin-Server"))
     rows = db.execute(
         """SELECT c.id, c.content_hash, c.post_id, c.parent_id, c.author_recipient_id,
                   c.body, c.created_at, c.predecessor, c.successor, c.deleted,
