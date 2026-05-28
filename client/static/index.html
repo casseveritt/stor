@@ -1115,15 +1115,45 @@ async function _pollFeed() {
   const newestTs = allPosts[0]?.created_at || 0;
   const servers = activeServer ? [activeServer] : [CFG.own_server, ...(CFG.contacts || []).map(c => c.url)];
   let newCount = 0;
+  const updatedPosts = new Map(); // postId → updated post data
+
   await Promise.all(servers.map(async url => {
     try {
       const params = url !== CFG.own_server ? '?server=' + encodeURIComponent(url) : '';
-      const r = await apiFetch('/api/feed?limit=1' + (params ? '&' + params.slice(1) : ''));
+      const r = await apiFetch('/api/feed?limit=20' + (params ? '&' + params.slice(1) : ''));
       if (!r.ok) return;
       const d = await r.json();
-      if (d.posts?.[0]?.created_at > newestTs) newCount++;
+      for (const post of (d.posts || [])) {
+        if (post.created_at > newestTs) newCount++;
+        updatedPosts.set(post.id, post);
+      }
     } catch {}
   }));
+
+  // Update comment counts and reactions on all visible cards
+  document.querySelectorAll('.post-card[data-post-id]').forEach(card => {
+    const updated = updatedPosts.get(card.dataset.postId);
+    if (!updated) return;
+    const post = allPosts.find(p => p.id === updated.id);
+    if (post) { post.comment_count = updated.comment_count; post.reactions = updated.reactions; }
+    // update toggle label when panel is closed
+    const panel = card.querySelector('.comments-panel');
+    const toggle = card.querySelector('.comments-toggle');
+    if (panel?.hidden && toggle) {
+      const count = updated.comment_count || 0;
+      toggle.querySelector('.comments-toggle-label').textContent = count + ' comment' + (count !== 1 ? 's' : '');
+    }
+    // update post-level reaction bar
+    if (updated.reactions) {
+      const serverUrl = post?._server_url || CFG.own_server;
+      card.querySelectorAll(`.reaction-bar[data-post-id="${updated.id}"][data-comment-id=""]`).forEach(bar => {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = reactionBarHtml(updated.reactions, updated.id, serverUrl, '');
+        bar.replaceWith(tmp.firstChild);
+      });
+    }
+  });
+
   const banner = document.getElementById('new-posts-banner');
   if (newCount > 0) { banner.textContent = 'New posts available — click to refresh'; banner.hidden = false; }
 }
