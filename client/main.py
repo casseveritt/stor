@@ -196,8 +196,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         for t in tags: params_base.append(("tags", t))
 
         async def _fetch_one(url: str):
-            tok = _token(url)
-            if not tok:
+            if not _token(url) and url == config.own_server:
                 return []
             try:
                 async with httpx.AsyncClient() as hc:

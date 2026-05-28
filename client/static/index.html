@@ -17,6 +17,10 @@
     header { background: #1a1a1a; padding: 0.6rem 1rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2a2a2a; position: sticky; top: 0; z-index: 20; gap: 0.5rem; }
     .header-left  { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
     .header-right { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
+    .post-author { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; cursor: default; }
+    .post-author-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+    .post-author-initials { width: 20px; height: 20px; border-radius: 50%; background: #2a4a7a; display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: #aac8ff; flex-shrink: 0; }
+    .post-author-name { font-size: 0.8rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .logo { font-size: 1.1rem; font-weight: 600; color: #fff; }
     .logo-sep { color: #444; font-size: 1.1rem; font-weight: 300; margin: 0 -0.25rem; }
     #handle-display { font-size: 1.05rem; font-weight: 400; color: #aaa; }
@@ -392,6 +396,7 @@ let pendingFiles = [];
 let IS_OWNER = false;
 let serverStatuses = {};
 let serverHandles = {};
+let serverProfiles = {};
 
 // ── client session token ───────────────────────────────────────────────────
 function getClientToken() { return localStorage.getItem("contacc_client_session"); }
@@ -402,9 +407,19 @@ function apiHeaders(extra = {}) {
   const t = getClientToken();
   return t ? {"Authorization": "Bearer " + t, ...extra} : extra;
 }
-function apiFetch(url, opts = {}) {
+async function apiFetch(url, opts = {}) {
   opts.headers = {...apiHeaders(), ...(opts.headers || {})};
-  return fetch(url, opts);
+  let r = await fetch(url, opts);
+  if (r.status === 401) {
+    // Session may have been wiped by a server restart — try to re-bootstrap
+    const s = await fetch("/client/session", {method: "POST"});
+    if (s.ok) {
+      setClientToken((await s.json()).token);
+      opts.headers = {...apiHeaders(), ...(opts.headers || {})};
+      r = await fetch(url, opts);
+    }
+  }
+  return r;
 }
 
 function clientTokenParam(hasExistingQuery) {
@@ -567,6 +582,54 @@ async function fetchServerHandles() {
   }
 }
 
+async function fetchServerProfiles() {
+  const servers = [CFG.own_server, ...(CFG.contacts || []).map(c => c.url)];
+  await Promise.all(servers.map(async url => {
+    try {
+      const r = url === CFG.own_server
+        ? await apiFetch("/api/profile")
+        : await fetch(url + "/profile");
+      if (r.ok) {
+        serverProfiles[url] = await r.json();
+        document.querySelectorAll(".post-author").forEach(el => {
+          if (el.dataset.server === url) _renderAuthorInto(el, url);
+        });
+      }
+    } catch {}
+  }));
+}
+
+function _authorName(url) {
+  const p = serverProfiles[url];
+  if (p?.display_name) return p.display_name;
+  if (url === CFG.own_server) return "me";
+  return (CFG.contacts || []).find(c => c.url === url)?.name || url;
+}
+
+function _renderAuthorInto(el, url) {
+  const p = serverProfiles[url];
+  const name = _authorName(url);
+  const handle = p?.handle || serverHandles[url];
+  el.title = handle ? `@${handle}` : name;
+  el.innerHTML = "";
+  if (p?.photo_url) {
+    const img = document.createElement("img");
+    img.src = p.photo_url;
+    img.className = "post-author-avatar";
+    img.alt = name;
+    el.appendChild(img);
+  } else {
+    const init = document.createElement("div");
+    init.className = "post-author-initials";
+    init.textContent = name[0].toUpperCase();
+    el.appendChild(init);
+  }
+  const nameEl = document.createElement("span");
+  nameEl.className = "post-author-name";
+  nameEl.textContent = name;
+  el.appendChild(nameEl);
+}
+
 function setActiveServer(i) {
   if (i === -1) {
     activeServer = null;
@@ -689,6 +752,7 @@ async function loadFeed() {
   loadIdentity();
   loadTagSidebar();
   fetchServerHandles();
+  fetchServerProfiles();
   return true;
 }
 
@@ -737,12 +801,11 @@ function makePostCard(post, idx) {
   div.dataset.idx = idx;
   div.onclick = () => openDetail(idx);
 
-  if (post._server_name && post._server_name !== "me") {
-    const src = document.createElement("div");
-    src.className = "post-source";
-    src.textContent = post._server_name;
-    div.appendChild(src);
-  }
+  const author = document.createElement("div");
+  author.className = "post-author";
+  author.dataset.server = post._server_url;
+  _renderAuthorInto(author, post._server_url);
+  div.appendChild(author);
 
   const previewText = (post.body || "").replace(/\[asset:[0-9a-f-]+\]/g, "").trim();
   if (previewText) {
@@ -1011,7 +1074,7 @@ function openEdit(idx) {
   const post = allPosts[idx];
   document.getElementById("edit-body").value = post.body || "";
   document.getElementById("edit-tags").value = (post.tags || []).join(" ");
-  document.getElementById("edit-public").checked = !!post.is_public;
+  document.getElementById("edit-public").checked = !!post.public;
   document.getElementById("edit-status").innerHTML = "";
   document.getElementById("edit-submit").disabled = false;
   document.getElementById("edit-overlay").hidden = false;

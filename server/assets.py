@@ -152,6 +152,8 @@ def fetch_thumbnail(asset_id: str, request: Request, identity: OptionalAuthDep):
     from PIL import Image
     img = Image.open(io.BytesIO(content))
     img.thumbnail(THUMB_SIZE)
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
     buf = io.BytesIO()
     img.save(buf, format="JPEG")
     thumb_bytes = _apply_watermark_if_needed(buf.getvalue(), "image/jpeg", request, identity)

@@ -142,6 +142,10 @@ async def create_post(
         db.execute("INSERT OR IGNORE INTO post_assets (post_id, asset_id) VALUES (?, ?)", (post_id, aid))
     for tag in tags_list:
         db.execute("INSERT OR IGNORE INTO post_tags (post_id, tag) VALUES (?, ?)", (post_id, tag))
+    if is_public and all_ids:
+        db.execute(
+            f"UPDATE assets SET is_public = 1 WHERE id IN ({','.join('?'*len(all_ids))})", all_ids
+        )
     db.commit()
 
     row = db.execute(
@@ -275,6 +279,12 @@ def update_post(post_id: str, payload: _UpdatePostBody, request: Request, identi
 
     params.append(post_id)
     db.execute(f"UPDATE posts SET {', '.join(updates)} WHERE id = ?", params)
+
+    if payload.public is not None:
+        db.execute(
+            "UPDATE assets SET is_public = ? WHERE id IN (SELECT asset_id FROM post_assets WHERE post_id = ?)",
+            (int(payload.public), post_id),
+        )
 
     if payload.tags is not None:
         db.execute("DELETE FROM post_tags WHERE post_id = ?", (post_id,))
