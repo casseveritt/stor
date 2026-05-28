@@ -209,5 +209,13 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             photo_media_type  TEXT
         )
     """)
-    con.execute("INSERT OR IGNORE INTO schema_version VALUES (6)")
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS contacts (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            server_url TEXT NOT NULL UNIQUE,
+            name       TEXT,
+            handle     TEXT
+        )
+    """)
+    con.execute("INSERT OR IGNORE INTO schema_version VALUES (7)")
     con.commit()

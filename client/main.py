@@ -322,11 +322,12 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def api_post_comment(post_id: str, request: Request, server: str = ""):
         src = server or config.own_server
         payload = await request.json()
+        headers = {**_headers(src), "X-Origin-Server": config.own_server}
         async with httpx.AsyncClient() as hc:
             r = await hc.post(
                 src + f"/posts/{post_id}/comments",
                 json=payload,
-                headers=_headers(src),
+                headers=headers,
             )
         if not r.is_success:
             raise HTTPException(status_code=r.status_code)
@@ -437,6 +438,15 @@ def create_app(config_path: str | Path) -> FastAPI:
             raise HTTPException(status_code=409, detail="Contact with this URL already exists")
         config.contacts.append(ContactEntry(name=body.name, url=body.url, handle=body.handle))
         config.save(config_path)
+        # Sync to server so it can authorize inbound comments from this contact
+        if _token(config.own_server):
+            async with httpx.AsyncClient() as hc:
+                await hc.post(
+                    config.own_server + "/contacts",
+                    json={"server_url": body.url, "name": body.name, "handle": body.handle},
+                    headers=_headers(config.own_server),
+                    timeout=10.0,
+                )
         return {"name": body.name, "url": body.url, "handle": body.handle}
 
     @api.get("/backup")
@@ -460,12 +470,21 @@ def create_app(config_path: str | Path) -> FastAPI:
         )
 
     @api.delete("/contacts")
-    def api_remove_contact(url: str = Query(...)):
+    async def api_remove_contact(url: str = Query(...)):
         before = len(config.contacts)
         config.contacts = [c for c in config.contacts if c.url != url]
         if len(config.contacts) == before:
             raise HTTPException(status_code=404, detail="Contact not found")
         config.save(config_path)
+        # Sync removal to server
+        if _token(config.own_server):
+            async with httpx.AsyncClient() as hc:
+                await hc.delete(
+                    config.own_server + "/contacts",
+                    params={"server_url": url},
+                    headers=_headers(config.own_server),
+                    timeout=10.0,
+                )
         return {"ok": True}
 
     app.include_router(api)

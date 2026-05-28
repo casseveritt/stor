@@ -340,7 +340,7 @@ def _check_post_access(db, post_id: str, identity) -> bool:
     return False
 
 
-def _require_post_access(db, post_id: str, identity) -> None:
+def _require_post_access(db, post_id: str, identity, origin_server: str | None = None) -> None:
     row = db.execute("SELECT is_public, post_type FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
@@ -349,7 +349,14 @@ def _require_post_access(db, post_id: str, identity) -> None:
             raise HTTPException(status_code=404, detail="Post not found")
         if not row[0]:
             if not _check_post_access(db, post_id, identity):
-                raise HTTPException(status_code=403, detail="Access denied")
+                if not (origin_server and _is_known_contact(db, origin_server)):
+                    raise HTTPException(status_code=403, detail="Access denied")
+
+
+def _is_known_contact(db, server_url: str) -> bool:
+    return db.execute(
+        "SELECT 1 FROM contacts WHERE server_url = ?", (server_url,)
+    ).fetchone() is not None
 
 
 @router.get("/posts/{post_id}/comments")
@@ -385,7 +392,8 @@ class _CommentBody(BaseModel):
 @router.post("/posts/{post_id}/comments", status_code=201)
 def post_comment(post_id: str, payload: _CommentBody, request: Request, identity: OptionalAuthDep):
     db = request.app.state.db
-    _require_post_access(db, post_id, identity)
+    origin_server = request.headers.get("X-Origin-Server")
+    _require_post_access(db, post_id, identity, origin_server)
 
     if payload.parent_id:
         if db.execute(
@@ -398,6 +406,15 @@ def post_comment(post_id: str, payload: _CommentBody, request: Request, identity
     now = time.time()
     author_id = identity.recipient_id
 
+    author_identity = None
+    if author_id:
+        row = db.execute("SELECT identity FROM recipients WHERE id = ?", (author_id,)).fetchone()
+        if row:
+            author_identity = row[0]
+    elif origin_server:
+        row = db.execute("SELECT handle, name FROM contacts WHERE server_url = ?", (origin_server,)).fetchone()
+        author_identity = (f"@{row[0]}" if row and row[0] else row[1]) if row else origin_server
+
     db.execute(
         """INSERT INTO comments
              (id, content_hash, asset_id, post_id, parent_id, author_recipient_id,
@@ -406,12 +423,6 @@ def post_comment(post_id: str, payload: _CommentBody, request: Request, identity
         (comment_id, content_hash, post_id, payload.parent_id, author_id, payload.body, now),
     )
     db.commit()
-
-    author_identity = None
-    if author_id:
-        row = db.execute("SELECT identity FROM recipients WHERE id = ?", (author_id,)).fetchone()
-        if row:
-            author_identity = row[0]
 
     return {
         "id": comment_id, "content_hash": content_hash,
