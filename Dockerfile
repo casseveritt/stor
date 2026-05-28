@@ -23,5 +23,7 @@ ENV PATH="/venv/bin:$PATH"
 WORKDIR /app
 COPY . .
 
+RUN sed -i "s/__BUILD_ID__/$(date -u '+%Y-%m-%d %H:%M UTC')/g" /app/client/static/index.html
+
 # /data is mounted at runtime (server store or client config dir)
 VOLUME ["/data"]

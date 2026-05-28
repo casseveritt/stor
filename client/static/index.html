@@ -244,7 +244,7 @@
 <div id="feed-view" hidden>
   <header>
     <div class="header-left">
-      <img src="/static/favicon.svg" height="26" style="display:block;flex-shrink:0">
+      <img src="/static/favicon.svg" height="26" style="display:block;flex-shrink:0" title="build: __BUILD_ID__">
       <div id="profile-avatar-initials" onclick="openProfile()" title="Edit profile" hidden></div>
       <img id="profile-avatar" onclick="openProfile()" title="Edit profile" hidden>
       <span id="handle-display" onclick="filterOwnPosts()" title="Filter to my posts" style="cursor:pointer"></span>
@@ -565,6 +565,10 @@ async function loadProfileAvatar() {
       avatarImg.hidden = true;
     }
     document.getElementById("profile-display-name").value = p.display_name || "";
+    if (p.display_name) {
+      document.getElementById("handle-display").textContent = p.display_name;
+      document.title = p.display_name;
+    }
     const modalImg = document.getElementById("profile-modal-photo");
     const modalInit = document.getElementById("profile-modal-initials");
     if (p.photo_url) {
@@ -597,8 +601,8 @@ function renderServerList() {
     const globalIdx = (CFG.servers || []).indexOf(s);
     const status = serverStatuses[s.url] || "wait";
     const handle = serverHandles[s.url];
-    const label = handle ? `@${handle}` : esc(s.name);
     const prof = serverProfiles[s.url];
+    const label = prof?.display_name ? esc(prof.display_name) : (s.name && s.name !== s.url ? esc(s.name) : (handle ? `@${handle}` : esc(s.url)));
     const avatarHtml = prof && prof.photo_url
       ? `<img src="${esc(prof.photo_url)}" class="post-author-avatar" alt="">`
       : `<span class="post-author-initials">${esc((s.name||'?')[0].toUpperCase())}</span>`;
@@ -660,8 +664,10 @@ async function fetchServerProfiles() {
 function _authorName(url) {
   const p = serverProfiles[url];
   if (p?.display_name) return p.display_name;
+  if (p?.handle) return p.handle;
   if (url === CFG.own_server) return "me";
-  return (CFG.contacts || []).find(c => c.url === url)?.name || url;
+  const contact = (CFG.contacts || []).find(c => c.url === url);
+  return contact?.name || url;
 }
 
 function _renderAuthorInto(el, url) {
