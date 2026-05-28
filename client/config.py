@@ -31,15 +31,11 @@ class ClientConfig:
     @staticmethod
     def _bootstrap_own_server() -> str:
         import os
-        from urllib.parse import urlparse, urlunparse
-        client_url = os.environ.get("CONTACC_CLIENT_URL", "")
-        if client_url:
-            parsed = urlparse(client_url)
-            if parsed.port:
-                server_url = urlunparse(parsed._replace(netloc=f"{parsed.hostname}:{parsed.port - 1}"))
-                return server_url
+        server_url = os.environ.get("CONTACC_NODE_ADDRESS", "")
+        if server_url:
+            return server_url
         raise RuntimeError(
-            "No client_config.json and CONTACC_CLIENT_URL is not set — cannot bootstrap client config"
+            "No client_config.json and CONTACC_NODE_ADDRESS is not set — cannot bootstrap client config"
         )
 
     def save(self, path: str | Path) -> None:

@@ -2,8 +2,7 @@
 """Register or update a contacc node's handle in the registry.
 
 Usage (first time):
-    python tools/register_node.py /path/to/node_config.json --handle yourname \\
-        --client-url https://your.domain:8444
+    python tools/register_node.py /path/to/node_config.json --handle yourname
 
 Usage (update after moving):
     python tools/register_node.py /path/to/node_config.json --handle yourname --update
@@ -51,7 +50,6 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Register/update a contacc node handle")
     parser.add_argument("config", help="Path to node_config.json")
     parser.add_argument("--handle", required=True, help="Username to register (letters, digits, _ or -)")
-    parser.add_argument("--client-url", default="", help="URL of your contacc client aggregator")
     parser.add_argument("--ttl", type=int, default=14400, help="Cache TTL in seconds (default: 14400 = 4h)")
     parser.add_argument("--registry", default=REGISTRY_URL, help=f"Registry URL (default: {REGISTRY_URL})")
     parser.add_argument("--update", action="store_true", help="Update an existing registration")
@@ -66,16 +64,14 @@ def main() -> None:
     pub_key_b64 = base64.b64encode(pub_bytes).decode()
 
     server_url = config["node_address"]
-    client_url = args.client_url
     timestamp = int(time.time())
     action = "update" if args.update else "register"
 
-    msg = f"contacc:{action}:{args.handle}:{server_url}:{client_url}:{timestamp}"
+    msg = f"contacc:{action}:{args.handle}:{server_url}:{timestamp}"
     signature = base64.b64encode(private_key.sign(msg.encode())).decode()
 
     payload = {
         "server_url": server_url,
-        "client_url": client_url,
         "ttl": args.ttl,
         "timestamp": timestamp,
         "signature": signature,
@@ -92,7 +88,6 @@ def main() -> None:
         verb = "Updated" if args.update else "Registered"
         print(f"{verb}: {args.handle}")
         print(f"Server: {server_url}")
-        print(f"Client: {client_url or '(none)'}")
         print(f"TTL:    {data['ttl']}s ({data['ttl'] // 3600}h)")
     else:
         print(f"Error {r.status_code}: {r.text}", file=sys.stderr)

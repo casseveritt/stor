@@ -1,11 +1,11 @@
-"""contacc registry — global username → {server_url, client_url} directory.
+"""contacc registry — global username → server_url directory.
 
 DNS-like: entries carry a TTL; clients cache locally and re-query on expiry.
 All writes are authenticated with the node's Ed25519 private key via a
 signed canonical message that includes a timestamp to prevent replays.
 
 Signature message format:
-  "contacc:{action}:{username}:{server_url}:{client_url}:{timestamp}"
+  "contacc:{action}:{username}:{server_url}:{timestamp}"
   where action is "register" or "update"
 
 This service also acts as a shared identity proxy: nodes that don't have
@@ -66,23 +66,44 @@ def create_app(db_path: str) -> FastAPI:
         CREATE TABLE IF NOT EXISTS handles (
             username      TEXT PRIMARY KEY,
             server_url    TEXT NOT NULL,
-            client_url    TEXT NOT NULL,
             public_key    TEXT NOT NULL,
             ttl           INTEGER NOT NULL DEFAULT 14400,
             registered_at REAL NOT NULL,
-            updated_at    REAL NOT NULL
+            updated_at    REAL NOT NULL,
+            display_name  TEXT,
+            photo_url     TEXT
         )
     """)
+    # Migrate: drop client_url (was NOT NULL, recreate table to remove it)
     try:
-        con.execute("ALTER TABLE handles ADD COLUMN display_name TEXT")
+        con.execute(
+            "INSERT INTO handles (username, server_url, public_key, ttl, registered_at, updated_at)"
+            " VALUES ('__migration_probe__', '', '', 0, 0, 0)"
+        )
+        con.execute("DELETE FROM handles WHERE username = '__migration_probe__'")
         con.commit()
     except Exception:
-        pass
-    try:
-        con.execute("ALTER TABLE handles ADD COLUMN photo_url TEXT")
+        con.execute("ALTER TABLE handles RENAME TO _handles_v1")
+        con.execute("""
+            CREATE TABLE handles (
+                username      TEXT PRIMARY KEY,
+                server_url    TEXT NOT NULL,
+                public_key    TEXT NOT NULL,
+                ttl           INTEGER NOT NULL DEFAULT 14400,
+                registered_at REAL NOT NULL,
+                updated_at    REAL NOT NULL,
+                display_name  TEXT,
+                photo_url     TEXT
+            )
+        """)
+        con.execute("""
+            INSERT INTO handles
+              (username, server_url, public_key, ttl, registered_at, updated_at, display_name, photo_url)
+            SELECT username, server_url, public_key, ttl, registered_at, updated_at, display_name, photo_url
+            FROM _handles_v1
+        """)
+        con.execute("DROP TABLE _handles_v1")
         con.commit()
-    except Exception:
-        pass
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS proxy_states (
@@ -178,7 +199,7 @@ def create_app(db_path: str) -> FastAPI:
       if (r.status === 404) { err.textContent = "Handle not found."; return; }
       if (!r.ok) { err.textContent = "Registry error."; return; }
       const d = await r.json();
-      _profileUrl = d.client_url || d.server_url || null;
+      _profileUrl = d.server_url || null;
       const name = d.display_name || ("@" + handle);
       document.getElementById("profile-name").textContent = name;
       document.getElementById("profile-handle").textContent = "@" + handle;
@@ -213,12 +234,11 @@ def create_app(db_path: str) -> FastAPI:
     @app.get("/go/{username}")
     def go(username: str):
         row = con.execute(
-            "SELECT server_url, client_url FROM handles WHERE username = ?", (username,)
+            "SELECT server_url FROM handles WHERE username = ?", (username,)
         ).fetchone()
         if not row:
             return RedirectResponse(f"/?handle={username}", status_code=302)
-        server_url, client_url = row
-        return RedirectResponse(client_url or server_url, status_code=302)
+        return RedirectResponse(row[0], status_code=302)
 
     @app.get("/health")
     def health():
@@ -229,16 +249,15 @@ def create_app(db_path: str) -> FastAPI:
     @app.get("/lookup/{username}")
     def lookup(username: str):
         row = con.execute(
-            "SELECT server_url, client_url, public_key, ttl, updated_at, display_name, photo_url "
+            "SELECT server_url, public_key, ttl, updated_at, display_name, photo_url "
             "FROM handles WHERE username = ?", (username,)
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Username not found")
-        server_url, client_url, public_key, ttl, updated_at, display_name, photo_url = row
+        server_url, public_key, ttl, updated_at, display_name, photo_url = row
         return {
             "username": username,
             "server_url": server_url,
-            "client_url": client_url,
             "public_key": public_key,
             "ttl": ttl,
             "updated_at": updated_at,
@@ -248,7 +267,6 @@ def create_app(db_path: str) -> FastAPI:
 
     class RegisterBody(BaseModel):
         server_url: str
-        client_url: str
         public_key: str
         ttl: int = DEFAULT_TTL
         timestamp: int
@@ -263,7 +281,7 @@ def create_app(db_path: str) -> FastAPI:
                                 detail="Username must be 1–32 chars: letters, digits, _ or -")
         _check_timestamp(body.timestamp)
         ttl = _clamp_ttl(body.ttl)
-        msg = f"contacc:register:{username}:{body.server_url}:{body.client_url}:{body.timestamp}"
+        msg = f"contacc:register:{username}:{body.server_url}:{body.timestamp}"
         if not _verify_sig(body.public_key, msg, body.signature):
             raise HTTPException(status_code=401, detail="Invalid signature")
         if con.execute("SELECT 1 FROM handles WHERE username = ?", (username,)).fetchone():
@@ -271,9 +289,9 @@ def create_app(db_path: str) -> FastAPI:
         now = time.time()
         con.execute(
             "INSERT INTO handles "
-            "(username, server_url, client_url, public_key, ttl, registered_at, updated_at, display_name, photo_url) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (username, body.server_url, body.client_url, body.public_key, ttl, now, now,
+            "(username, server_url, public_key, ttl, registered_at, updated_at, display_name, photo_url) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (username, body.server_url, body.public_key, ttl, now, now,
              body.display_name, body.photo_url),
         )
         con.commit()
@@ -281,7 +299,6 @@ def create_app(db_path: str) -> FastAPI:
 
     class UpdateBody(BaseModel):
         server_url: str
-        client_url: str
         ttl: int = DEFAULT_TTL
         timestamp: int
         signature: str
@@ -297,13 +314,13 @@ def create_app(db_path: str) -> FastAPI:
         if not row:
             raise HTTPException(status_code=404, detail="Username not found")
         ttl = _clamp_ttl(body.ttl)
-        msg = f"contacc:update:{username}:{body.server_url}:{body.client_url}:{body.timestamp}"
+        msg = f"contacc:update:{username}:{body.server_url}:{body.timestamp}"
         if not _verify_sig(row[0], msg, body.signature):
             raise HTTPException(status_code=401, detail="Invalid signature")
         con.execute(
-            "UPDATE handles SET server_url=?, client_url=?, ttl=?, updated_at=?, display_name=?, photo_url=? "
+            "UPDATE handles SET server_url=?, ttl=?, updated_at=?, display_name=?, photo_url=? "
             "WHERE username=?",
-            (body.server_url, body.client_url, ttl, time.time(), body.display_name, body.photo_url, username),
+            (body.server_url, ttl, time.time(), body.display_name, body.photo_url, username),
         )
         con.commit()
         return {"username": username, "ttl": ttl}

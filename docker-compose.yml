@@ -28,7 +28,7 @@ services:
   client:
     <<: *client
     environment:
-      CONTACC_CLIENT_URL: https://${CONTACC_DOMAIN}:8444
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
     volumes:
       - ${CONTACC_DATA_DIR}/client:/data
     depends_on: [server]
@@ -48,7 +48,7 @@ services:
     <<: *client
     profiles: [slot2]
     environment:
-      CONTACC_CLIENT_URL: https://${CONTACC_DOMAIN}:8446
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8445
     volumes:
       - ${CONTACC_DATA_DIR}/client-2:/data
     depends_on: [server-2]
@@ -68,7 +68,7 @@ services:
     <<: *client
     profiles: [slot3]
     environment:
-      CONTACC_CLIENT_URL: https://${CONTACC_DOMAIN}:8448
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8447
     volumes:
       - ${CONTACC_DATA_DIR}/client-3:/data
     depends_on: [server-3]
@@ -88,7 +88,7 @@ services:
     <<: *client
     profiles: [slot4]
     environment:
-      CONTACC_CLIENT_URL: https://${CONTACC_DOMAIN}:8450
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8449
     volumes:
       - ${CONTACC_DATA_DIR}/client-4:/data
     depends_on: [server-4]
@@ -108,7 +108,7 @@ services:
     <<: *client
     profiles: [slot5]
     environment:
-      CONTACC_CLIENT_URL: https://${CONTACC_DOMAIN}:8452
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8451
     volumes:
       - ${CONTACC_DATA_DIR}/client-5:/data
     depends_on: [server-5]
@@ -128,7 +128,7 @@ services:
     <<: *client
     profiles: [slot6]
     environment:
-      CONTACC_CLIENT_URL: https://${CONTACC_DOMAIN}:8454
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8453
     volumes:
       - ${CONTACC_DATA_DIR}/client-6:/data
     depends_on: [server-6]
@@ -148,7 +148,7 @@ services:
     <<: *client
     profiles: [slot7]
     environment:
-      CONTACC_CLIENT_URL: https://${CONTACC_DOMAIN}:8456
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8455
     volumes:
       - ${CONTACC_DATA_DIR}/client-7:/data
     depends_on: [server-7]
@@ -168,7 +168,7 @@ services:
     <<: *client
     profiles: [slot8]
     environment:
-      CONTACC_CLIENT_URL: https://${CONTACC_DOMAIN}:8458
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8457
     volumes:
       - ${CONTACC_DATA_DIR}/client-8:/data
     depends_on: [server-8]
@@ -188,7 +188,7 @@ services:
     <<: *client
     profiles: [slot9]
     environment:
-      CONTACC_CLIENT_URL: https://${CONTACC_DOMAIN}:8460
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8459
     volumes:
       - ${CONTACC_DATA_DIR}/client-9:/data
     depends_on: [server-9]
@@ -208,7 +208,7 @@ services:
     <<: *client
     profiles: [slot10]
     environment:
-      CONTACC_CLIENT_URL: https://${CONTACC_DOMAIN}:8462
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8461
     volumes:
       - ${CONTACC_DATA_DIR}/client-10:/data
     depends_on: [server-10]
@@ -235,29 +235,19 @@ services:
       - "80:80"
       - "8421:8421"
       - "8443:8443"
-      - "8444:8444"
       - "8445:8445"
-      - "8446:8446"
       - "8447:8447"
-      - "8448:8448"
       - "8449:8449"
-      - "8450:8450"
       - "8451:8451"
-      - "8452:8452"
       - "8453:8453"
-      - "8454:8454"
       - "8455:8455"
-      - "8456:8456"
       - "8457:8457"
-      - "8458:8458"
       - "8459:8459"
-      - "8460:8460"
       - "8461:8461"
-      - "8462:8462"
     environment:
       CONTACC_DOMAIN: ${CONTACC_DOMAIN}
     volumes:
-      - ${CONTACC_CADDYFILE:-./deploy/Caddyfile}:/etc/caddy/Caddyfile:ro
+      - ${CADDY_CONFIG:-./deploy/Caddyfile}:/etc/caddy/Caddyfile:ro
       - ${CONTACC_DATA_DIR}/caddy:/data
       - ${CONTACC_DATA_DIR}/caddy-config:/config
     depends_on:

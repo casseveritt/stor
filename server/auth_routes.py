@@ -16,8 +16,8 @@ router = APIRouter(prefix="/auth")
 def _callback_uri(request: Request) -> str:
     node_address = getattr(request.app.state, "node_address", None)
     if node_address:
-        return node_address.rstrip("/") + "/auth/callback"
-    return str(request.base_url).rstrip("/") + "/auth/callback"
+        return node_address.rstrip("/") + "/auth/sso/callback"
+    return str(request.base_url).rstrip("/") + "/auth/sso/callback"
 
 
 @router.get("/login")
@@ -40,7 +40,7 @@ def login(request: Request, provider: str = "google", return_to: str = ""):
     raise HTTPException(status_code=400, detail=f"Unknown provider: {provider}")
 
 
-@router.get("/callback")
+@router.get("/sso/callback")
 def callback(request: Request, code: str = None, state: str = None, proxy_token: str = None):
     db = request.app.state.db
 

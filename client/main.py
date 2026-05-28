@@ -74,12 +74,7 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     @app.get("/client/login-url")
     async def client_login_url(request: Request):
-        # CONTACC_CLIENT_URL overrides request.base_url so the return_to link
-        # uses the correct public https:// address even behind a reverse proxy.
-        import os
-        public_base = (os.environ.get("CONTACC_CLIENT_URL")
-                       or str(request.base_url)).rstrip("/")
-        return_to = public_base + "/auth/callback"
+        return_to = config.own_server.rstrip("/") + "/auth/callback"
         server_login = (config.own_server + "/auth/login?provider=google&return_to="
                         + return_to)
         async with httpx.AsyncClient() as hc:
@@ -423,7 +418,6 @@ def create_app(config_path: str | Path) -> FastAPI:
             "handle": handle,
             "name": record.get("display_name") or handle,
             "server_url": record["server_url"],
-            "client_url": record.get("client_url", ""),
             "display_name": record.get("display_name"),
             "photo_url": record.get("photo_url"),
         }
@@ -491,35 +485,7 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     app.include_router(api)
 
-    # ── setup proxy (no client auth — server not initialized yet) ─────────
-
-    async def _fwd(method: str, path: str, **kwargs) -> JSONResponse:
-        try:
-            async with httpx.AsyncClient() as hc:
-                r = await hc.request(method, config.own_server + path, timeout=30, **kwargs)
-            return JSONResponse(content=r.json(), status_code=r.status_code)
-        except httpx.RequestError as exc:
-            raise HTTPException(502, f"Could not reach server: {exc}")
-
-    @app.get("/node")
-    async def proxy_node():
-        return await _fwd("GET", "/node")
-
-    @app.get("/setup/status")
-    async def proxy_setup_status():
-        return await _fwd("GET", "/setup/status")
-
-    @app.get("/setup/check-handle")
-    async def proxy_check_handle(handle: str):
-        return await _fwd("GET", f"/setup/check-handle?handle={handle}")
-
-    @app.post("/setup/new")
-    async def proxy_setup_new(request: Request):
-        return await _fwd("POST", "/setup/new", json=await request.json())
-
-    @app.post("/setup/unlock")
-    async def proxy_setup_unlock(request: Request):
-        return await _fwd("POST", "/setup/unlock", json=await request.json())
+    # ── setup restore proxy (client extracts client_config.json from bundle) ──
 
     @app.post("/setup/restore")
     async def proxy_setup_restore(bundle: UploadFile = File(...), passphrase: str = Form(...), setup_token: str = Form(...)):
