@@ -386,6 +386,21 @@ def create_app(config_path: str | Path) -> FastAPI:
             raise HTTPException(status_code=r.status_code)
         return r.json()
 
+    @api.post("/posts/{post_id}/react")
+    async def api_react(post_id: str, request: Request, server: str = ""):
+        src = server or config.own_server
+        payload = await request.json()
+        headers = {**_headers(src), "X-Origin-Server": config.own_server}
+        async with httpx.AsyncClient() as hc:
+            r = await hc.post(
+                _call_url(src) + f"/posts/{post_id}/react",
+                json=payload,
+                headers=headers,
+            )
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code)
+        return r.json()
+
     # ── assets ────────────────────────────────────────────────────────────
 
     @api.get("/assets/{asset_id}/thumb")

@@ -32,6 +32,7 @@ from . import posts as posts_module
 from . import setup as setup_module
 from . import profile as profile_module
 from . import contacts as contacts_module
+from . import reactions as reactions_module
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("contacc")
@@ -186,6 +187,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     app.include_router(posts_module.router)
     app.include_router(profile_module.router)
     app.include_router(contacts_module.router)
+    app.include_router(reactions_module.router)
 
     static_dir = Path(__file__).parent / "static"
 

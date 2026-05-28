@@ -111,6 +111,17 @@
     .comment-form textarea:focus { border-color: #4285f4; }
     .comment-form-footer { display: flex; justify-content: flex-end; margin-top: 0.4rem; }
 
+    /* ── reactions ── */
+    .reaction-bar { display: flex; flex-wrap: wrap; gap: 0.3rem; margin-top: 0.5rem; align-items: center; }
+    .reaction-btn { display: inline-flex; align-items: center; gap: 0.25rem; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 12px; padding: 2px 8px; font-size: 0.82rem; cursor: pointer; color: #aaa; line-height: 1.4; }
+    .reaction-btn:hover { background: #333; border-color: #555; }
+    .reaction-btn.reacted { background: #1e2d4a; border-color: #4285f4; color: #6aa3f5; }
+    .reaction-add { background: none; border: 1px solid #333; border-radius: 12px; padding: 2px 8px; font-size: 0.82rem; cursor: pointer; color: #555; line-height: 1.4; }
+    .reaction-add:hover { color: #aaa; border-color: #555; }
+    .emoji-picker { display: flex; gap: 0.3rem; background: #252525; border: 1px solid #3a3a3a; border-radius: 8px; padding: 0.4rem; margin-top: 0.3rem; flex-wrap: wrap; max-width: 260px; }
+    .emoji-pick-btn { background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 3px 5px; border-radius: 4px; line-height: 1; }
+    .emoji-pick-btn:hover { background: #3a3a3a; }
+
     /* ── compose ── */
     #compose-modal { min-width: min(90vw, 560px); }
     #compose-body-wrap { position: relative; margin-bottom: 0.75rem; }
@@ -867,6 +878,77 @@ async function loadMore(allowLoginRedirect = false) {
   return true;
 }
 
+// ── reactions ──────────────────────────────────────────────────────────────
+const REACTION_EMOJI = ['👍', '👎', '❤️', '😄', '😮', '😢', '🎉'];
+
+function _setReactorTitle(btn) {
+  if (btn.title) return;
+  const reactors = JSON.parse(btn.dataset.reactors || '[]');
+  const serverUrl = btn.dataset.server || CFG.own_server;
+  btn.title = reactors.map(id => _reactorName(id, serverUrl)).join(', ') || '…';
+}
+
+function _reactorName(identity, postServerUrl) {
+  if (!identity) {
+    const prof = serverProfiles[postServerUrl || CFG.own_server] || {};
+    return prof.display_name || prof.handle || 'Owner';
+  }
+  const prof = serverProfiles[identity] || {};
+  if (prof.display_name) return prof.display_name;
+  if (prof.handle) return prof.handle;
+  const contact = (CFG.contacts || []).find(c => c.url === identity);
+  if (contact?.name) return contact.name;
+  try { return new URL(identity).host; } catch {}
+  return identity;
+}
+
+function reactionBarHtml(reactions, postId, serverUrl, commentId) {
+  const cid = commentId || '';
+  const btns = (reactions || []).map(r => {
+    const cls = r.reacted ? 'reaction-btn reacted' : 'reaction-btn';
+    const reactorsJson = esc(JSON.stringify(r.reactors || []));
+    return `<button class="${cls}" data-reactors="${reactorsJson}" data-server="${esc(serverUrl)}" onmouseenter="_setReactorTitle(this)" onclick="event.stopPropagation();toggleReaction('${esc(postId)}','${esc(serverUrl)}','${r.emoji}','${esc(cid)}',this)">${r.emoji} <span>${r.count}</span></button>`;
+  }).join('');
+  const add = `<button class="reaction-add" onclick="event.stopPropagation();showEmojiPicker(event,'${esc(postId)}','${esc(serverUrl)}','${esc(cid)}')" title="Add reaction">+</button>`;
+  return `<div class="reaction-bar" data-post-id="${esc(postId)}" data-server="${esc(serverUrl)}" data-comment-id="${esc(cid)}">${btns}${add}</div>`;
+}
+
+function showEmojiPicker(event, postId, serverUrl, commentId) {
+  document.querySelectorAll('.emoji-picker').forEach(p => p.remove());
+  const bar = event.target.closest('.reaction-bar');
+  if (!bar) return;
+  const picker = document.createElement('div');
+  picker.className = 'emoji-picker';
+  for (const emoji of REACTION_EMOJI) {
+    const b = document.createElement('button');
+    b.className = 'emoji-pick-btn';
+    b.textContent = emoji;
+    b.onclick = e => { e.stopPropagation(); picker.remove(); toggleReaction(postId, serverUrl, emoji, commentId, null); };
+    picker.appendChild(b);
+  }
+  bar.insertAdjacentElement('afterend', picker);
+  setTimeout(() => document.addEventListener('click', function close() {
+    picker.remove(); document.removeEventListener('click', close);
+  }, {once: true}), 0);
+}
+
+async function toggleReaction(postId, serverUrl, emoji, commentId, _btn) {
+  const params = serverUrl !== CFG.own_server ? '?server=' + encodeURIComponent(serverUrl) : '';
+  const r = await apiFetch('/api/posts/' + postId + '/react' + params, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({emoji, comment_id: commentId || ''}),
+  });
+  if (!r.ok) return;
+  const data = await r.json();
+  const cid = commentId || '';
+  document.querySelectorAll(`.reaction-bar[data-post-id="${postId}"][data-comment-id="${cid}"]`).forEach(bar => {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = reactionBarHtml(data.reactions, postId, serverUrl, cid);
+    bar.replaceWith(tmp.firstChild);
+  });
+}
+
 // ── post card ──────────────────────────────────────────────────────────────
 function makePostCard(post, idx) {
   const div = document.createElement("div");
@@ -923,6 +1005,9 @@ function makePostCard(post, idx) {
   const visHtml = visIcon ? '<span title="' + esc(post.visibility || "") + (commentLock ? "; comments: contacts" : "") + '" style="font-size:0.82rem;opacity:0.7">' + visIcon + commentLock + '</span>' : '';
   foot.innerHTML = tagHtml + visHtml + '<span class="post-date" style="margin-left:auto">' + dateFmt + '</span>';
   div.appendChild(foot);
+  const rbarWrap = document.createElement('div');
+  rbarWrap.innerHTML = reactionBarHtml(post.reactions || [], post.id, post._server_url, '');
+  div.appendChild(rbarWrap.firstChild);
   return div;
 }
 
@@ -1014,6 +1099,7 @@ function renderDetail(post) {
     + (tagHtml ? '<div style="margin-top:0.4rem">' + tagHtml + '</div>' : '')
     + '<div style="margin-top:0.4rem">' + dateFmt + '</div>'
     + '</div>'
+    + reactionBarHtml(post.reactions || [], post.id, post._server_url, '')
     + ownerControls
     + '<div id="comments-section" class="comments"><div class="comments-header" style="color:#555">Loading…</div></div>';
 }
@@ -1082,6 +1168,7 @@ function renderComments(post, comments) {
       + '<div class="comment-author" style="display:flex;align-items:center;gap:0.4rem">' + avatar + '<span>' + esc(au.name) + '</span></div>'
       + '<div class="comment-body">' + esc(c.body) + '</div>'
       + '<div class="comment-foot">' + fmtDate(c.created_at) + '</div>'
+      + reactionBarHtml(c.reactions || [], post.id, post._server_url, c.id)
       + (replies.length ? '<div class="comment-replies">' + replies.map(r => renderOne(r, depth+1)).join("") + '</div>' : '')
       + '</div>';
   }

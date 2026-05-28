@@ -73,7 +73,8 @@ _VALID_VISIBILITY = ("private", "contacts", "authenticated", "public")
 _VALID_COMMENT_ACCESS = ("contacts", "authenticated", "public")
 
 
-def _post_dict(row, db) -> dict:
+def _post_dict(row, db, viewer: str = "") -> dict:
+    from .reactions import get_reactions
     id_, body, created_at, tags_json, visibility, comment_access, deleted, post_type = row
     assets = _get_post_assets(db, id_, body)
     return {
@@ -88,6 +89,7 @@ def _post_dict(row, db) -> dict:
         "assets": assets,
         "comment_count": _comment_count(db, id_),
         "deleted": bool(deleted),
+        "reactions": get_reactions(db, id_, "", viewer),
     }
 
 
@@ -256,6 +258,7 @@ def get_posts(
         params.extend(tags)
         params.append(len(tags))
 
+    viewer = "" if identity.is_owner else (request.headers.get("X-Origin-Server", "") or "__anon__")
     where = " AND ".join(conditions)
     rows = db.execute(
         f"SELECT {_POST_COLS} FROM posts p WHERE {where} ORDER BY p.created_at DESC LIMIT ?",
@@ -264,7 +267,7 @@ def get_posts(
 
     has_more = len(rows) > limit
     rows = rows[:limit]
-    result: dict = {"posts": [_post_dict(r, db) for r in rows]}
+    result: dict = {"posts": [_post_dict(r, db, viewer) for r in rows]}
     if has_more:
         result["next_cursor"] = str(rows[-1][2])
     return result
@@ -295,7 +298,8 @@ def get_post(post_id: str, request: Request, identity: OptionalAuthDep):
             passes = is_authenticated if visibility == "authenticated" else is_contact
             if not passes and not _check_post_access(db, post_id, identity):
                 raise HTTPException(status_code=403, detail="Access denied")
-    return _post_dict(row, db)
+    viewer = "" if identity.is_owner else (request.headers.get("X-Origin-Server", "") or "__anon__")
+    return _post_dict(row, db, viewer)
 
 
 class _UpdatePostBody(BaseModel):
@@ -426,6 +430,7 @@ def _is_known_contact(db, server_url: str) -> bool:
 
 @router.get("/posts/{post_id}/comments")
 def fetch_post_comments(post_id: str, request: Request, identity: OptionalAuthDep):
+    from .reactions import get_reactions
     db = request.app.state.db
     _require_post_access(db, post_id, identity, request.headers.get("X-Origin-Server"))
     rows = db.execute(
@@ -437,6 +442,7 @@ def fetch_post_comments(post_id: str, request: Request, identity: OptionalAuthDe
            WHERE c.post_id = ? ORDER BY c.created_at ASC""",
         (post_id,),
     ).fetchall()
+    viewer = "" if identity.is_owner else (request.headers.get("X-Origin-Server", "") or "__anon__")
     comments = []
     for row in rows:
         id_, ch, pid, parent_id, author_id, body, created_at, pred, succ, deleted, author_identity = row
@@ -445,6 +451,7 @@ def fetch_post_comments(post_id: str, request: Request, identity: OptionalAuthDe
             "author_recipient_id": author_id, "author_identity": author_identity,
             "body": None if deleted else body, "deleted": bool(deleted),
             "created_at": created_at, "predecessor": pred, "successor": succ,
+            "reactions": get_reactions(db, post_id, id_, viewer),
         })
     return {"post_id": post_id, "comments": comments}
 

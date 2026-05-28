@@ -247,3 +247,17 @@ def init_schema(con: sqlcipher3.Connection) -> None:
     except Exception:
         con.execute("ALTER TABLE contacts ADD COLUMN public_key TEXT")
         con.commit()
+
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS reactions (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id          TEXT NOT NULL,
+            comment_id       TEXT NOT NULL DEFAULT '',
+            emoji            TEXT NOT NULL,
+            reactor_identity TEXT NOT NULL DEFAULT '',
+            created_at       REAL NOT NULL,
+            UNIQUE(post_id, comment_id, emoji, reactor_identity)
+        )
+    """)
+    con.execute("INSERT OR IGNORE INTO schema_version VALUES (8)")
+    con.commit()
