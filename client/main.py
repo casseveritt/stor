@@ -218,14 +218,17 @@ def create_app(config_path: str | Path) -> FastAPI:
         if server:
             # single-server fetch
             src = server
-            if not _token(src):
+            is_own = src == config.own_server
+            if is_own and not _token(src):
                 raise HTTPException(status_code=401, detail="Not authenticated for this server")
             params: list[tuple[str, str]] = [("limit", str(limit))]
             if cursor: params.append(("cursor", cursor))
             if q: params.append(("q", q))
             for t in tags: params.append(("tags", t))
+            fetch_headers = {**_headers(src), "X-Origin-Server": config.own_server}
+            fetch_url = _server if is_own else src
             async with httpx.AsyncClient() as hc:
-                r = await hc.get(src + "/posts", params=params, headers=_headers(src))
+                r = await hc.get(fetch_url + "/posts", params=params, headers=fetch_headers, timeout=10.0)
             if not r.is_success:
                 raise HTTPException(status_code=r.status_code)
             data = r.json()
