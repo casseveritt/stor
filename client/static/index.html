@@ -356,6 +356,8 @@
         <button class="btn btn-primary btn-sm" onclick="saveProfileName()">Save</button>
       </div>
       <div id="profile-status" style="font-size:0.85rem;min-height:1.2em"></div>
+      <hr style="border:none;border-top:1px solid #2a2a2a;margin:0.5rem 0">
+      <button class="btn btn-muted btn-sm" style="width:100%" onclick="downloadBackup()">Download backup</button>
     </div>
   </div>
 </div>
@@ -1149,6 +1151,10 @@ function fmtSize(b) { if (b < 1024) return b + " B"; if (b < 1048576) return (b/
 // ── profile ────────────────────────────────────────────────────────────────
 function openProfile() { loadProfileAvatar(); document.getElementById("profile-overlay").hidden = false; }
 function closeProfile() { document.getElementById("profile-overlay").hidden = true; }
+
+function downloadBackup() {
+  window.location.href = "/api/backup" + clientTokenParam(false);
+}
 
 async function saveProfileName() {
   const name = document.getElementById("profile-display-name").value.trim();

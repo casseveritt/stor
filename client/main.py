@@ -406,6 +406,21 @@ def create_app(config_path: str | Path) -> FastAPI:
         config.save(config_path)
         return {"name": body.name, "url": body.url}
 
+    @api.get("/backup")
+    async def api_backup():
+        if not _token(config.own_server):
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        from fastapi.responses import Response as _Resp
+        async with httpx.AsyncClient() as hc:
+            r = await hc.get(config.own_server + "/backup", headers=_headers(config.own_server), timeout=120.0)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail="Backup failed")
+        return _Resp(
+            content=r.content,
+            media_type="application/zip",
+            headers={"Content-Disposition": "attachment; filename=contacc-backup.zip"},
+        )
+
     @api.delete("/contacts")
     def api_remove_contact(url: str = Query(...)):
         before = len(config.contacts)
