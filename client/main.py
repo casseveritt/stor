@@ -195,18 +195,52 @@ def create_app(config_path: str | Path) -> FastAPI:
         if q: params_base.append(("q", q))
         for t in tags: params_base.append(("tags", t))
 
+        async def _refresh_url(url: str) -> str | None:
+            """Look up handle in registry; update and return new URL if changed."""
+            contact = next((c for c in config.contacts if c.url == url), None)
+            if not contact or not contact.handle:
+                return None
+            try:
+                from registry.client import lookup as _lookup
+                record = await _lookup(contact.handle)
+                new_url = record.get("server_url") if record else None
+                if new_url and new_url != url:
+                    contact.url = new_url
+                    config.save(config_path)
+                    log.info("Contact %s URL updated: %s → %s", contact.handle, url, new_url)
+                    return new_url
+            except Exception:
+                pass
+            return None
+
         async def _fetch_one(url: str):
             if not _token(url) and url == config.own_server:
                 return []
             try:
                 async with httpx.AsyncClient() as hc:
                     r = await hc.get(url + "/posts", params=params_base, headers=_headers(url), timeout=10.0)
+                if r.is_success:
+                    data = r.json()
+                    name = _server_name(url)
+                    for post in data.get("posts", []):
+                        post["_server_url"] = url
+                        post["_server_name"] = name
+                    return data.get("posts", [])
+            except Exception:
+                pass
+            # Fetch failed — try refreshing the URL from the registry
+            new_url = await _refresh_url(url)
+            if not new_url:
+                return []
+            try:
+                async with httpx.AsyncClient() as hc:
+                    r = await hc.get(new_url + "/posts", params=params_base, headers=_headers(new_url), timeout=10.0)
                 if not r.is_success:
                     return []
                 data = r.json()
-                name = _server_name(url)
+                name = _server_name(new_url)
                 for post in data.get("posts", []):
-                    post["_server_url"] = url
+                    post["_server_url"] = new_url
                     post["_server_name"] = name
                 return data.get("posts", [])
             except Exception:
@@ -396,15 +430,16 @@ def create_app(config_path: str | Path) -> FastAPI:
     class ContactBody(BaseModel):
         name: str
         url: str
+        handle: str | None = None
 
     @api.post("/contacts", status_code=201)
     def api_add_contact(body: ContactBody):
         from client.config import ContactEntry
         if any(c.url == body.url for c in config.contacts):
             raise HTTPException(status_code=409, detail="Contact with this URL already exists")
-        config.contacts.append(ContactEntry(name=body.name, url=body.url))
+        config.contacts.append(ContactEntry(name=body.name, url=body.url, handle=body.handle))
         config.save(config_path)
-        return {"name": body.name, "url": body.url}
+        return {"name": body.name, "url": body.url, "handle": body.handle}
 
     @api.get("/backup")
     async def api_backup():

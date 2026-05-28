@@ -8,6 +8,7 @@ from pathlib import Path
 class ContactEntry:
     name: str
     url: str
+    handle: str | None = None
 
 
 @dataclass

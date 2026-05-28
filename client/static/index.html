@@ -709,7 +709,7 @@ async function confirmAddContact() {
   const r = await apiFetch("/api/contacts", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({name, url: _pendingContact.server_url}),
+    body: JSON.stringify({name, url: _pendingContact.server_url, handle: _pendingContact.handle || null}),
   });
   if (r.status === 409) { err.textContent = "Already in your contacts."; return; }
   if (!r.ok) { err.textContent = "Failed to add contact."; return; }
