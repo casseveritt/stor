@@ -997,7 +997,7 @@ function renderComments(post, comments) {
   function renderOne(c, depth) {
     const replies = byParent[c.id] || [];
     return '<div class="comment">'
-      + '<div class="comment-author">' + esc(c.author_identity || "owner") + '</div>'
+      + '<div class="comment-author">' + esc(c.author_identity || "(owner)") + '</div>'
       + '<div class="comment-body">' + esc(c.body) + '</div>'
       + '<div class="comment-foot">' + fmtDate(c.created_at) + '</div>'
       + (replies.length ? '<div class="comment-replies">' + replies.map(r => renderOne(r, depth+1)).join("") + '</div>' : '')
@@ -1012,7 +1012,7 @@ function renderComments(post, comments) {
     + roots.map(c => renderOne(c, 0)).join("")
     + '<div class="comment-form">'
     + '<textarea id="comment-input" placeholder="Add a comment…"></textarea>'
-    + '<div class="comment-form-footer"><button class="btn btn-primary btn-sm" onclick="submitComment(\'' + post.id + '\',\'' + esc(post._server_url) + '\')">Post</button></div>'
+    + '<div class="comment-form-footer"><button class="btn btn-primary btn-sm" onclick="submitComment(\'' + post.id + '\',\'' + esc(post._server_url) + '\')">Post</button><span id="comment-error" style="color:#e06c6c;font-size:0.82rem;margin-left:0.5rem"></span></div>'
     + '</div>';
 }
 
@@ -1026,7 +1026,13 @@ async function submitComment(postId, serverUrl) {
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({body}),
   });
-  if (r.ok) { loadComments(allPosts[currentIdx]); }
+  if (r.ok) {
+    if (input) input.value = "";
+    loadComments(allPosts[currentIdx]);
+  } else {
+    const errEl = document.getElementById("comment-error");
+    if (errEl) errEl.textContent = r.status === 403 ? "Access denied — post may be private." : "Failed to post comment.";
+  }
 }
 
 // ── compose ────────────────────────────────────────────────────────────────

@@ -321,8 +321,6 @@ def create_app(config_path: str | Path) -> FastAPI:
     @api.post("/posts/{post_id}/comments")
     async def api_post_comment(post_id: str, request: Request, server: str = ""):
         src = server or config.own_server
-        if not _token(src):
-            raise HTTPException(status_code=401, detail="Not authenticated")
         payload = await request.json()
         async with httpx.AsyncClient() as hc:
             r = await hc.post(
