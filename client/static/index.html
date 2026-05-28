@@ -62,12 +62,9 @@
     .empty { color: #555; text-align: center; padding: 3rem; }
 
     /* ── post card ── */
-    .post-card { background: #1e1e1e; border-radius: 8px; padding: 1rem; cursor: pointer; transition: background 0.1s; border: 2px solid transparent; }
-    .post-card:hover { background: #232323; }
-    .post-card.active-card { border-color: #4285f4; }
+    .post-card { background: #1e1e1e; border-radius: 8px; padding: 1rem; transition: background 0.1s; border: 1px solid #2a2a2a; }
     .post-source { font-size: 0.72rem; color: #555; margin-bottom: 0.4rem; }
-    .post-body-preview { font-size: 0.92rem; color: #ccc; line-height: 1.5; white-space: pre-wrap; word-break: break-word;
-      display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+    .post-body { font-size: 0.92rem; color: #ccc; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
     .post-thumbs { display: flex; gap: 4px; margin-top: 0.6rem; overflow-x: auto; }
     .post-thumb { width: 100px; height: 100px; object-fit: cover; border-radius: 4px; flex-shrink: 0; background: #2a2a2a; }
     .post-thumb-icon { width: 100px; height: 100px; display: flex; align-items: center; justify-content: center; font-size: 2rem; background: #2a2a2a; border-radius: 4px; flex-shrink: 0; }
@@ -98,6 +95,10 @@
     .tag-chip.active { background: #1e2d4a; color: #6aa3f5; }
 
     /* ── comments ── */
+    .comments-toggle { display: flex; align-items: center; gap: 0.35rem; padding: 0.45rem 0 0; margin-top: 0.5rem; border-top: 1px solid #252525; font-size: 0.8rem; color: #666; cursor: pointer; user-select: none; }
+    .comments-toggle:hover { color: #999; }
+    .comments-toggle-arrow { font-size: 0.65rem; transition: transform 0.15s; }
+    .comments-panel { padding-top: 0.75rem; }
     .comments { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid #2a2a2a; }
     .comments-header { font-size: 0.85rem; color: #777; margin-bottom: 0.75rem; }
     .comment { padding: 0.5rem 0; border-bottom: 1px solid #1a1a1a; }
@@ -436,7 +437,7 @@ let CFG = null;
 let activeServer = null;
 let activeTags = new Set();
 let allPosts = [];
-let currentIdx = -1;
+let currentIdx = -1; // used by openEdit only
 let nextCursor = null, currentSearch = null, searchTimer = null;
 let pendingFiles = [];
 let IS_OWNER = false;
@@ -957,7 +958,7 @@ function makePostCard(post, idx) {
   const div = document.createElement("div");
   div.className = "post-card";
   div.dataset.idx = idx;
-  div.onclick = () => openDetail(idx);
+  div.dataset.postId = post.id;
 
   const author = document.createElement("div");
   author.className = "post-author";
@@ -965,11 +966,11 @@ function makePostCard(post, idx) {
   _renderAuthorInto(author, post._server_url);
   div.appendChild(author);
 
-  const previewText = (post.body || "").replace(/\[asset:[0-9a-f-]+\]/g, "").trim();
-  if (previewText) {
+  const bodyText = (post.body || "").replace(/\[asset:[0-9a-f-]+\]/g, "").trim();
+  if (bodyText) {
     const p = document.createElement("div");
-    p.className = "post-body-preview";
-    p.textContent = previewText;
+    p.className = "post-body";
+    p.textContent = bodyText;
     div.appendChild(p);
   }
 
@@ -982,7 +983,6 @@ function makePostCard(post, idx) {
         img.className = "post-thumb loading";
         img.onload = img.onerror = () => img.classList.remove("loading");
         img.alt = ""; img.loading = "lazy";
-        // routed through client's proxy API
         const params = post._server_url !== CFG.own_server
           ? "?server=" + encodeURIComponent(post._server_url) : "";
         img.src = "/api/assets/" + asset.id + "/thumb" + params + clientTokenParam(!!params);
@@ -1006,42 +1006,44 @@ function makePostCard(post, idx) {
   const visIcon = {private: "🔒", contacts: "👥", authenticated: "🔑", public: "🌐"}[post.visibility] || "";
   const commentLock = post.visibility === "public" && post.comment_access === "contacts" ? "💬" : "";
   const visHtml = visIcon ? '<span title="' + esc(post.visibility || "") + (commentLock ? "; comments: contacts" : "") + '" style="font-size:0.82rem;opacity:0.7">' + visIcon + commentLock + '</span>' : '';
-  foot.innerHTML = tagHtml + visHtml + '<span class="post-date" style="margin-left:auto">' + dateFmt + '</span>';
+  let ownerHtml = "";
+  if (IS_OWNER && post._server_url === CFG.own_server) {
+    ownerHtml = '<button class="btn btn-muted btn-sm" style="margin-left:auto" onclick="openEdit(' + idx + ')">Edit</button>'
+      + '<button class="btn btn-sm" style="background:#5a1f1f;color:#e06c6c" onclick="confirmDelete(' + idx + ')">Delete</button>';
+  }
+  foot.innerHTML = tagHtml + visHtml + (ownerHtml || '<span style="margin-left:auto"></span>') + '<span class="post-date">' + dateFmt + '</span>';
   div.appendChild(foot);
+
   const rbarWrap = document.createElement('div');
   rbarWrap.innerHTML = reactionBarHtml(post.reactions || [], post.id, post._server_url, '');
   div.appendChild(rbarWrap.firstChild);
+
+  // comments toggle
+  const count = post.comment_count || 0;
+  const toggle = document.createElement("div");
+  toggle.className = "comments-toggle";
+  toggle.dataset.postId = post.id;
+  toggle.innerHTML = '<span class="comments-toggle-arrow">▶</span><span class="comments-toggle-label">'
+    + count + ' comment' + (count !== 1 ? 's' : '') + '</span>';
+  toggle.onclick = () => _toggleComments(post, div);
+  div.appendChild(toggle);
+
+  const panel = document.createElement("div");
+  panel.className = "comments-panel";
+  panel.dataset.postId = post.id;
+  panel.hidden = true;
+  div.appendChild(panel);
+
   return div;
 }
 
 // ── keyboard nav ───────────────────────────────────────────────────────────
 document.addEventListener("keydown", e => {
-  if (!document.getElementById("detail-overlay").hidden) {
-    if (e.key === "Escape") { closeDetail(); return; }
-    if (e.key === "ArrowLeft"  || e.key === "ArrowUp")   { e.preventDefault(); navigatePost(-1); }
-    if (e.key === "ArrowRight" || e.key === "ArrowDown")  { e.preventDefault(); navigatePost(1);  }
-  }
   if (!document.getElementById("compose-overlay").hidden && e.key === "Escape") closeCompose();
   if (!document.getElementById("edit-overlay").hidden && e.key === "Escape") closeEdit();
   if (!document.getElementById("profile-overlay").hidden && e.key === "Escape") closeProfile();
   if (!document.getElementById("add-contact-overlay").hidden && e.key === "Escape") closeAddContact();
 });
-
-function navigatePost(delta) {
-  const next = currentIdx + delta;
-  if (next < 0 || next >= allPosts.length) return;
-  openDetail(next);
-  if (next >= allPosts.length - 3 && nextCursor) loadMore();
-}
-
-function highlightCard(idx) {
-  document.querySelectorAll(".post-card.active-card").forEach(c => c.classList.remove("active-card"));
-  const card = document.querySelector(".post-card[data-idx='" + idx + "']");
-  if (card) card.classList.add("active-card");
-}
-
-// ── detail modal ───────────────────────────────────────────────────────────
-let currentPostId = null, currentPostServer = null;
 
 function renderPostBody(post) {
   const assetMap = {};
@@ -1071,12 +1073,14 @@ function renderPostBody(post) {
 // ── polling ────────────────────────────────────────────────────────────────
 const POLL_DETAIL_MS = 20_000;
 const POLL_FEED_MS   = 60_000;
-let _detailPollTimer = null;
 let _feedPollTimer   = null;
+let _detailPollTimer = null;
+const _openPanels    = new Map(); // postId → post
 
-function _startDetailPoll(post) {
+function _startDetailPoll() {
   clearInterval(_detailPollTimer);
-  _detailPollTimer = setInterval(() => _pollDetail(post), POLL_DETAIL_MS);
+  if (_openPanels.size === 0) return;
+  _detailPollTimer = setInterval(_pollOpenPanels, POLL_DETAIL_MS);
 }
 function _stopDetailPoll() {
   clearInterval(_detailPollTimer); _detailPollTimer = null;
@@ -1085,26 +1089,25 @@ function _startFeedPoll() {
   clearInterval(_feedPollTimer);
   _feedPollTimer = setInterval(_pollFeed, POLL_FEED_MS);
 }
-function _stopFeedPoll() {
-  clearInterval(_feedPollTimer); _feedPollTimer = null;
-}
 
-async function _pollDetail(post) {
-  if (document.hidden || currentPostId !== post.id) return;
-  // refresh comments (includes per-comment reactions)
-  loadComments(post);
-  // refresh post-level reactions
-  const params = post._server_url !== CFG.own_server ? '?server=' + encodeURIComponent(post._server_url) : '';
-  const r = await apiFetch('/api/posts/' + post.id + params);
-  if (!r.ok || currentPostId !== post.id) return;
-  const updated = await r.json();
-  if (!updated.reactions) return;
-  post.reactions = updated.reactions;
-  document.querySelectorAll(`.reaction-bar[data-post-id="${post.id}"][data-comment-id=""]`).forEach(bar => {
-    const tmp = document.createElement('div');
-    tmp.innerHTML = reactionBarHtml(updated.reactions, post.id, post._server_url, '');
-    bar.replaceWith(tmp.firstChild);
-  });
+async function _pollOpenPanels() {
+  if (document.hidden) return;
+  for (const [postId, post] of _openPanels) {
+    const panel = document.querySelector(`.comments-panel[data-post-id="${postId}"]`);
+    if (!panel || panel.hidden) continue;
+    _loadCommentsIntoPanel(post, panel);
+    const params = post._server_url !== CFG.own_server ? '?server=' + encodeURIComponent(post._server_url) : '';
+    const r = await apiFetch('/api/posts/' + postId + params);
+    if (!r.ok) continue;
+    const updated = await r.json();
+    if (!updated.reactions) continue;
+    post.reactions = updated.reactions;
+    document.querySelectorAll(`.reaction-bar[data-post-id="${postId}"][data-comment-id=""]`).forEach(bar => {
+      const tmp = document.createElement('div');
+      tmp.innerHTML = reactionBarHtml(updated.reactions, postId, post._server_url, '');
+      bar.replaceWith(tmp.firstChild);
+    });
+  }
 }
 
 async function _pollFeed() {
@@ -1122,10 +1125,7 @@ async function _pollFeed() {
     } catch {}
   }));
   const banner = document.getElementById('new-posts-banner');
-  if (newCount > 0) {
-    banner.textContent = 'New posts available — click to refresh';
-    banner.hidden = false;
-  }
+  if (newCount > 0) { banner.textContent = 'New posts available — click to refresh'; banner.hidden = false; }
 }
 
 function refreshFeed() {
@@ -1133,62 +1133,45 @@ function refreshFeed() {
   resetFeed();
 }
 
-function openDetail(idx) {
-  currentIdx = idx;
-  const post = allPosts[idx];
-  currentPostId = post.id;
-  currentPostServer = post._server_url;
-  highlightCard(idx);
-  renderDetail(post);
-  document.getElementById("nav-prev").hidden = idx <= 0;
-  document.getElementById("nav-next").hidden = idx >= allPosts.length - 1;
-  document.getElementById("detail-overlay").hidden = false;
-  loadComments(post);
-  _startDetailPoll(post);
-}
-
-function renderDetail(post) {
-  const tagHtml = (post.tags || []).map(t =>
-    '<button class="tag-chip' + (activeTags.has(t) ? " active" : "") + '" onclick="toggleTag(\'' + esc(t) + '\')">' + esc(t) + '</button>'
-  ).join("");
-  const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleString(undefined, {dateStyle:"short",timeStyle:"short"}) : "";
-  const srcLine = post._server_name && post._server_name !== "me"
-    ? '<div style="font-size:0.78rem;color:#555;margin-bottom:0.4rem">' + esc(post._server_name) + '</div>'
-    : "";
-  const ownerControls = IS_OWNER && post._server_url === CFG.own_server
-    ? '<div style="display:flex;gap:0.5rem;margin-top:0.75rem">'
-      + '<button class="btn btn-muted btn-sm" onclick="openEdit(' + currentIdx + ')">Edit</button>'
-      + '<button class="btn btn-sm" style="background:#5a1f1f;color:#e06c6c" onclick="confirmDelete(' + currentIdx + ')">Delete</button>'
-      + '</div>'
-    : "";
-  document.getElementById("detail-body").innerHTML =
-    srcLine
-    + '<div class="post-detail-body">' + renderPostBody(post) + '</div>'
-    + '<div class="modal-meta">'
-    + (tagHtml ? '<div style="margin-top:0.4rem">' + tagHtml + '</div>' : '')
-    + '<div style="margin-top:0.4rem">' + dateFmt + '</div>'
-    + '</div>'
-    + reactionBarHtml(post.reactions || [], post.id, post._server_url, '')
-    + ownerControls
-    + '<div id="comments-section" class="comments"><div class="comments-header" style="color:#555">Loading…</div></div>';
-}
-
-function closeDetail() {
-  _stopDetailPoll();
-  document.getElementById("detail-overlay").hidden = true;
-  highlightCard(-1);
-  currentIdx = -1; currentPostId = null; currentPostServer = null;
+// ── inline comments toggle ─────────────────────────────────────────────────
+function _toggleComments(post, cardEl) {
+  const panel = cardEl.querySelector('.comments-panel');
+  const toggle = cardEl.querySelector('.comments-toggle');
+  const arrow = toggle.querySelector('.comments-toggle-arrow');
+  const label = toggle.querySelector('.comments-toggle-label');
+  if (panel.hidden) {
+    panel.hidden = false;
+    arrow.textContent = '▼';
+    label.textContent = 'Loading comments…';
+    _openPanels.set(post.id, post);
+    _startDetailPoll();
+    _loadCommentsIntoPanel(post, panel);
+  } else {
+    panel.hidden = true;
+    arrow.textContent = '▶';
+    const count = post.comment_count || 0;
+    label.textContent = count + ' comment' + (count !== 1 ? 's' : '');
+    _openPanels.delete(post.id);
+    if (_openPanels.size === 0) _stopDetailPoll();
+  }
 }
 
 // ── comments ───────────────────────────────────────────────────────────────
-async function loadComments(post) {
+async function _loadCommentsIntoPanel(post, panel) {
   const params = post._server_url !== CFG.own_server
     ? "?server=" + encodeURIComponent(post._server_url) : "";
   const r = await apiFetch("/api/posts/" + post.id + "/comments" + params);
-  const section = document.getElementById("comments-section");
-  if (!section || currentPostId !== post.id) return;
-  if (!r.ok) { section.innerHTML = ""; return; }
-  renderComments(post, (await r.json()).comments);
+  if (!panel.isConnected || panel.hidden) return;
+  if (!r.ok) { panel.innerHTML = ""; return; }
+  const data = await r.json();
+  _renderCommentsInto(post, data.comments, panel);
+  // update toggle label with live count
+  const toggle = panel.previousElementSibling;
+  if (toggle?.classList.contains('comments-toggle')) {
+    const live = data.comments.filter(c => !c.deleted).length;
+    post.comment_count = live;
+    toggle.querySelector('.comments-toggle-label').textContent = live + ' comment' + (live !== 1 ? 's' : '');
+  }
 }
 
 function _commentAuthor(identity, postServerUrl) {
@@ -1222,9 +1205,7 @@ function _commentAuthor(identity, postServerUrl) {
   return { name: identity, photoUrl: null };
 }
 
-function renderComments(post, comments) {
-  const section = document.getElementById("comments-section");
-  if (!section) return;
+function _renderCommentsInto(post, comments, panel) {
   const live = comments.filter(c => !c.deleted);
   const byParent = {};
   for (const c of live) { const k = c.parent_id || "__root__"; (byParent[k] = byParent[k] || []).push(c); }
@@ -1243,20 +1224,17 @@ function renderComments(post, comments) {
       + '</div>';
   }
   const roots = byParent["__root__"] || [];
-  const count = live.length;
-  const serverParam = post._server_url !== CFG.own_server
-    ? "?server=" + encodeURIComponent(post._server_url) : "";
-  section.innerHTML =
-    '<div class="comments-header">' + count + ' comment' + (count !== 1 ? 's' : '') + '</div>'
-    + roots.map(c => renderOne(c, 0)).join("")
+  panel.innerHTML =
+    roots.map(c => renderOne(c, 0)).join("")
     + '<div class="comment-form">'
-    + '<textarea id="comment-input" placeholder="Add a comment…"></textarea>'
-    + '<div class="comment-form-footer"><button class="btn btn-primary btn-sm" onclick="submitComment(\'' + post.id + '\',\'' + esc(post._server_url) + '\')">Post</button><span id="comment-error" style="color:#e06c6c;font-size:0.82rem;margin-left:0.5rem"></span></div>'
+    + '<textarea class="comment-input" data-post-id="' + esc(post.id) + '" placeholder="Add a comment…"></textarea>'
+    + '<div class="comment-form-footer"><button class="btn btn-primary btn-sm" onclick="submitComment(\'' + esc(post.id) + '\',\'' + esc(post._server_url) + '\')">Post</button>'
+    + '<span class="comment-error" data-post-id="' + esc(post.id) + '" style="color:#e06c6c;font-size:0.82rem;margin-left:0.5rem"></span></div>'
     + '</div>';
 }
 
 async function submitComment(postId, serverUrl) {
-  const input = document.getElementById("comment-input");
+  const input = document.querySelector('.comment-input[data-post-id="' + postId + '"]');
   const body = input ? input.value.trim() : "";
   if (!body) return;
   const params = serverUrl !== CFG.own_server ? "?server=" + encodeURIComponent(serverUrl) : "";
@@ -1267,10 +1245,12 @@ async function submitComment(postId, serverUrl) {
   });
   if (r.ok) {
     if (input) input.value = "";
-    loadComments(allPosts[currentIdx]);
+    const post = _openPanels.get(postId);
+    const panel = document.querySelector(`.comments-panel[data-post-id="${postId}"]`);
+    if (post && panel) _loadCommentsIntoPanel(post, panel);
   } else {
-    const errEl = document.getElementById("comment-error");
-    if (errEl) errEl.textContent = r.status === 403 ? "Access denied — post may be private." : "Failed to post comment.";
+    const errEl = document.querySelector('.comment-error[data-post-id="' + postId + '"]');
+    if (errEl) errEl.textContent = r.status === 403 ? "Access denied." : "Failed to post comment.";
   }
 }
 
@@ -1450,7 +1430,6 @@ async function submitEdit() {
     const card = document.querySelector(".post-card[data-idx='" + editingIdx + "']");
     if (card) card.replaceWith(makePostCard(updated, editingIdx));
     closeEdit();
-    if (currentIdx === editingIdx) renderDetail(updated);
   } else {
     document.getElementById("edit-status").innerHTML = '<span style="color:#e06c6c">Save failed.</span>';
     document.getElementById("edit-submit").disabled = false;
@@ -1468,8 +1447,8 @@ async function confirmDelete(idx) {
       if (i === idx) c.remove();
       else if (i > idx) c.dataset.idx = i - 1;
     });
-    if (currentIdx === idx) { closeDetail(); }
-    else if (currentIdx > idx) { currentIdx--; }
+    _openPanels.delete(post.id);
+    if (_openPanels.size === 0) _stopDetailPoll();
     document.getElementById("empty-msg").hidden = allPosts.length > 0;
     loadTagSidebar();
   }
