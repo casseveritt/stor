@@ -8,7 +8,15 @@ User-editable via the UI (contact edit modal); also curated by the agent based o
 information about the contact. Intended to give agents rich context about who a contact is.
 Requires: DB migration, server PATCH /contacts, client API PATCH /api/contacts, edit modal in sidebar.
 
-**2. Contact tags**
+**2. Contact "goes by" short name for @mentions**
+Each contact entry can have an owner-defined short name used for `@`-mention autocomplete and
+insertion. Defaults to the contact's first name (or handle if set). Example: "Michael Toksvig"
+goes by "Tox" — owner sets this locally; it doesn't need to be in the contact's profile.
+The contact could also add an alias in their own profile that other nodes pick up.
+Requires: `goes_by` field on `ContactEntry` (client-only), profile API field for self-declared
+alias, UI in contact edit flow, `_mentionTag()` updated to prefer `goes_by`.
+
+**3. Contact tags**
 Each contact entry can be assigned a list of tags (e.g. "family", "work"). Tags will appear
 as visibility/comment_access options alongside the built-in levels. Boolean expressions like
 `contacts - (work + church)` are a longer-term goal; start with simple named tags as extra

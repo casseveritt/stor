@@ -113,8 +113,14 @@
 
     /* ── compose ── */
     #compose-modal { min-width: min(90vw, 560px); }
-    #compose-body { background: #222; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; padding: 0.6rem; width: 100%; font-size: 0.95rem; resize: vertical; min-height: 100px; outline: none; font-family: inherit; margin-bottom: 0.75rem; }
+    #compose-body-wrap { position: relative; margin-bottom: 0.75rem; }
+    #compose-body { background: #222; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; padding: 0.6rem; width: 100%; font-size: 0.95rem; resize: vertical; min-height: 100px; outline: none; font-family: inherit; }
     #compose-body:focus { border-color: #4285f4; }
+    #mention-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: #252525; border: 1px solid #444; border-radius: 4px; max-height: 180px; overflow-y: auto; z-index: 200; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+    .mention-item { padding: 0.4rem 0.75rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; font-size: 0.88rem; }
+    .mention-item:hover, .mention-item.focused { background: #1e2d4a; }
+    .mention-item-name { color: #e0e0e0; }
+    .mention-item-handle { color: #666; font-size: 0.8rem; flex-shrink: 0; }
     .drop-zone { border: 2px dashed #444; border-radius: 6px; padding: 1.25rem 1rem; text-align: center; cursor: pointer; color: #777; transition: border-color 0.15s; }
     .drop-zone:hover, .drop-zone.over { border-color: #4285f4; color: #aaa; }
     .drop-zone-icon { font-size: 1.5rem; margin-bottom: 0.25rem; }
@@ -292,7 +298,12 @@
   <div class="modal" id="compose-modal">
     <button class="modal-close" onclick="closeCompose()">&#x2715;</button>
     <h3>New post</h3>
-    <textarea id="compose-body" placeholder="What's on your mind?"></textarea>
+    <div id="compose-body-wrap">
+      <textarea id="compose-body" placeholder="What's on your mind?"
+                oninput="onComposeInput()" onkeydown="onComposeKeydown(event)"
+                onblur="setTimeout(hideMentionDropdown,150)"></textarea>
+      <div id="mention-dropdown" hidden></div>
+    </div>
     <div class="drop-zone" id="drop-zone"
          onclick="document.getElementById('file-picker').click()"
          ondragover="dzOver(event)" ondragleave="dzOut(event)" ondrop="dzDrop(event)">
@@ -1058,6 +1069,76 @@ async function submitComment(postId, serverUrl) {
   }
 }
 
+// ── @mention autocomplete ──────────────────────────────────────────────────
+let _mentionState = null;
+
+function _mentionTag(c) {
+  return '@' + (c.handle || c.name.split(' ')[0].toLowerCase());
+}
+
+function onComposeInput() {
+  const ta = document.getElementById('compose-body');
+  const pos = ta.selectionStart;
+  const before = ta.value.substring(0, pos);
+  const match = before.match(/@(\w*)$/);
+  if (!match) { hideMentionDropdown(); return; }
+  const query = match[1].toLowerCase();
+  const contacts = (CFG && CFG.contacts || []).filter(c => {
+    const h = (c.handle || '').toLowerCase();
+    const n = c.name.toLowerCase();
+    return h.startsWith(query) || n.startsWith(query) || n.split(' ').some(w => w.startsWith(query));
+  });
+  if (!contacts.length) { hideMentionDropdown(); return; }
+  _mentionState = { start: pos - match[0].length, query, focused: 0, contacts };
+  const dd = document.getElementById('mention-dropdown');
+  dd.innerHTML = '';
+  contacts.forEach((c, i) => {
+    const el = document.createElement('div');
+    el.className = 'mention-item' + (i === 0 ? ' focused' : '');
+    el.innerHTML = `<span class="mention-item-name">${esc(c.name)}</span><span class="mention-item-handle">${esc(_mentionTag(c))}</span>`;
+    el.onmousedown = e => { e.preventDefault(); _selectMention(c); };
+    dd.appendChild(el);
+  });
+  dd.hidden = false;
+}
+
+function hideMentionDropdown() {
+  document.getElementById('mention-dropdown').hidden = true;
+  _mentionState = null;
+}
+
+function _selectMention(c) {
+  const ta = document.getElementById('compose-body');
+  const tag = _mentionTag(c) + ' ';
+  const before = ta.value.substring(0, _mentionState.start);
+  const after = ta.value.substring(ta.selectionStart);
+  ta.value = before + tag + after;
+  const p = before.length + tag.length;
+  ta.selectionStart = ta.selectionEnd = p;
+  hideMentionDropdown();
+  ta.focus();
+}
+
+function onComposeKeydown(e) {
+  if (!_mentionState) return;
+  const items = document.getElementById('mention-dropdown').querySelectorAll('.mention-item');
+  if (!items.length) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    _mentionState.focused = Math.min(_mentionState.focused + 1, items.length - 1);
+    items.forEach((el, i) => el.classList.toggle('focused', i === _mentionState.focused));
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    _mentionState.focused = Math.max(_mentionState.focused - 1, 0);
+    items.forEach((el, i) => el.classList.toggle('focused', i === _mentionState.focused));
+  } else if (e.key === 'Enter' || e.key === 'Tab') {
+    const c = _mentionState.contacts[_mentionState.focused];
+    if (c) { e.preventDefault(); _selectMention(c); }
+  } else if (e.key === 'Escape') {
+    hideMentionDropdown();
+  }
+}
+
 // ── compose ────────────────────────────────────────────────────────────────
 function openCompose() {
   pendingFiles = [];
@@ -1071,7 +1152,7 @@ function openCompose() {
   document.getElementById("compose-overlay").hidden = false;
   document.getElementById("compose-body").focus();
 }
-function closeCompose() { document.getElementById("compose-overlay").hidden = true; }
+function closeCompose() { hideMentionDropdown(); document.getElementById("compose-overlay").hidden = true; }
 function dzOver(e) { e.preventDefault(); document.getElementById("drop-zone").classList.add("over"); }
 function dzOut()   { document.getElementById("drop-zone").classList.remove("over"); }
 function dzDrop(e) { e.preventDefault(); dzOut(); addFiles(e.dataTransfer.files); }

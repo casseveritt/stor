@@ -173,7 +173,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                 {"name": _server_name(url), "url": url, "authenticated": bool(_token(url))}
                 for url in _all_servers()
             ],
-            "contacts": [{"name": c.name, "url": c.url} for c in config.contacts],
+            "contacts": [{"name": c.name, "url": c.url, "handle": c.handle} for c in config.contacts],
         }
 
     # ── auth ──────────────────────────────────────────────────────────────
