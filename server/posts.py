@@ -69,8 +69,8 @@ _VALID_POST_TYPES = {"post", "inner_monologue"}
 _POST_COLS = "p.id, p.body, p.created_at, p.tags, p.visibility, p.comment_access, p.deleted, p.post_type"
 _POST_COLS_NO_ALIAS = "id, body, created_at, tags, visibility, comment_access, deleted, post_type"
 
-_VALID_VISIBILITY = ("private", "contacts", "public")
-_VALID_COMMENT_ACCESS = ("contacts", "public")
+_VALID_VISIBILITY = ("private", "contacts", "authenticated", "public")
+_VALID_COMMENT_ACCESS = ("contacts", "authenticated", "public")
 
 
 def _post_dict(row, db) -> dict:
@@ -217,7 +217,9 @@ def get_posts(
             )
             params.append(identity.recipient_id)
         elif is_contact:
-            conditions.append("p.visibility IN ('contacts', 'public')")
+            conditions.append("p.visibility IN ('contacts', 'authenticated', 'public')")
+        elif origin_server:
+            conditions.append("p.visibility IN ('authenticated', 'public')")
         else:
             conditions.append("p.visibility = 'public'")
 
@@ -285,11 +287,13 @@ def get_post(post_id: str, request: Request, identity: OptionalAuthDep):
             raise HTTPException(status_code=404, detail="Post not found")
         if visibility == "private":
             raise HTTPException(status_code=403, detail="Access denied")
-        if visibility == "contacts":
+        if visibility in ("contacts", "authenticated"):
             is_contact = bool(origin_server and db.execute(
                 "SELECT 1 FROM contacts WHERE server_url = ?", (origin_server,)
             ).fetchone())
-            if not is_contact and not _check_post_access(db, post_id, identity):
+            is_authenticated = bool(origin_server)
+            passes = is_authenticated if visibility == "authenticated" else is_contact
+            if not passes and not _check_post_access(db, post_id, identity):
                 raise HTTPException(status_code=403, detail="Access denied")
     return _post_dict(row, db)
 
@@ -386,7 +390,7 @@ def _check_post_access(db, post_id: str, identity) -> bool:
 
 
 def _require_post_access(db, post_id: str, identity, origin_server: str | None = None) -> None:
-    """Check that the requester can VIEW this post (used before commenting/viewing comments)."""
+    """Check that the requester can view AND comment on this post."""
     row = db.execute(
         "SELECT visibility, comment_access, post_type FROM posts WHERE id = ? AND deleted = 0", (post_id,)
     ).fetchone()
@@ -397,15 +401,21 @@ def _require_post_access(db, post_id: str, identity, origin_server: str | None =
         return
     if post_type == "inner_monologue":
         raise HTTPException(status_code=404, detail="Post not found")
+
+    is_authenticated = bool(origin_server)
     is_contact = bool(origin_server and _is_known_contact(db, origin_server))
-    if visibility == "private":
+    has_explicit = _check_post_access(db, post_id, identity)
+
+    def _passes(level: str) -> bool:
+        if level == "public": return True
+        if level == "authenticated": return is_authenticated or has_explicit
+        if level == "contacts": return is_contact or has_explicit
+        return False  # private
+
+    if not _passes(visibility):
         raise HTTPException(status_code=403, detail="Access denied")
-    if visibility == "contacts" and not is_contact and not _check_post_access(db, post_id, identity):
-        raise HTTPException(status_code=403, detail="Access denied")
-    # Intersection rule: effective commenter set = contacts if either restricts to contacts
-    effective_public = (visibility == "public" and comment_access == "public")
-    if not effective_public and not is_contact and not _check_post_access(db, post_id, identity):
-        raise HTTPException(status_code=403, detail="Comments restricted to contacts")
+    if not _passes(comment_access):
+        raise HTTPException(status_code=403, detail="Comments restricted")
 
 
 def _is_known_contact(db, server_url: str) -> bool:

@@ -306,11 +306,13 @@
       <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;font-size:0.85rem;color:#aaa">
         <label>Visible to <select id="compose-visibility" style="background:#222;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
           <option value="contacts">Contacts</option>
+          <option value="authenticated">Authenticated</option>
           <option value="public">Public</option>
           <option value="private">Private</option>
         </select></label>
         <label>Comments <select id="compose-comment-access" style="background:#222;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
           <option value="contacts">Contacts</option>
+          <option value="authenticated">Authenticated</option>
           <option value="public">Public</option>
         </select></label>
       </div>
@@ -386,11 +388,13 @@
       <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;font-size:0.85rem;color:#aaa">
         <label>Visible to <select id="edit-visibility" style="background:#222;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
           <option value="contacts">Contacts</option>
+          <option value="authenticated">Authenticated</option>
           <option value="public">Public</option>
           <option value="private">Private</option>
         </select></label>
         <label>Comments <select id="edit-comment-access" style="background:#222;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
           <option value="contacts">Contacts</option>
+          <option value="authenticated">Authenticated</option>
           <option value="public">Public</option>
         </select></label>
       </div>
@@ -890,7 +894,7 @@ function makePostCard(post, idx) {
     '<span class="tag-chip' + (activeTags.has(t) ? " active" : "") + '">' + esc(t) + '</span>'
   ).join("");
   const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleDateString() : "";
-  const visIcon = {private: "🔒", contacts: "👥", public: "🌐"}[post.visibility] || "";
+  const visIcon = {private: "🔒", contacts: "👥", authenticated: "🔑", public: "🌐"}[post.visibility] || "";
   const commentLock = post.visibility === "public" && post.comment_access === "contacts" ? "💬" : "";
   const visHtml = visIcon ? '<span title="' + esc(post.visibility || "") + (commentLock ? "; comments: contacts" : "") + '" style="font-size:0.82rem;opacity:0.7">' + visIcon + commentLock + '</span>' : '';
   foot.innerHTML = tagHtml + visHtml + '<span class="post-date" style="margin-left:auto">' + dateFmt + '</span>';
