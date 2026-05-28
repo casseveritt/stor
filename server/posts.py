@@ -66,15 +66,24 @@ def _comment_count(db, post_id: str) -> int:
 _VALID_POST_TYPES = {"post", "inner_monologue"}
 
 
+_POST_COLS = "p.id, p.body, p.created_at, p.tags, p.visibility, p.comment_access, p.deleted, p.post_type"
+_POST_COLS_NO_ALIAS = "id, body, created_at, tags, visibility, comment_access, deleted, post_type"
+
+_VALID_VISIBILITY = ("private", "contacts", "public")
+_VALID_COMMENT_ACCESS = ("contacts", "public")
+
+
 def _post_dict(row, db) -> dict:
-    id_, body, created_at, tags_json, is_public, deleted, post_type = row
+    id_, body, created_at, tags_json, visibility, comment_access, deleted, post_type = row
     assets = _get_post_assets(db, id_, body)
     return {
         "id": id_,
         "body": body,
         "tags": json.loads(tags_json) if tags_json else [],
         "created_at": created_at,
-        "public": bool(is_public),
+        "visibility": visibility or "private",
+        "comment_access": comment_access or "contacts",
+        "public": (visibility or "private") == "public",  # backwards compat
         "post_type": post_type or "post",
         "assets": assets,
         "comment_count": _comment_count(db, id_),
@@ -90,7 +99,9 @@ async def create_post(
     identity: OwnerDep,
     body: str = Form(default=""),
     tags: str = Form(default="[]"),
-    public: str = Form(default="false"),
+    public: str = Form(default=""),        # legacy — ignored if visibility set
+    visibility: str = Form(default="contacts"),
+    comment_access: str = Form(default="contacts"),
     post_type: str = Form(default="post"),
     files: list[UploadFile] = File(default=[]),
 ):
@@ -101,8 +112,18 @@ async def create_post(
 
     if post_type not in _VALID_POST_TYPES:
         raise HTTPException(status_code=422, detail=f"post_type must be one of {_VALID_POST_TYPES}")
+    if post_type == "inner_monologue":
+        visibility = "private"
 
-    is_public = False if post_type == "inner_monologue" else public.lower() in ("true", "1", "yes")
+    # legacy boolean shim
+    if public and visibility == "contacts":
+        visibility = "public" if public.lower() in ("true", "1", "yes") else "contacts"
+    if visibility not in _VALID_VISIBILITY:
+        raise HTTPException(status_code=422, detail=f"visibility must be one of {_VALID_VISIBILITY}")
+    if comment_access not in _VALID_COMMENT_ACCESS:
+        raise HTTPException(status_code=422, detail=f"comment_access must be one of {_VALID_COMMENT_ACCESS}")
+
+    is_public = visibility == "public"
     db = request.app.state.db
     post_id = str(uuid.uuid4())
     now = time.time()
@@ -135,8 +156,9 @@ async def create_post(
     # record all referenced assets in post_assets
     all_ids = _asset_ids_in_order(body)
     db.execute(
-        "INSERT INTO posts (id, body, created_at, tags, is_public, deleted, post_type) VALUES (?, ?, ?, ?, ?, 0, ?)",
-        (post_id, body, now, json.dumps(tags_list), int(is_public), post_type),
+        "INSERT INTO posts (id, body, created_at, tags, is_public, deleted, post_type, visibility, comment_access)"
+        " VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)",
+        (post_id, body, now, json.dumps(tags_list), int(is_public), post_type, visibility, comment_access),
     )
     for aid in all_ids:
         db.execute("INSERT OR IGNORE INTO post_assets (post_id, asset_id) VALUES (?, ?)", (post_id, aid))
@@ -149,7 +171,7 @@ async def create_post(
     db.commit()
 
     row = db.execute(
-        "SELECT id, body, created_at, tags, is_public, deleted, post_type FROM posts WHERE id = ?", (post_id,)
+        f"SELECT {_POST_COLS_NO_ALIAS} FROM posts WHERE id = ?", (post_id,)
     ).fetchone()
     return _post_dict(row, db)
 
@@ -180,19 +202,24 @@ def get_posts(
         conditions.append("p.post_type = 'post'")
 
     if not identity.is_owner:
+        origin_server = request.headers.get("X-Origin-Server", "")
+        is_contact = bool(origin_server and db.execute(
+            "SELECT 1 FROM contacts WHERE server_url = ?", (origin_server,)
+        ).fetchone())
         if identity.is_share:
             if identity.share_post_ids is not None:
                 placeholders = ",".join("?" * len(identity.share_post_ids))
-                conditions.append(f"(p.is_public = 1 OR p.id IN ({placeholders}))")
+                conditions.append(f"(p.visibility = 'public' OR p.id IN ({placeholders}))")
                 params.extend(identity.share_post_ids)
-            # else: node-wide share token → no extra filter needed
         elif identity.recipient_id is not None:
             conditions.append(
-                "(p.is_public = 1 OR EXISTS (SELECT 1 FROM post_acl WHERE post_id = p.id AND recipient_id = ?))"
+                "(p.visibility = 'public' OR EXISTS (SELECT 1 FROM post_acl WHERE post_id = p.id AND recipient_id = ?))"
             )
             params.append(identity.recipient_id)
+        elif is_contact:
+            conditions.append("p.visibility IN ('contacts', 'public')")
         else:
-            conditions.append("p.is_public = 1")
+            conditions.append("p.visibility = 'public'")
 
     if q:
         from . import node as _node
@@ -229,9 +256,7 @@ def get_posts(
 
     where = " AND ".join(conditions)
     rows = db.execute(
-        f"""SELECT p.id, p.body, p.created_at, p.tags, p.is_public, p.deleted, p.post_type
-            FROM posts p WHERE {where}
-            ORDER BY p.created_at DESC LIMIT ?""",
+        f"SELECT {_POST_COLS} FROM posts p WHERE {where} ORDER BY p.created_at DESC LIMIT ?",
         [*params, limit + 1],
     ).fetchall()
 
@@ -249,17 +274,22 @@ def get_posts(
 def get_post(post_id: str, request: Request, identity: OptionalAuthDep):
     db = request.app.state.db
     row = db.execute(
-        "SELECT id, body, created_at, tags, is_public, deleted, post_type FROM posts WHERE id = ? AND deleted = 0",
-        (post_id,),
+        f"SELECT {_POST_COLS_NO_ALIAS} FROM posts WHERE id = ? AND deleted = 0", (post_id,)
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    post_type = row[6]
+    visibility, post_type = row[4], row[7]
     if not identity.is_owner:
+        origin_server = request.headers.get("X-Origin-Server", "")
         if post_type == "inner_monologue":
             raise HTTPException(status_code=404, detail="Post not found")
-        if not row[4]:  # is_public
-            if not _check_post_access(db, post_id, identity):
+        if visibility == "private":
+            raise HTTPException(status_code=403, detail="Access denied")
+        if visibility == "contacts":
+            is_contact = bool(origin_server and db.execute(
+                "SELECT 1 FROM contacts WHERE server_url = ?", (origin_server,)
+            ).fetchone())
+            if not is_contact and not _check_post_access(db, post_id, identity):
                 raise HTTPException(status_code=403, detail="Access denied")
     return _post_dict(row, db)
 
@@ -267,7 +297,9 @@ def get_post(post_id: str, request: Request, identity: OptionalAuthDep):
 class _UpdatePostBody(BaseModel):
     body: str | None = None
     tags: list[str] | None = None
-    public: bool | None = None
+    public: bool | None = None             # legacy shim
+    visibility: str | None = None
+    comment_access: str | None = None
 
 
 @router.patch("/posts/{post_id}")
@@ -276,6 +308,10 @@ def update_post(post_id: str, payload: _UpdatePostBody, request: Request, identi
     if db.execute("SELECT id FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Post not found")
 
+    # legacy shim: map public bool to visibility
+    if payload.public is not None and payload.visibility is None:
+        payload.visibility = "public" if payload.public else "contacts"
+
     updates, params = [], []
     if "body" in payload.model_fields_set:
         updates.append("body = ?")
@@ -283,9 +319,18 @@ def update_post(post_id: str, payload: _UpdatePostBody, request: Request, identi
     if payload.tags is not None:
         updates.append("tags = ?")
         params.append(json.dumps(payload.tags))
-    if payload.public is not None:
+    if payload.visibility is not None:
+        if payload.visibility not in _VALID_VISIBILITY:
+            raise HTTPException(status_code=422, detail=f"visibility must be one of {_VALID_VISIBILITY}")
+        updates.append("visibility = ?")
         updates.append("is_public = ?")
-        params.append(int(payload.public))
+        params.append(payload.visibility)
+        params.append(int(payload.visibility == "public"))
+    if payload.comment_access is not None:
+        if payload.comment_access not in _VALID_COMMENT_ACCESS:
+            raise HTTPException(status_code=422, detail=f"comment_access must be one of {_VALID_COMMENT_ACCESS}")
+        updates.append("comment_access = ?")
+        params.append(payload.comment_access)
 
     if not updates:
         raise HTTPException(status_code=422, detail="No fields to update")
@@ -293,10 +338,10 @@ def update_post(post_id: str, payload: _UpdatePostBody, request: Request, identi
     params.append(post_id)
     db.execute(f"UPDATE posts SET {', '.join(updates)} WHERE id = ?", params)
 
-    if payload.public is not None:
+    if payload.visibility is not None:
         db.execute(
             "UPDATE assets SET is_public = ? WHERE id IN (SELECT asset_id FROM post_assets WHERE post_id = ?)",
-            (int(payload.public), post_id),
+            (int(payload.visibility == "public"), post_id),
         )
 
     if payload.tags is not None:
@@ -312,7 +357,7 @@ def update_post(post_id: str, payload: _UpdatePostBody, request: Request, identi
 
     db.commit()
     row = db.execute(
-        "SELECT id, body, created_at, tags, is_public, deleted, post_type FROM posts WHERE id = ?", (post_id,)
+        f"SELECT {_POST_COLS_NO_ALIAS} FROM posts WHERE id = ?", (post_id,)
     ).fetchone()
     return _post_dict(row, db)
 
@@ -341,16 +386,26 @@ def _check_post_access(db, post_id: str, identity) -> bool:
 
 
 def _require_post_access(db, post_id: str, identity, origin_server: str | None = None) -> None:
-    row = db.execute("SELECT is_public, post_type FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone()
+    """Check that the requester can VIEW this post (used before commenting/viewing comments)."""
+    row = db.execute(
+        "SELECT visibility, comment_access, post_type FROM posts WHERE id = ? AND deleted = 0", (post_id,)
+    ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    if not identity.is_owner:
-        if row[1] == "inner_monologue":
-            raise HTTPException(status_code=404, detail="Post not found")
-        if not row[0]:
-            if not _check_post_access(db, post_id, identity):
-                if not (origin_server and _is_known_contact(db, origin_server)):
-                    raise HTTPException(status_code=403, detail="Access denied")
+    visibility, comment_access, post_type = row
+    if identity.is_owner:
+        return
+    if post_type == "inner_monologue":
+        raise HTTPException(status_code=404, detail="Post not found")
+    is_contact = bool(origin_server and _is_known_contact(db, origin_server))
+    if visibility == "private":
+        raise HTTPException(status_code=403, detail="Access denied")
+    if visibility == "contacts" and not is_contact and not _check_post_access(db, post_id, identity):
+        raise HTTPException(status_code=403, detail="Access denied")
+    # Intersection rule: effective commenter set = contacts if either restricts to contacts
+    effective_public = (visibility == "public" and comment_access == "public")
+    if not effective_public and not is_contact and not _check_post_access(db, post_id, identity):
+        raise HTTPException(status_code=403, detail="Comments restricted to contacts")
 
 
 def _is_known_contact(db, server_url: str) -> bool:

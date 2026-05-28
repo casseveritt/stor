@@ -89,13 +89,15 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         pass
     con.execute("""
         CREATE TABLE IF NOT EXISTS posts (
-            id         TEXT PRIMARY KEY,
-            body       TEXT NOT NULL DEFAULT '',
-            created_at REAL NOT NULL,
-            tags       TEXT,
-            is_public  INTEGER NOT NULL DEFAULT 0,
-            deleted    INTEGER NOT NULL DEFAULT 0,
-            post_type  TEXT NOT NULL DEFAULT 'post'
+            id             TEXT PRIMARY KEY,
+            body           TEXT NOT NULL DEFAULT '',
+            created_at     REAL NOT NULL,
+            tags           TEXT,
+            is_public      INTEGER NOT NULL DEFAULT 0,
+            deleted        INTEGER NOT NULL DEFAULT 0,
+            post_type      TEXT NOT NULL DEFAULT 'post',
+            visibility     TEXT NOT NULL DEFAULT 'contacts',
+            comment_access TEXT NOT NULL DEFAULT 'contacts'
         )
     """)
     try:
@@ -105,6 +107,20 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         pass
     try:
         con.execute("ALTER TABLE posts ADD COLUMN post_type TEXT NOT NULL DEFAULT 'post'")
+        con.commit()
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE posts ADD COLUMN visibility TEXT NOT NULL DEFAULT 'contacts'")
+        con.commit()
+        # migrate: public posts → 'public', private posts → 'private'
+        con.execute("UPDATE posts SET visibility = 'public' WHERE is_public = 1 AND visibility = 'contacts'")
+        con.execute("UPDATE posts SET visibility = 'private' WHERE is_public = 0 AND visibility = 'contacts'")
+        con.commit()
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE posts ADD COLUMN comment_access TEXT NOT NULL DEFAULT 'contacts'")
         con.commit()
     except Exception:
         pass

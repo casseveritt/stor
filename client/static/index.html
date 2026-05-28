@@ -303,9 +303,17 @@
     <div class="file-list" id="file-list"></div>
     <div class="compose-fields">
       <input type="text" id="compose-tags" placeholder="Tags — space-separated">
-      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:#aaa;cursor:pointer">
-        <input type="checkbox" id="compose-public"> Publish (visible to recipients)
-      </label>
+      <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;font-size:0.85rem;color:#aaa">
+        <label>Visible to <select id="compose-visibility" style="background:#222;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
+          <option value="contacts">Contacts</option>
+          <option value="public">Public</option>
+          <option value="private">Private</option>
+        </select></label>
+        <label>Comments <select id="compose-comment-access" style="background:#222;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
+          <option value="contacts">Contacts</option>
+          <option value="public">Public</option>
+        </select></label>
+      </div>
     </div>
     <div class="upload-progress" id="compose-progress"></div>
     <div style="display:flex;gap:0.5rem;justify-content:flex-end">
@@ -375,9 +383,17 @@
     <textarea id="edit-body" style="background:#222;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:0.6rem;width:100%;font-size:0.95rem;resize:vertical;min-height:100px;outline:none;font-family:inherit;margin-bottom:0.75rem"></textarea>
     <div class="compose-fields">
       <input type="text" id="edit-tags" placeholder="Tags — space-separated">
-      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:#aaa;cursor:pointer">
-        <input type="checkbox" id="edit-public"> Publish (visible to recipients)
-      </label>
+      <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;font-size:0.85rem;color:#aaa">
+        <label>Visible to <select id="edit-visibility" style="background:#222;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
+          <option value="contacts">Contacts</option>
+          <option value="public">Public</option>
+          <option value="private">Private</option>
+        </select></label>
+        <label>Comments <select id="edit-comment-access" style="background:#222;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
+          <option value="contacts">Contacts</option>
+          <option value="public">Public</option>
+        </select></label>
+      </div>
     </div>
     <div class="upload-progress" id="edit-status"></div>
     <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:0.75rem">
@@ -874,7 +890,10 @@ function makePostCard(post, idx) {
     '<span class="tag-chip' + (activeTags.has(t) ? " active" : "") + '">' + esc(t) + '</span>'
   ).join("");
   const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleDateString() : "";
-  foot.innerHTML = tagHtml + '<span class="post-date" style="margin-left:auto">' + dateFmt + '</span>';
+  const visIcon = {private: "🔒", contacts: "👥", public: "🌐"}[post.visibility] || "";
+  const commentLock = post.visibility === "public" && post.comment_access === "contacts" ? "💬" : "";
+  const visHtml = visIcon ? '<span title="' + esc(post.visibility || "") + (commentLock ? "; comments: contacts" : "") + '" style="font-size:0.82rem;opacity:0.7">' + visIcon + commentLock + '</span>' : '';
+  foot.innerHTML = tagHtml + visHtml + '<span class="post-date" style="margin-left:auto">' + dateFmt + '</span>';
   div.appendChild(foot);
   return div;
 }
@@ -1040,7 +1059,8 @@ function openCompose() {
   pendingFiles = [];
   document.getElementById("compose-body").value = "";
   document.getElementById("compose-tags").value = "";
-  document.getElementById("compose-public").checked = false;
+  document.getElementById("compose-visibility").value = "contacts";
+  document.getElementById("compose-comment-access").value = "contacts";
   document.getElementById("compose-progress").innerHTML = "";
   document.getElementById("compose-submit").disabled = false;
   document.getElementById("file-list").innerHTML = "";
@@ -1070,7 +1090,8 @@ async function submitPost() {
   const fd = new FormData();
   fd.append("body", bodyText);
   fd.append("tags", JSON.stringify(tags));
-  fd.append("public", document.getElementById("compose-public").checked ? "true" : "false");
+  fd.append("visibility", document.getElementById("compose-visibility").value);
+  fd.append("comment_access", document.getElementById("compose-comment-access").value);
   for (const f of pendingFiles) fd.append("files", f);
 
   try {
@@ -1109,7 +1130,8 @@ function openEdit(idx) {
   const post = allPosts[idx];
   document.getElementById("edit-body").value = post.body || "";
   document.getElementById("edit-tags").value = (post.tags || []).join(" ");
-  document.getElementById("edit-public").checked = !!post.public;
+  document.getElementById("edit-visibility").value = post.visibility || "contacts";
+  document.getElementById("edit-comment-access").value = post.comment_access || "contacts";
   document.getElementById("edit-status").innerHTML = "";
   document.getElementById("edit-submit").disabled = false;
   document.getElementById("edit-overlay").hidden = false;
@@ -1120,14 +1142,15 @@ async function submitEdit() {
   const post = allPosts[editingIdx];
   const body = document.getElementById("edit-body").value;
   const tags = document.getElementById("edit-tags").value.trim().split(/\s+/).filter(Boolean);
-  const pub  = document.getElementById("edit-public").checked;
+  const visibility = document.getElementById("edit-visibility").value;
+  const comment_access = document.getElementById("edit-comment-access").value;
   document.getElementById("edit-submit").disabled = true;
   document.getElementById("edit-status").innerHTML = '<span style="color:#aaa">Saving…</span>';
 
   const r = await apiFetch("/api/posts/" + post.id, {
     method: "PATCH",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({body, tags, public: pub}),
+    body: JSON.stringify({body, tags, visibility, comment_access}),
   });
   if (r.ok) {
     const updated = await r.json();

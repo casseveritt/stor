@@ -217,8 +217,9 @@ def create_app(config_path: str | Path) -> FastAPI:
             if not _token(url) and url == config.own_server:
                 return []
             try:
+                fetch_headers = {**_headers(url), "X-Origin-Server": config.own_server}
                 async with httpx.AsyncClient() as hc:
-                    r = await hc.get(url + "/posts", params=params_base, headers=_headers(url), timeout=10.0)
+                    r = await hc.get(url + "/posts", params=params_base, headers=fetch_headers, timeout=10.0)
                 if r.is_success:
                     data = r.json()
                     name = _server_name(url)
@@ -233,8 +234,9 @@ def create_app(config_path: str | Path) -> FastAPI:
             if not new_url:
                 return []
             try:
+                retry_headers = {**_headers(new_url), "X-Origin-Server": config.own_server}
                 async with httpx.AsyncClient() as hc:
-                    r = await hc.get(new_url + "/posts", params=params_base, headers=_headers(new_url), timeout=10.0)
+                    r = await hc.get(new_url + "/posts", params=params_base, headers=retry_headers, timeout=10.0)
                 if not r.is_success:
                     return []
                 data = r.json()
