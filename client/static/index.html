@@ -735,6 +735,9 @@ async function confirmAddContact() {
   const cfg = await (await apiFetch("/api/config")).json();
   CFG = cfg;
   renderServerList();
+  fetchServerHandles();
+  fetchServerProfiles();
+  resetFeed();
 }
 
 // ── tag sidebar ────────────────────────────────────────────────────────────
