@@ -21,8 +21,6 @@
     .post-author-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
     .post-author-initials { width: 20px; height: 20px; border-radius: 50%; background: #2a4a7a; display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: #aac8ff; flex-shrink: 0; }
     .post-author-name { font-size: 0.8rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .logo { font-size: 1.1rem; font-weight: 600; color: #fff; }
-    .logo-sep { color: #444; font-size: 1.1rem; font-weight: 300; margin: 0 -0.25rem; }
     #handle-display { font-size: 1.05rem; font-weight: 400; color: #aaa; }
     #search-wrap { flex: 1; min-width: 0; }
     #search-input { width: 100%; padding: 0.4rem 0.7rem; border-radius: 4px; border: 1px solid #333; background: #222; color: #e0e0e0; font-size: 0.88rem; outline: none; }
@@ -124,8 +122,8 @@
     .progress-err { color: #e06c6c; }
 
     /* ── profile ── */
-    #profile-avatar { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; cursor: pointer; border: 2px solid #333; flex-shrink: 0; }
-    #profile-avatar-initials { width: 28px; height: 28px; border-radius: 50%; background: #2a4a7a; display: flex; align-items: center; justify-content: center; font-size: 0.75rem; color: #aac8ff; cursor: pointer; border: 2px solid #333; flex-shrink: 0; }
+    #profile-avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; cursor: pointer; border: 2px solid #333; flex-shrink: 0; }
+    #profile-avatar-initials { width: 32px; height: 32px; border-radius: 50%; background: #2a4a7a; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; color: #aac8ff; cursor: pointer; border: 2px solid #333; flex-shrink: 0; }
     .profile-modal-photo { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; margin-bottom: 1rem; }
     .profile-modal-photo img { width: 80px; height: 80px; border-radius: 50%; object-fit: cover; background: #333; border: 2px solid #333; }
     .profile-initials-lg { width: 80px; height: 80px; border-radius: 50%; background: #2a4a7a; display: flex; align-items: center; justify-content: center; font-size: 2rem; color: #aac8ff; font-weight: 300; }
@@ -235,18 +233,16 @@
 <div id="feed-view" hidden>
   <header>
     <div class="header-left">
-      <img src="/static/favicon.svg" height="22" style="display:block">
-      <span class="logo">contacc</span>
-      <span class="logo-sep">/</span>
-      <span id="handle-display"></span>
+      <img src="/static/favicon.svg" height="26" style="display:block;flex-shrink:0">
+      <div id="profile-avatar-initials" onclick="openProfile()" title="Edit profile" hidden></div>
+      <img id="profile-avatar" onclick="openProfile()" title="Edit profile" hidden>
+      <span id="handle-display" onclick="filterOwnPosts()" title="Filter to my posts" style="cursor:pointer"></span>
     </div>
     <div id="search-wrap">
       <input type="text" id="search-input" placeholder="Search posts…" oninput="scheduleSearch(this.value)">
     </div>
     <div class="header-right">
       <button id="compose-btn" class="btn btn-primary btn-sm" onclick="openCompose()" hidden>+ Post</button>
-      <div id="profile-avatar-initials" onclick="openProfile()" title="Edit profile" hidden></div>
-      <img id="profile-avatar" onclick="openProfile()" title="Edit profile" hidden>
       <button class="btn btn-muted btn-sm" onclick="logout()">Sign out</button>
     </div>
   </header>
@@ -506,7 +502,7 @@ async function loadIdentity() {
   const nodeD = nodeR.ok ? await nodeR.json() : {};
   const handle = nodeD.handle || "";
   document.getElementById("handle-display").textContent = handle ? `@${handle}` : "";
-  if (handle) document.title = `contacc / @${handle}`;
+  if (handle) document.title = `@${handle}`;
   if (IS_OWNER) {
     loadProfileAvatar();
   }
@@ -557,11 +553,13 @@ function showView(name) {
 function renderServerList() {
   const list = document.getElementById("server-list");
   const allBtn = '<button class="server-btn' + (activeServer === null ? " active" : "") + '" onclick="setActiveServer(-1)"><span>All</span></button>';
-  const serverBtns = (CFG.servers || []).map((s, i) => {
-    const status = serverStatuses[s.url] || (s.authenticated ? "wait" : "err");
+  const contacts = (CFG.servers || []).filter(s => s.url !== CFG.own_server);
+  const serverBtns = contacts.map((s, i) => {
+    const globalIdx = (CFG.servers || []).indexOf(s);
+    const status = serverStatuses[s.url] || "wait";
     const handle = serverHandles[s.url];
     const label = handle ? `@${handle}` : esc(s.name);
-    return '<button class="server-btn' + (activeServer === s.url ? " active" : "") + '" onclick="setActiveServer(' + i + ')" title="' + esc(s.name) + '">'
+    return '<button class="server-btn' + (activeServer === s.url ? " active" : "") + '" onclick="setActiveServer(' + globalIdx + ')" title="' + esc(s.name) + '">'
       + '<span>' + label + '</span>'
       + '<span class="server-dot ' + status + '"></span>'
       + '</button>';
@@ -591,6 +589,8 @@ async function fetchServerProfiles() {
         : await fetch(url + "/profile");
       if (r.ok) {
         serverProfiles[url] = await r.json();
+        serverStatuses[url] = "ok";
+        renderServerList();
         document.querySelectorAll(".post-author").forEach(el => {
           if (el.dataset.server === url) _renderAuthorInto(el, url);
         });
@@ -637,6 +637,12 @@ function setActiveServer(i) {
     const url = CFG.servers[i].url;
     activeServer = (activeServer === url) ? null : url;
   }
+  renderServerList();
+  resetFeed();
+}
+
+function filterOwnPosts() {
+  activeServer = (activeServer === CFG.own_server) ? null : CFG.own_server;
   renderServerList();
   resetFeed();
 }
