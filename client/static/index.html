@@ -571,7 +571,7 @@ function renderServerList() {
       + '<span>' + label + '</span>'
       + '<span class="server-dot ' + status + '"></span>'
       + '</button>'
-      + '<button class="contact-remove" onclick="removeContact(' + JSON.stringify(s.url) + ')" title="Remove contact">✕</button>'
+      + '<button class="contact-remove" onclick="removeContact(' + JSON.stringify(s.url).replace(/"/g, '&quot;') + ')" title="Remove contact">✕</button>'
       + '</div>';
   });
   list.innerHTML = allBtn + serverBtns.join("");
@@ -773,7 +773,7 @@ function scheduleSearch(val) {
 async function loadFeed() {
   showView("feed");
   renderServerList();
-  const ok = await resetFeed();
+  const ok = await resetFeed(true);
   if (!ok) { showView("login"); return false; }
   loadIdentity();
   loadTagSidebar();
@@ -782,15 +782,15 @@ async function loadFeed() {
   return true;
 }
 
-async function resetFeed() {
+async function resetFeed(allowLoginRedirect = false) {
   nextCursor = null; allPosts = []; currentIdx = -1;
   document.getElementById("timeline").innerHTML = "";
   document.getElementById("empty-msg").hidden = true;
   document.getElementById("feed-status").textContent = "";
-  return await loadMore();
+  return await loadMore(allowLoginRedirect);
 }
 
-async function loadMore() {
+async function loadMore(allowLoginRedirect = false) {
   let url = "/api/feed?limit=20";
   if (activeServer) url += "&server=" + encodeURIComponent(activeServer);
   if (nextCursor) url += "&cursor=" + encodeURIComponent(nextCursor);
@@ -798,7 +798,7 @@ async function loadMore() {
   for (const t of activeTags) url += "&tags=" + encodeURIComponent(t);
 
   const r = await apiFetch(url);
-  if (r.status === 401) { showView("login"); return false; }
+  if (r.status === 401) { if (allowLoginRedirect) showView("login"); return false; }
   if (!r.ok) return false;
 
   const data = await r.json();
