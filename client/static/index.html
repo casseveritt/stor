@@ -284,6 +284,7 @@
       </div>
     </nav>
     <div id="main-area">
+      <div id="new-posts-banner" hidden onclick="refreshFeed()" style="cursor:pointer;text-align:center;padding:0.4rem;background:#1e2d4a;color:#6aa3f5;font-size:0.85rem;border-radius:6px;margin-bottom:0.5rem;max-width:680px;margin-left:auto;margin-right:auto"></div>
       <div id="feed-status"></div>
       <div id="timeline"></div>
       <div id="empty-msg" class="empty" hidden>No posts yet.</div>
@@ -837,6 +838,7 @@ async function loadFeed() {
   loadTagSidebar();
   fetchServerHandles();
   fetchServerProfiles();
+  _startFeedPoll();
   return true;
 }
 
@@ -845,6 +847,7 @@ async function resetFeed(allowLoginRedirect = false) {
   document.getElementById("timeline").innerHTML = "";
   document.getElementById("empty-msg").hidden = true;
   document.getElementById("feed-status").textContent = "";
+  document.getElementById("new-posts-banner").hidden = true;
   return await loadMore(allowLoginRedirect);
 }
 
@@ -1065,6 +1068,71 @@ function renderPostBody(post) {
   return rendered;
 }
 
+// ── polling ────────────────────────────────────────────────────────────────
+const POLL_DETAIL_MS = 20_000;
+const POLL_FEED_MS   = 60_000;
+let _detailPollTimer = null;
+let _feedPollTimer   = null;
+
+function _startDetailPoll(post) {
+  clearInterval(_detailPollTimer);
+  _detailPollTimer = setInterval(() => _pollDetail(post), POLL_DETAIL_MS);
+}
+function _stopDetailPoll() {
+  clearInterval(_detailPollTimer); _detailPollTimer = null;
+}
+function _startFeedPoll() {
+  clearInterval(_feedPollTimer);
+  _feedPollTimer = setInterval(_pollFeed, POLL_FEED_MS);
+}
+function _stopFeedPoll() {
+  clearInterval(_feedPollTimer); _feedPollTimer = null;
+}
+
+async function _pollDetail(post) {
+  if (document.hidden || currentPostId !== post.id) return;
+  // refresh comments (includes per-comment reactions)
+  loadComments(post);
+  // refresh post-level reactions
+  const params = post._server_url !== CFG.own_server ? '?server=' + encodeURIComponent(post._server_url) : '';
+  const r = await apiFetch('/api/posts/' + post.id + params);
+  if (!r.ok || currentPostId !== post.id) return;
+  const updated = await r.json();
+  if (!updated.reactions) return;
+  post.reactions = updated.reactions;
+  document.querySelectorAll(`.reaction-bar[data-post-id="${post.id}"][data-comment-id=""]`).forEach(bar => {
+    const tmp = document.createElement('div');
+    tmp.innerHTML = reactionBarHtml(updated.reactions, post.id, post._server_url, '');
+    bar.replaceWith(tmp.firstChild);
+  });
+}
+
+async function _pollFeed() {
+  if (document.hidden || allPosts.length === 0) return;
+  const newestTs = allPosts[0]?.created_at || 0;
+  const servers = activeServer ? [activeServer] : [CFG.own_server, ...(CFG.contacts || []).map(c => c.url)];
+  let newCount = 0;
+  await Promise.all(servers.map(async url => {
+    try {
+      const params = url !== CFG.own_server ? '?server=' + encodeURIComponent(url) : '';
+      const r = await apiFetch('/api/feed?limit=1' + (params ? '&' + params.slice(1) : ''));
+      if (!r.ok) return;
+      const d = await r.json();
+      if (d.posts?.[0]?.created_at > newestTs) newCount++;
+    } catch {}
+  }));
+  const banner = document.getElementById('new-posts-banner');
+  if (newCount > 0) {
+    banner.textContent = 'New posts available — click to refresh';
+    banner.hidden = false;
+  }
+}
+
+function refreshFeed() {
+  document.getElementById('new-posts-banner').hidden = true;
+  resetFeed();
+}
+
 function openDetail(idx) {
   currentIdx = idx;
   const post = allPosts[idx];
@@ -1076,6 +1144,7 @@ function openDetail(idx) {
   document.getElementById("nav-next").hidden = idx >= allPosts.length - 1;
   document.getElementById("detail-overlay").hidden = false;
   loadComments(post);
+  _startDetailPoll(post);
 }
 
 function renderDetail(post) {
@@ -1105,6 +1174,7 @@ function renderDetail(post) {
 }
 
 function closeDetail() {
+  _stopDetailPoll();
   document.getElementById("detail-overlay").hidden = true;
   highlightCard(-1);
   currentIdx = -1; currentPostId = null; currentPostServer = null;
