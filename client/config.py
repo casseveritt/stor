@@ -9,6 +9,7 @@ class ContactEntry:
     name: str
     url: str
     handle: str | None = None
+    public_key: str | None = None
 
 
 @dataclass

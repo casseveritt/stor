@@ -191,6 +191,12 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         """)
         con.execute("DROP TABLE _comments_v1")
         con.commit()
+    # migrate: add author_identity column for federated comment attribution
+    try:
+        con.execute("SELECT author_identity FROM comments LIMIT 1")
+    except Exception:
+        con.execute("ALTER TABLE comments ADD COLUMN author_identity TEXT")
+        con.commit()
     con.execute("""
         CREATE TABLE IF NOT EXISTS comment_edit_requests (
             id                     TEXT PRIMARY KEY,
@@ -230,8 +236,14 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             server_url TEXT NOT NULL UNIQUE,
             name       TEXT,
-            handle     TEXT
+            handle     TEXT,
+            public_key TEXT
         )
     """)
     con.execute("INSERT OR IGNORE INTO schema_version VALUES (7)")
-    con.commit()
+    # migrate: add public_key column to contacts
+    try:
+        con.execute("SELECT public_key FROM contacts LIMIT 1")
+    except Exception:
+        con.execute("ALTER TABLE contacts ADD COLUMN public_key TEXT")
+        con.commit()

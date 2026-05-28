@@ -11,13 +11,14 @@ class _ContactBody(BaseModel):
     server_url: str
     name: str | None = None
     handle: str | None = None
+    public_key: str | None = None
 
 
 @router.get("/contacts")
 def list_contacts(request: Request, _: OwnerDep):
     db = request.app.state.db
-    rows = db.execute("SELECT server_url, name, handle FROM contacts ORDER BY id").fetchall()
-    return {"contacts": [{"server_url": r[0], "name": r[1], "handle": r[2]} for r in rows]}
+    rows = db.execute("SELECT server_url, name, handle, public_key FROM contacts ORDER BY id").fetchall()
+    return {"contacts": [{"server_url": r[0], "name": r[1], "handle": r[2], "public_key": r[3]} for r in rows]}
 
 
 @router.post("/contacts", status_code=201)
@@ -25,8 +26,8 @@ def add_contact(payload: _ContactBody, request: Request, _: OwnerDep):
     db = request.app.state.db
     try:
         db.execute(
-            "INSERT INTO contacts (server_url, name, handle) VALUES (?, ?, ?)",
-            (payload.server_url, payload.name, payload.handle),
+            "INSERT INTO contacts (server_url, name, handle, public_key) VALUES (?, ?, ?, ?)",
+            (payload.server_url, payload.name, payload.handle, payload.public_key),
         )
         db.commit()
     except Exception:

@@ -473,26 +473,28 @@ def create_app(config_path: str | Path) -> FastAPI:
             "server_url": record["server_url"],
             "display_name": record.get("display_name"),
             "photo_url": record.get("photo_url"),
+            "public_key": record.get("public_key"),
         }
 
     class ContactBody(BaseModel):
         name: str
         url: str
         handle: str | None = None
+        public_key: str | None = None
 
     @api.post("/contacts", status_code=201)
     async def api_add_contact(body: ContactBody):
         from client.config import ContactEntry
         if any(c.url == body.url for c in config.contacts):
             raise HTTPException(status_code=409, detail="Contact with this URL already exists")
-        config.contacts.append(ContactEntry(name=body.name, url=body.url, handle=body.handle))
+        config.contacts.append(ContactEntry(name=body.name, url=body.url, handle=body.handle, public_key=body.public_key))
         config.save(config_path)
         # Sync to server so it can authorize inbound comments from this contact
         if _token(config.own_server):
             async with httpx.AsyncClient() as hc:
                 await hc.post(
                     _server + "/contacts",
-                    json={"server_url": body.url, "name": body.name, "handle": body.handle},
+                    json={"server_url": body.url, "name": body.name, "handle": body.handle, "public_key": body.public_key},
                     headers=_headers(config.own_server),
                     timeout=10.0,
                 )

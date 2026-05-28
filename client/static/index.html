@@ -431,6 +431,7 @@ let IS_OWNER = false;
 let serverStatuses = {};
 let serverHandles = {};
 let serverProfiles = {};
+let serverPublicKeys = {}; // url → base64 public key
 
 // ── client session token ───────────────────────────────────────────────────
 function getClientToken() { return localStorage.getItem("contacc_client_session"); }
@@ -597,9 +598,14 @@ function renderServerList() {
     const status = serverStatuses[s.url] || "wait";
     const handle = serverHandles[s.url];
     const label = handle ? `@${handle}` : esc(s.name);
+    const prof = serverProfiles[s.url];
+    const avatarHtml = prof && prof.photo_url
+      ? `<img src="${esc(prof.photo_url)}" class="post-author-avatar" alt="">`
+      : `<span class="post-author-initials">${esc((s.name||'?')[0].toUpperCase())}</span>`;
     return '<div class="contact-row">'
       + '<button class="server-btn' + (activeServer === s.url ? " active" : "") + '" onclick="setActiveServer(' + globalIdx + ')" title="' + esc(s.name) + '">'
-      + '<span>' + label + '</span>'
+      + avatarHtml
+      + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + label + '</span>'
       + '<span class="server-dot ' + status + '"></span>'
       + '</button>'
       + '<button class="contact-remove" onclick="removeContact(' + JSON.stringify(s.url).replace(/"/g, '&quot;') + ')" title="Remove contact">✕</button>'
@@ -626,6 +632,7 @@ async function fetchServerHandles() {
       if (r.ok) {
         const d = await r.json();
         if (d.handle) { serverHandles[s.url] = d.handle; renderServerList(); }
+        if (d.public_key) serverPublicKeys[d.public_key] = s.url;
       }
     } catch {}
   }
@@ -758,7 +765,7 @@ async function confirmAddContact() {
   const r = await apiFetch("/api/contacts", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({name, url: _pendingContact.server_url, handle: _pendingContact.handle || null}),
+    body: JSON.stringify({name, url: _pendingContact.server_url, handle: _pendingContact.handle || null, public_key: _pendingContact.public_key || null}),
   });
   if (r.status === 409) { err.textContent = "Already in your contacts."; return; }
   if (!r.ok) { err.textContent = "Failed to add contact."; return; }
@@ -1022,6 +1029,37 @@ async function loadComments(post) {
   renderComments(post, (await r.json()).comments);
 }
 
+function _commentAuthor(identity, postServerUrl) {
+  // null → owner of the post's server
+  if (!identity) {
+    const url = postServerUrl || CFG.own_server;
+    const prof = serverProfiles[url] || {};
+    return { name: prof.display_name || prof.handle || "Owner", photoUrl: prof.photo_url || null };
+  }
+  // match by public_key: first from /node cache, then from CFG.contacts
+  const keyUrl = serverPublicKeys[identity];
+  if (keyUrl) {
+    const prof = serverProfiles[keyUrl] || {};
+    const contact = (CFG.contacts || []).find(c => c.url === keyUrl);
+    return { name: prof.display_name || prof.handle || (contact && contact.name) || keyUrl, photoUrl: prof.photo_url || null };
+  }
+  const byKey = (CFG.contacts || []).find(c => c.public_key && c.public_key === identity);
+  if (byKey) {
+    const prof = serverProfiles[byKey.url] || {};
+    return { name: prof.display_name || byKey.name, photoUrl: prof.photo_url || null };
+  }
+  if (identity.startsWith("https://") || identity.startsWith("http://")) {
+    const byUrl = (CFG.contacts || []).find(c => c.url === identity);
+    if (byUrl) {
+      const prof = serverProfiles[byUrl.url] || {};
+      return { name: prof.display_name || byUrl.name, photoUrl: prof.photo_url || null };
+    }
+    // URL-shaped identity with no matching contact — show domain as name
+    try { return { name: new URL(identity).host, photoUrl: null }; } catch {}
+  }
+  return { name: identity, photoUrl: null };
+}
+
 function renderComments(post, comments) {
   const section = document.getElementById("comments-section");
   if (!section) return;
@@ -1030,8 +1068,12 @@ function renderComments(post, comments) {
   for (const c of live) { const k = c.parent_id || "__root__"; (byParent[k] = byParent[k] || []).push(c); }
   function renderOne(c, depth) {
     const replies = byParent[c.id] || [];
+    const au = _commentAuthor(c.author_identity, post._server_url);
+    const avatar = au.photoUrl
+      ? `<img src="${esc(au.photoUrl)}" class="post-author-avatar" alt="">`
+      : `<span class="post-author-initials">${esc((au.name[0]||'?').toUpperCase())}</span>`;
     return '<div class="comment">'
-      + '<div class="comment-author">' + esc(c.author_identity || "(owner)") + '</div>'
+      + '<div class="comment-author" style="display:flex;align-items:center;gap:0.4rem">' + avatar + '<span>' + esc(au.name) + '</span></div>'
       + '<div class="comment-body">' + esc(c.body) + '</div>'
       + '<div class="comment-foot">' + fmtDate(c.created_at) + '</div>'
       + (replies.length ? '<div class="comment-replies">' + replies.map(r => renderOne(r, depth+1)).join("") + '</div>' : '')

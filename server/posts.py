@@ -431,7 +431,7 @@ def fetch_post_comments(post_id: str, request: Request, identity: OptionalAuthDe
     rows = db.execute(
         """SELECT c.id, c.content_hash, c.post_id, c.parent_id, c.author_recipient_id,
                   c.body, c.created_at, c.predecessor, c.successor, c.deleted,
-                  r.identity
+                  COALESCE(c.author_identity, r.identity)
            FROM comments c
            LEFT JOIN recipients r ON r.id = c.author_recipient_id
            WHERE c.post_id = ? ORDER BY c.created_at ASC""",
@@ -476,16 +476,17 @@ def post_comment(post_id: str, payload: _CommentBody, request: Request, identity
         row = db.execute("SELECT identity FROM recipients WHERE id = ?", (author_id,)).fetchone()
         if row:
             author_identity = row[0]
-    elif origin_server:
-        row = db.execute("SELECT handle, name FROM contacts WHERE server_url = ?", (origin_server,)).fetchone()
-        author_identity = (f"@{row[0]}" if row and row[0] else row[1]) if row else origin_server
+    elif not identity.is_owner and origin_server:
+        row = db.execute("SELECT public_key FROM contacts WHERE server_url = ?", (origin_server,)).fetchone()
+        author_identity = row[0] if row and row[0] else origin_server
 
     db.execute(
         """INSERT INTO comments
              (id, content_hash, asset_id, post_id, parent_id, author_recipient_id,
-              body, created_at, predecessor, successor, deleted)
-           VALUES (?, ?, NULL, ?, ?, ?, ?, ?, NULL, NULL, 0)""",
-        (comment_id, content_hash, post_id, payload.parent_id, author_id, payload.body, now),
+              author_identity, body, created_at, predecessor, successor, deleted)
+           VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, 0)""",
+        (comment_id, content_hash, post_id, payload.parent_id, author_id,
+         author_identity, payload.body, now),
     )
     db.commit()
 
