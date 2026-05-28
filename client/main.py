@@ -432,7 +432,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         handle: str | None = None
 
     @api.post("/contacts", status_code=201)
-    def api_add_contact(body: ContactBody):
+    async def api_add_contact(body: ContactBody):
         from client.config import ContactEntry
         if any(c.url == body.url for c in config.contacts):
             raise HTTPException(status_code=409, detail="Contact with this URL already exists")
