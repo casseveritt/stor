@@ -133,6 +133,8 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
         if registry_url:
             import threading
 
+            HEARTBEAT_INTERVAL = 3600  # re-register every hour; TTL is 4 hours
+
             def _make_trigger(pk, addr, hdl, reg_url, db_con):
                 def trigger():
                     row = db_con.execute(
@@ -143,9 +145,15 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
                     _registry_heartbeat(pk, addr, hdl, reg_url, dn, pu)
                 return trigger
 
+            def _heartbeat_loop(trigger):
+                import time as _time
+                while True:
+                    trigger()
+                    _time.sleep(HEARTBEAT_INTERVAL)
+
             trigger_fn = _make_trigger(private_key, node_address, config.registry_handle, registry_url, db_con)
             app.state.trigger_heartbeat = trigger_fn
-            threading.Thread(target=trigger_fn, daemon=True).start()
+            threading.Thread(target=_heartbeat_loop, args=(trigger_fn,), daemon=True).start()
 
 
 def create_app(config_path: str | Path) -> FastAPI:
