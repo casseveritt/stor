@@ -21,6 +21,7 @@ import json
 import logging
 import os
 import secrets
+import struct
 import sys
 import time
 from pathlib import Path
@@ -246,6 +247,133 @@ def create_app(config_path: str | Path) -> FastAPI:
                 urls.append(url)
         return urls
 
+    # ── local post/asset cache ────────────────────────────────────────────
+    _POST_CACHE_DIR = Path("/data/post_cache")
+    _ASSET_CACHE_DIR = Path("/data/asset_cache")
+    _CACHE_TTL = 3 * 86400  # 3 days
+    _CACHE_MAX_ASSET_BYTES = 50 * 1024 * 1024  # 50 MB
+
+    def _cache_aes_key() -> bytes | None:
+        private_key = getattr(app.state, "private_key", None)
+        if not private_key:
+            return None
+        try:
+            from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption
+            from cryptography.hazmat.primitives.hashes import SHA256
+            from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+            priv_bytes = private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
+            return HKDF(algorithm=SHA256(), length=32, salt=None, info=b"contacc-local-cache").derive(priv_bytes)
+        except Exception:
+            return None
+
+    def _cache_write(path: Path, data: bytes) -> None:
+        key = _cache_aes_key()
+        if key is None:
+            return
+        try:
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            nonce = os.urandom(12)
+            ct = AESGCM(key).encrypt(nonce, data, None)
+            expiry = struct.pack(">Q", int(time.time()) + _CACHE_TTL)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(expiry + nonce + ct)
+        except Exception:
+            pass
+
+    def _cache_read(path: Path, allow_expired: bool = False) -> bytes | None:
+        if not path.exists():
+            return None
+        try:
+            raw = path.read_bytes()
+            if len(raw) < 20:
+                return None
+            expiry = struct.unpack(">Q", raw[:8])[0]
+            if not allow_expired and time.time() > expiry:
+                return None
+            key = _cache_aes_key()
+            if key is None:
+                return None
+            from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+            return AESGCM(key).decrypt(raw[8:20], raw[20:], None)
+        except Exception:
+            return None
+
+    def _post_cache_path(contact_key: str, post_id: str) -> Path:
+        bucket = hashlib.sha256(contact_key.encode()).hexdigest()[:16]
+        return _POST_CACHE_DIR / bucket / f"{post_id}.enc"
+
+    def _asset_cache_path(asset_id: str, thumb: bool) -> Path:
+        suffix = ".thumb.enc" if thumb else ".enc"
+        return _ASSET_CACHE_DIR / asset_id[:2] / f"{asset_id}{suffix}"
+
+    def _cache_posts(contact_key: str, posts: list[dict]) -> None:
+        for post in posts:
+            _cache_write(_post_cache_path(contact_key, post["id"]), json.dumps(post).encode())
+
+    def _read_cached_posts(contact_key: str, allow_expired: bool = False) -> list[dict]:
+        bucket = hashlib.sha256(contact_key.encode()).hexdigest()[:16]
+        d = _POST_CACHE_DIR / bucket
+        if not d.exists():
+            return []
+        posts = []
+        for f in d.glob("*.enc"):
+            data = _cache_read(f, allow_expired=allow_expired)
+            if data is None:
+                if not allow_expired:
+                    f.unlink(missing_ok=True)
+                continue
+            try:
+                posts.append(json.loads(data))
+            except Exception:
+                pass
+        return posts
+
+    def _cache_asset(asset_id: str, content_type: str, data: bytes, thumb: bool) -> None:
+        if len(data) > _CACHE_MAX_ASSET_BYTES:
+            return
+        content_hash = hashlib.sha256(data).digest()  # 32 bytes, stored for integrity check
+        payload = struct.pack(">I", len(content_type)) + content_type.encode() + content_hash + data
+        _cache_write(_asset_cache_path(asset_id, thumb), payload)
+
+    def _read_cached_asset(asset_id: str, thumb: bool, expected_hash: str | None = None) -> tuple[str, bytes] | None:
+        path = _asset_cache_path(asset_id, thumb)
+        for allow_expired in (False, True):
+            data = _cache_read(path, allow_expired=allow_expired)
+            if data is None:
+                continue
+            if len(data) < 4:
+                continue
+            ct_len = struct.unpack(">I", data[:4])[0]
+            if len(data) < 4 + ct_len + 32:
+                continue
+            content_type = data[4:4 + ct_len].decode()
+            stored_hash = data[4 + ct_len:4 + ct_len + 32]
+            asset_bytes = data[4 + ct_len + 32:]
+            if hashlib.sha256(asset_bytes).digest() != stored_hash:
+                path.unlink(missing_ok=True)
+                return None
+            if expected_hash and hashlib.sha256(asset_bytes).hexdigest() != expected_hash:
+                return None  # asset superseded
+            return content_type, asset_bytes
+        return None
+
+    @app.on_event("startup")
+    async def _cleanup_post_cache():
+        """Remove expired cache files at startup (expiry stored plaintext so no key needed)."""
+        import asyncio
+        async def _do_cleanup():
+            for d in [_POST_CACHE_DIR, _ASSET_CACHE_DIR]:
+                if not d.exists():
+                    continue
+                for f in d.rglob("*.enc"):
+                    try:
+                        raw = f.read_bytes()
+                        if len(raw) >= 8 and time.time() > struct.unpack(">Q", raw[:8])[0]:
+                            f.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+        asyncio.create_task(_do_cleanup())
+
     # ── config / status ───────────────────────────────────────────────────
 
     @api.get("/config")
@@ -340,6 +468,8 @@ def create_app(config_path: str | Path) -> FastAPI:
             if not _token(url) and url == config.own_server:
                 return []
             contact = next((c for c in config.contacts if c.url == url), None)
+            contact_key = (contact.public_key if contact else None) or hashlib.sha256(url.encode()).hexdigest()
+            is_contact_node = url != config.own_server
 
             async def _try_fetch(fetch_target: str) -> list | None:
                 try:
@@ -351,10 +481,13 @@ def create_app(config_path: str | Path) -> FastAPI:
                     if r.is_success:
                         data = r.json()
                         name = _server_name(fetch_target)
-                        for post in data.get("posts", []):
+                        posts = data.get("posts", [])
+                        for post in posts:
                             post["_server_url"] = fetch_target
                             post["_server_name"] = name
-                        return data.get("posts", [])
+                        if is_contact_node and not cursor and not q and not tags:
+                            _cache_posts(contact_key, posts)
+                        return posts
                 except Exception:
                     pass
                 return None
@@ -362,13 +495,19 @@ def create_app(config_path: str | Path) -> FastAPI:
             result = await _try_fetch(url)
             if result is not None:
                 return result
-            # Fetch failed — refresh URL from registry via public key
+            # Fetch failed — try refreshing URL from registry
             if contact and contact.public_key:
                 new_url = await _refresh_url_for_pubkey(contact.public_key)
                 if new_url and new_url != url:
                     result = await _try_fetch(new_url)
                     if result is not None:
                         return result
+            # Fall back to cached posts (serve expired as last resort)
+            if is_contact_node:
+                cached = _read_cached_posts(contact_key) or _read_cached_posts(contact_key, allow_expired=True)
+                if cached:
+                    log.info("Serving %d cached posts for %s", len(cached), url)
+                    return cached
             return []
 
         import asyncio
@@ -474,27 +613,47 @@ def create_app(config_path: str | Path) -> FastAPI:
     # ── assets ────────────────────────────────────────────────────────────
 
     @api.get("/assets/{asset_id}/thumb")
-    async def api_asset_thumb(asset_id: str, server: str = ""):
+    async def api_asset_thumb(asset_id: str, server: str = "", hash: str = ""):
         src = server or config.own_server
-        async with httpx.AsyncClient() as hc:
-            r = await hc.get(_call_url(src) + f"/assets/{asset_id}/thumb", headers=_headers(src))
-        if not r.is_success:
-            raise HTTPException(status_code=r.status_code)
-        return StreamingResponse(iter([r.content]),
-                                 media_type=r.headers.get("content-type", "image/jpeg"))
+        is_remote = src != config.own_server
+        try:
+            async with httpx.AsyncClient() as hc:
+                r = await hc.get(_call_url(src) + f"/assets/{asset_id}/thumb", headers=_headers(src))
+            if r.is_success:
+                if is_remote:
+                    _cache_asset(asset_id, r.headers.get("content-type", "image/jpeg"), r.content, thumb=True)
+                return StreamingResponse(iter([r.content]),
+                                         media_type=r.headers.get("content-type", "image/jpeg"))
+        except Exception:
+            pass
+        if is_remote:
+            cached = _read_cached_asset(asset_id, thumb=True, expected_hash=hash or None)
+            if cached:
+                return Response(content=cached[1], media_type=cached[0])
+        raise HTTPException(status_code=502)
 
     @api.get("/assets/{asset_id}")
-    async def api_asset(asset_id: str, server: str = ""):
+    async def api_asset(asset_id: str, server: str = "", hash: str = ""):
         src = server or config.own_server
-        async with httpx.AsyncClient() as hc:
-            r = await hc.get(_call_url(src) + f"/assets/{asset_id}", headers=_headers(src))
-        if not r.is_success:
-            raise HTTPException(status_code=r.status_code)
-        return StreamingResponse(
-            iter([r.content]),
-            media_type=r.headers.get("content-type", "application/octet-stream"),
-            headers={"content-disposition": r.headers.get("content-disposition", "")},
-        )
+        is_remote = src != config.own_server
+        try:
+            async with httpx.AsyncClient() as hc:
+                r = await hc.get(_call_url(src) + f"/assets/{asset_id}", headers=_headers(src))
+            if r.is_success:
+                if is_remote:
+                    _cache_asset(asset_id, r.headers.get("content-type", "application/octet-stream"), r.content, thumb=False)
+                return StreamingResponse(
+                    iter([r.content]),
+                    media_type=r.headers.get("content-type", "application/octet-stream"),
+                    headers={"content-disposition": r.headers.get("content-disposition", "")},
+                )
+        except Exception:
+            pass
+        if is_remote:
+            cached = _read_cached_asset(asset_id, thumb=False, expected_hash=hash or None)
+            if cached:
+                return Response(content=cached[1], media_type=cached[0])
+        raise HTTPException(status_code=502)
 
     # ── tags ──────────────────────────────────────────────────────────────
 

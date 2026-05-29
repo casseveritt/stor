@@ -46,12 +46,13 @@ def _get_post_assets(db, post_id: str, body: str) -> list[dict]:
         return []
     placeholders = ",".join("?" * len(asset_ids))
     rows = db.execute(
-        f"""SELECT a.id, a.media_type, a.size, a.title
+        f"""SELECT a.id, a.media_type, a.size, a.title, a.content_hash, a.successor
             FROM assets a
             WHERE a.id IN ({placeholders}) AND a.deleted = 0""",
         asset_ids,
     ).fetchall()
-    by_id = {r[0]: {"id": r[0], "media_type": r[1], "size": r[2], "title": r[3]} for r in rows}
+    by_id = {r[0]: {"id": r[0], "media_type": r[1], "size": r[2], "title": r[3],
+                    "content_hash": r[4], "successor": r[5]} for r in rows}
     return [by_id[aid] for aid in asset_ids if aid in by_id]
 
 
