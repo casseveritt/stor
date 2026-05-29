@@ -200,13 +200,51 @@ def create_app(config_path: str | Path) -> FastAPI:
             pass
         return {}
 
+    # ── contact URL indirection ───────────────────────────────────────────
+    # pub_key → current URL; the only place contact URLs are cached.
+    # Populated from config at startup; refreshed from registry on demand.
+    _contact_url_cache: dict[str, str] = {
+        c.public_key: c.url for c in config.contacts if c.public_key and c.url
+    }
+
+    def _url_for_pubkey(pub_key: str) -> str | None:
+        return _contact_url_cache.get(pub_key)
+
+    def _registry_url() -> str:
+        from urllib.parse import urlparse
+        parsed = urlparse(config.own_server)
+        return f"https://{parsed.hostname}:8421"
+
+    async def _refresh_url_for_pubkey(pub_key: str) -> str | None:
+        """Query registry by public key, update cache + config, return fresh URL."""
+        from registry.client import lookup_by_key as _lookup_by_key
+        try:
+            record = await _lookup_by_key(pub_key, registry_url=_registry_url())
+            if record and record.get("server_url"):
+                url = record["server_url"]
+                _contact_url_cache[pub_key] = url
+                contact = next((c for c in config.contacts if c.public_key == pub_key), None)
+                if contact and contact.url != url:
+                    log.info("Contact URL refreshed via registry: %s → %s", contact.url, url)
+                    contact.url = url
+                    config.save(config_path)
+                return url
+        except Exception:
+            pass
+        return None
+
     def _server_name(url: str) -> str:
         if url == config.own_server:
             return "me"
         return next((c.name for c in config.contacts if c.url == url), url)
 
     def _all_servers() -> list[str]:
-        return [config.own_server] + [c.url for c in config.contacts]
+        urls = [config.own_server]
+        for c in config.contacts:
+            url = (_url_for_pubkey(c.public_key) if c.public_key else None) or c.url
+            if url:
+                urls.append(url)
+        return urls
 
     # ── config / status ───────────────────────────────────────────────────
 
@@ -298,61 +336,40 @@ def create_app(config_path: str | Path) -> FastAPI:
         if q: params_base.append(("q", q))
         for t in tags: params_base.append(("tags", t))
 
-        async def _refresh_url(url: str) -> str | None:
-            """Look up handle in registry; update and return new URL if changed."""
-            contact = next((c for c in config.contacts if c.url == url), None)
-            if not contact or not contact.handle:
-                return None
-            try:
-                from registry.client import lookup as _lookup
-                record = await _lookup(contact.handle)
-                new_url = record.get("server_url") if record else None
-                if new_url and new_url != url:
-                    contact.url = new_url
-                    config.save(config_path)
-                    log.info("Contact %s URL updated: %s → %s", contact.handle, url, new_url)
-                    return new_url
-            except Exception:
-                pass
-            return None
-
         async def _fetch_one(url: str):
             if not _token(url) and url == config.own_server:
                 return []
-            try:
-                fetch_url = _server if url == config.own_server else url
-                fetch_headers = {**_headers(url), "X-Origin-Server": config.own_server,
-                                 **await _sign_federated("GET", "/posts", b"")}
-                async with httpx.AsyncClient() as hc:
-                    r = await hc.get(fetch_url + "/posts", params=params_base, headers=fetch_headers, timeout=10.0)
-                if r.is_success:
-                    data = r.json()
-                    name = _server_name(url)
-                    for post in data.get("posts", []):
-                        post["_server_url"] = url
-                        post["_server_name"] = name
-                    return data.get("posts", [])
-            except Exception:
-                pass
-            # Fetch failed — try refreshing the URL from the registry
-            new_url = await _refresh_url(url)
-            if not new_url:
-                return []
-            try:
-                retry_headers = {**_headers(new_url), "X-Origin-Server": config.own_server,
-                                 **await _sign_federated("GET", "/posts", b"")}
-                async with httpx.AsyncClient() as hc:
-                    r = await hc.get(new_url + "/posts", params=params_base, headers=retry_headers, timeout=10.0)
-                if not r.is_success:
-                    return []
-                data = r.json()
-                name = _server_name(new_url)
-                for post in data.get("posts", []):
-                    post["_server_url"] = new_url
-                    post["_server_name"] = name
-                return data.get("posts", [])
-            except Exception:
-                return []
+            contact = next((c for c in config.contacts if c.url == url), None)
+
+            async def _try_fetch(fetch_target: str) -> list | None:
+                try:
+                    actual_url = _server if fetch_target == config.own_server else fetch_target
+                    hdrs = {**_headers(fetch_target), "X-Origin-Server": config.own_server,
+                            **await _sign_federated("GET", "/posts", b"")}
+                    async with httpx.AsyncClient() as hc:
+                        r = await hc.get(actual_url + "/posts", params=params_base, headers=hdrs, timeout=10.0)
+                    if r.is_success:
+                        data = r.json()
+                        name = _server_name(fetch_target)
+                        for post in data.get("posts", []):
+                            post["_server_url"] = fetch_target
+                            post["_server_name"] = name
+                        return data.get("posts", [])
+                except Exception:
+                    pass
+                return None
+
+            result = await _try_fetch(url)
+            if result is not None:
+                return result
+            # Fetch failed — refresh URL from registry via public key
+            if contact and contact.public_key:
+                new_url = await _refresh_url_for_pubkey(contact.public_key)
+                if new_url and new_url != url:
+                    result = await _try_fetch(new_url)
+                    if result is not None:
+                        return result
+            return []
 
         import asyncio
         results = await asyncio.gather(*[_fetch_one(url) for url in servers])
@@ -551,7 +568,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     @api.get("/contacts/lookup")
     async def api_lookup_handle(handle: str = Query(...)):
         from registry.client import lookup as registry_lookup
-        record = await registry_lookup(handle)
+        record = await registry_lookup(handle, registry_url=_registry_url())
         if record is None:
             raise HTTPException(status_code=404, detail=f"Handle '{handle}' not found")
         return {
@@ -565,14 +582,14 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     @api.get("/contacts/search")
     async def api_search_contacts(q: str = Query(...)):
-        from registry.client import REGISTRY_URL
         q = q.strip()
         if not q:
             return {"results": []}
+        reg = _registry_url()
         # Public key: route to lookup-by-key
         if len(q) >= 40 and not q.startswith("http") and "/" not in q and " " not in q:
             async with httpx.AsyncClient() as hc:
-                r = await hc.get(REGISTRY_URL + "/lookup-by-key", params={"public_key": q}, timeout=5)
+                r = await hc.get(reg + "/lookup-by-key", params={"public_key": q}, timeout=5)
             if r.is_success:
                 d = r.json()
                 return {"results": [{"username": d.get("username"), "server_url": d["server_url"],
@@ -580,7 +597,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                                      "public_key": q}]}
             return {"results": []}
         async with httpx.AsyncClient() as hc:
-            r = await hc.get(REGISTRY_URL + "/search", params={"q": q}, timeout=5)
+            r = await hc.get(reg + "/search", params={"q": q}, timeout=5)
         if not r.is_success:
             raise HTTPException(status_code=502, detail="Registry search failed")
         return r.json()
@@ -599,6 +616,8 @@ def create_app(config_path: str | Path) -> FastAPI:
         if any(c.url == body.url for c in config.contacts):
             raise HTTPException(status_code=409, detail="Contact with this URL already exists")
         config.contacts.append(ContactEntry(name=body.name, url=body.url, handle=body.handle, public_key=body.public_key))
+        if body.public_key:
+            _contact_url_cache[body.public_key] = body.url
         config.save(config_path)
         # Sync to server so it can authorize inbound comments from this contact
         if _token(config.own_server):
@@ -634,9 +653,13 @@ def create_app(config_path: str | Path) -> FastAPI:
     @api.delete("/contacts")
     async def api_remove_contact(url: str = Query(...)):
         before = len(config.contacts)
+        removed = [c for c in config.contacts if c.url == url]
         config.contacts = [c for c in config.contacts if c.url != url]
         if len(config.contacts) == before:
             raise HTTPException(status_code=404, detail="Contact not found")
+        for c in removed:
+            if c.public_key:
+                _contact_url_cache.pop(c.public_key, None)
         config.save(config_path)
         # Sync removal to server
         if _token(config.own_server):
