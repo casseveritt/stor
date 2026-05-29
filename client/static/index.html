@@ -135,12 +135,15 @@
     .emoji-picker { display: flex; gap: 0.3rem; background: #252525; border: 1px solid #3a3a3a; border-radius: 8px; padding: 0.4rem; margin-top: 0.3rem; flex-wrap: wrap; max-width: 260px; }
     .emoji-pick-btn { background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 3px 5px; border-radius: 4px; line-height: 1; }
     .emoji-pick-btn:hover { background: #3a3a3a; }
+    #reactor-tooltip { position: fixed; background: #2a2a2a; border: 1px solid #444; border-radius: 6px; padding: 0.35rem 0.65rem; font-size: 0.8rem; color: #ddd; z-index: 1000; pointer-events: none; white-space: pre; box-shadow: 0 4px 12px rgba(0,0,0,0.5); max-width: 220px; line-height: 1.5; }
 
     /* ── compose ── */
     #compose-modal { min-width: min(90vw, 560px); }
-    #compose-body-wrap { position: relative; margin-bottom: 0.75rem; }
-    #compose-body { background: #222; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; padding: 0.6rem; width: 100%; font-size: 0.95rem; resize: vertical; min-height: 100px; outline: none; font-family: inherit; }
-    #compose-body:focus { border-color: #4285f4; }
+    #compose-body-wrap { position: relative; margin-bottom: 0.75rem; background: #222; border: 1px solid #333; border-radius: 4px; }
+    #compose-body-wrap:focus-within { border-color: #4285f4; }
+    #compose-highlight { position: absolute; top: 0; left: 0; right: 0; bottom: 0; padding: 0.6rem; font-size: 0.95rem; font-family: inherit; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; overflow: hidden; color: transparent; pointer-events: none; z-index: 0; box-sizing: border-box; }
+    .mention-hl { background: rgba(66,133,244,0.28); border-radius: 3px; }
+    #compose-body { background: transparent; color: #e0e0e0; border: none; border-radius: 4px; padding: 0.6rem; width: 100%; font-size: 0.95rem; line-height: 1.5; resize: vertical; min-height: 100px; outline: none; font-family: inherit; position: relative; z-index: 1; caret-color: #e0e0e0; box-sizing: border-box; }
     #mention-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: #252525; border: 1px solid #444; border-radius: 4px; max-height: 180px; overflow-y: auto; z-index: 200; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
     .mention-item { padding: 0.4rem 0.75rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; font-size: 0.88rem; }
     .mention-item:hover, .mention-item.focused { background: #1e2d4a; }
@@ -331,8 +334,10 @@
     <button class="modal-close" onclick="closeCompose()">&#x2715;</button>
     <h3>New post</h3>
     <div id="compose-body-wrap">
+      <div id="compose-highlight" aria-hidden="true"></div>
       <textarea id="compose-body" placeholder="What's on your mind?"
                 oninput="onComposeInput()" onkeydown="onComposeKeydown(event)"
+                onscroll="_updateComposeHighlight()"
                 onblur="setTimeout(hideMentionDropdown,150)"></textarea>
       <div id="mention-dropdown" hidden></div>
     </div>
@@ -707,7 +712,10 @@ function _isPublicKey(s) {
 }
 
 function _lookupKeyFromRegistry(identity) {
-  if (_pendingKeyLookups.has(identity) || _keyToProfile[identity]) return;
+  const cached = _keyToProfile[identity];
+  if (_pendingKeyLookups.has(identity)) return;
+  // Only skip if we have useful cached data (not just an empty {} from a failed lookup)
+  if (cached && (cached.display_name || cached.username || cached.server_url)) return;
   _pendingKeyLookups.add(identity);
   const registryUrl = (CFG.identity_proxy_url || "").replace(/\/$/, "");
   if (!registryUrl) { _pendingKeyLookups.delete(identity); return; }
@@ -747,10 +755,7 @@ function _rerenderVisibleAuthorNames() {
     const au = _commentAuthor(identity, serverUrl);
     el.querySelector('.comment-author-name').textContent = au.name;
   });
-  document.querySelectorAll('.reaction-btn[data-reactors]').forEach(btn => {
-    btn.title = "";
-    _setReactorTitle(btn);
-  });
+  if (_reactorTooltipBtn) _showReactorTooltip({ }, _reactorTooltipBtn);
 }
 
 async function fetchServerHandles() {
@@ -761,7 +766,10 @@ async function fetchServerHandles() {
       if (r.ok) {
         const d = await r.json();
         if (d.handle) { serverHandles[s.url] = d.handle; renderServerList(); }
-        if (d.public_key) serverPublicKeys[d.public_key] = s.url;
+        if (d.public_key && serverPublicKeys[d.public_key] !== s.url) {
+          serverPublicKeys[d.public_key] = s.url;
+          _rerenderVisibleAuthorNames();
+        }
         const activity7d = (d.posts_7d || 0) + (d.comments_7d || 0);
         _serverPollIntervals[s.url] = _computePollInterval(activity7d);
       }
@@ -1115,13 +1123,32 @@ async function loadMore(allowLoginRedirect = false) {
 // ── reactions ──────────────────────────────────────────────────────────────
 const REACTION_EMOJI = ['👍', '👎', '❤️', '😄', '😮', '😢', '🎉'];
 
-function _setReactorTitle(btn) {
-  if (btn.title) return;
+let _reactorTooltipBtn = null;
+function _showReactorTooltip(event, btn) {
+  _reactorTooltipBtn = btn;
   const reactors = JSON.parse(btn.dataset.reactors || '[]');
   const serverUrl = btn.dataset.server || CFG.own_server;
   const names = reactors.map(id => _reactorName(id, serverUrl));
-  if (names.some(n => n === '…')) return;  // wait for async lookup to complete
-  btn.title = names.join('\n') || '…';
+  const tip = document.getElementById('reactor-tooltip');
+  if (!tip) return;
+  tip.textContent = names.join('\n') || '–';
+  tip.hidden = false;
+  const rect = btn.getBoundingClientRect();
+  tip.style.left = Math.max(4, rect.left) + 'px';
+  tip.style.top = (rect.top - 8) + 'px';
+  tip.style.transform = 'translateY(-100%)';
+  const _retryReactorTooltip = (delay) => setTimeout(() => {
+    if (_reactorTooltipBtn !== btn) return;
+    const updated = reactors.map(id => _reactorName(id, serverUrl));
+    tip.textContent = updated.join('\n') || '–';
+    if (updated.some(n => n === '…' || n === '?') && delay < 8000) _retryReactorTooltip(delay * 2);
+  }, delay);
+  if (names.some(n => n === '…' || n === '?')) _retryReactorTooltip(800);
+}
+function _hideReactorTooltip() {
+  _reactorTooltipBtn = null;
+  const tip = document.getElementById('reactor-tooltip');
+  if (tip) tip.hidden = true;
 }
 
 function _resolveIdentity(identity, postServerUrl) {
@@ -1162,9 +1189,11 @@ function _resolveIdentity(identity, postServerUrl) {
     const prof = serverProfiles[keyUrl] || {};
     const name = prof.display_name || prof.handle;
     if (name) return { name, photoUrl: prof.photo_url || null };
+    const contact = (CFG.contacts || []).find(c => c.url === keyUrl);
+    if (contact?.name) return { name: contact.name, photoUrl: null };
   }
   _lookupKeyFromRegistry(identity);
-  return { name: '…', photoUrl: null };
+  return { name: keyUrl ? '…' : '?', photoUrl: null };
 }
 
 function _reactorName(identity, postServerUrl) {
@@ -1176,7 +1205,7 @@ function reactionBarHtml(reactions, postId, serverUrl, commentId) {
   const btns = (reactions || []).map(r => {
     const cls = r.reacted ? 'reaction-btn reacted' : 'reaction-btn';
     const reactorsJson = esc(JSON.stringify(r.reactors || []));
-    return `<button class="${cls}" data-reactors="${reactorsJson}" data-server="${esc(serverUrl)}" onmouseenter="_setReactorTitle(this)" onclick="event.stopPropagation();toggleReaction('${esc(postId)}','${esc(serverUrl)}','${r.emoji}','${esc(cid)}',this)">${r.emoji} <span>${r.count}</span></button>`;
+    return `<button class="${cls}" data-reactors="${reactorsJson}" data-server="${esc(serverUrl)}" onmouseenter="_showReactorTooltip(event,this)" onmouseleave="_hideReactorTooltip()" onclick="event.stopPropagation();toggleReaction('${esc(postId)}','${esc(serverUrl)}','${r.emoji}','${esc(cid)}',this)">${r.emoji} <span>${r.count}</span></button>`;
   }).join('');
   const add = `<button class="reaction-add" onclick="event.stopPropagation();showEmojiPicker(event,'${esc(postId)}','${esc(serverUrl)}','${esc(cid)}')" title="Add reaction">+</button>`;
   return `<div class="reaction-bar" data-post-id="${esc(postId)}" data-server="${esc(serverUrl)}" data-comment-id="${esc(cid)}">${btns}${add}</div>`;
@@ -1619,10 +1648,11 @@ async function submitComment(postId, serverUrl) {
 let _mentionState = null;
 
 function _mentionTag(c) {
-  return '@' + (c.handle || c.name.split(' ')[0].toLowerCase());
+  return '@' + (c.name.trim().split(/\s+/)[0] || c.handle || 'contact');
 }
 
 function onComposeInput() {
+  _updateComposeHighlight();
   const ta = document.getElementById('compose-body');
   const pos = ta.selectionStart;
   const before = ta.value.substring(0, pos);
@@ -1667,6 +1697,7 @@ function _selectMention(c) {
   const p = before.length + tag.length;
   ta.selectionStart = ta.selectionEnd = p;
   hideMentionDropdown();
+  _updateComposeHighlight();
   ta.focus();
 }
 
@@ -1691,10 +1722,30 @@ function onComposeKeydown(e) {
   }
 }
 
+function _updateComposeHighlight() {
+  const ta = document.getElementById('compose-body');
+  const hl = document.getElementById('compose-highlight');
+  if (!hl || !ta) return;
+  const knownTags = new Set((CFG?.contacts || []).map(c => _mentionTag(c).toLowerCase()));
+  const escaped = ta.value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const highlighted = escaped.replace(/@(\S+)/g, (full, word) => {
+    if (knownTags.has(('@' + word).toLowerCase())) {
+      return `<mark class="mention-hl">${full}</mark>`;
+    }
+    return full;
+  });
+  hl.innerHTML = highlighted + '​';
+  hl.scrollTop = ta.scrollTop;
+}
+
 // ── compose ────────────────────────────────────────────────────────────────
 function openCompose() {
   pendingFiles = [];
   document.getElementById("compose-body").value = "";
+  _updateComposeHighlight();
   document.getElementById("compose-tags").value = "";
   document.getElementById("compose-visibility").value = "contacts";
   document.getElementById("compose-comment-access").value = "contacts";
@@ -2175,5 +2226,6 @@ async function doUnlock() {
   } catch { err.textContent = "Network error."; }
 }
 </script>
+<div id="reactor-tooltip" hidden></div>
 </body>
 </html>
