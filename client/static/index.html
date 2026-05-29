@@ -75,6 +75,10 @@
 
     /* ── overlays ── */
     .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88); display: flex; align-items: center; justify-content: center; z-index: 50; }
+    #lightbox { z-index: 100; cursor: zoom-out; }
+    #lightbox img { max-width: 92vw; max-height: 92vh; object-fit: contain; border-radius: 4px; display: block; }
+    .post-thumb { cursor: zoom-in; }
+    .post-detail-body .asset-block img { cursor: zoom-in; }
     .modal { background: #1e1e1e; border-radius: 8px; max-width: min(90vw, 720px); width: 100%; max-height: 90vh; overflow: auto; padding: 1.25rem; position: relative; }
     .modal-close { position: absolute; top: 0.6rem; right: 0.75rem; background: none; border: none; color: #aaa; font-size: 1.4rem; cursor: pointer; line-height: 1; }
     .modal-close:hover { color: #fff; }
@@ -415,6 +419,11 @@
       <button class="btn btn-muted btn-sm" style="width:100%" onclick="downloadBackup()">Download backup</button>
     </div>
   </div>
+</div>
+
+<!-- ── lightbox ───────────────────────────────────────────────────────────── -->
+<div id="lightbox" class="overlay" hidden onclick="closeLightbox()">
+  <img id="lightbox-img" src="" alt="">
 </div>
 
 <!-- ── edit modal ─────────────────────────────────────────────────────────── -->
@@ -1163,6 +1172,8 @@ function makePostCard(post, idx) {
         const params = post._server_url !== CFG.own_server
           ? "?server=" + encodeURIComponent(post._server_url) : "";
         img.src = "/api/assets/" + asset.id + "/thumb" + params + clientTokenParam(!!params);
+        const fullSrc = "/api/assets/" + asset.id + params + clientTokenParam(!!params);
+        img.onclick = () => openLightbox(fullSrc);
         strip.appendChild(img);
       } else {
         const ic = document.createElement("div");
@@ -1216,6 +1227,7 @@ function makePostCard(post, idx) {
 
 // ── keyboard nav ───────────────────────────────────────────────────────────
 document.addEventListener("keydown", e => {
+  if (!document.getElementById("lightbox").hidden && e.key === "Escape") closeLightbox();
   if (!document.getElementById("compose-overlay").hidden && e.key === "Escape") closeCompose();
   if (!document.getElementById("edit-overlay").hidden && e.key === "Escape") closeEdit();
   if (!document.getElementById("profile-overlay").hidden && e.key === "Escape") closeProfile();
@@ -1235,7 +1247,7 @@ function renderPostBody(post) {
         ? "?server=" + encodeURIComponent(post._server_url) : "";
       const url = "/api/assets/" + aid + params + clientTokenParam(!!params);
       if (a && (a.media_type || "").startsWith("image/"))
-        rendered += '<span class="asset-block"><img src="' + url + '" alt=""></span>';
+        rendered += '<span class="asset-block"><img src="' + url + '" alt="" onclick="openLightbox(this.src)"></span>';
       else if (a && (a.media_type || "").startsWith("video/"))
         rendered += '<span class="asset-block"><video src="' + url + '" controls></video></span>';
       else {
@@ -1637,6 +1649,8 @@ async function confirmDelete(idx) {
 
 // ── utilities ──────────────────────────────────────────────────────────────
 function maybeClose(id, e) { if (e.target === document.getElementById(id)) document.getElementById(id).hidden = true; }
+function openLightbox(src) { document.getElementById("lightbox-img").src = src; document.getElementById("lightbox").hidden = false; }
+function closeLightbox() { document.getElementById("lightbox").hidden = true; document.getElementById("lightbox-img").src = ""; }
 function esc(s) { return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
 function mimeIcon(mt) {
   if (!mt) return "📄";
