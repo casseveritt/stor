@@ -1146,19 +1146,22 @@ function _showReactorTooltip(event, btn) {
   tip.style.left = Math.max(4, rect.left) + 'px';
   tip.style.top = (rect.top - 8) + 'px';
   tip.style.transform = 'translateY(-100%)';
+  // Retry with backoff in case async lookups (registry, /node, /profile) resolve names
   const _retryReactorTooltip = (delay) => setTimeout(() => {
     if (_reactorTooltipBtn !== btn) return;
     const updated = reactors.map(id => _reactorName(id, serverUrl));
-    tip.textContent = updated.join('\n') || '–';
-    if (updated.some(n => n.endsWith('…') || n === '?' || n === 'Me') && delay < 8000) _retryReactorTooltip(delay * 2);
+    if (updated.join('\n') !== tip.textContent) tip.textContent = updated.join('\n') || '–';
+    if (delay < 8000) _retryReactorTooltip(delay * 2);
   }, delay);
-  if (names.some(n => n.endsWith('…') || n === '?' || n === 'Me')) _retryReactorTooltip(800);
+  _retryReactorTooltip(800);
 }
 function _hideReactorTooltip() {
   _reactorTooltipBtn = null;
   const tip = document.getElementById('reactor-tooltip');
   if (tip) tip.hidden = true;
 }
+
+const _normUrl = u => (u || '').replace(/\/+$/, '').toLowerCase();
 
 function _resolveIdentity(identity, postServerUrl) {
   // null/empty → owner of the post's server
@@ -1167,45 +1170,45 @@ function _resolveIdentity(identity, postServerUrl) {
     const prof = serverProfiles[url] || {};
     return { name: prof.display_name || prof.handle || 'Owner', photoUrl: prof.photo_url || null };
   }
-  // anonymous / unauthenticated (new tag and legacy __anon__)
+  // anonymous / unauthenticated
   if (identity === '<anon>' || identity === '__anon__') {
     return { name: 'Anonymous', photoUrl: null };
   }
-  // server URL (legacy identity or own-server viewer) — check profiles then contacts
+  // server URL identity — check profile, own-server, contacts (with URL normalization)
   if (identity.startsWith('http://') || identity.startsWith('https://')) {
     const prof = serverProfiles[identity] || {};
     if (prof.display_name || prof.handle) return { name: prof.display_name || prof.handle, photoUrl: prof.photo_url || null };
-    const contact = (CFG.contacts || []).find(c => c.url === identity);
+    const normId = _normUrl(identity);
+    if (normId === _normUrl(CFG.own_server)) {
+      const ownProf = serverProfiles[CFG.own_server] || {};
+      return { name: ownProf.display_name || ownProf.handle || CFG.own_display_name || 'Me', photoUrl: ownProf.photo_url || null };
+    }
+    const contact = (CFG.contacts || []).find(c => _normUrl(c.url) === normId);
     if (contact) return { name: contact.name, photoUrl: prof.photo_url || null };
     const reg = _keyToProfile[identity];
-    if (reg) return { name: reg.display_name || ('@' + reg.username), photoUrl: null };
+    if (reg?.display_name || reg?.username) return { name: reg.display_name || ('@' + reg.username), photoUrl: null };
     _lookupKeyFromRegistry(identity);
-    return { name: '…', photoUrl: null };
+    try { return { name: new URL(identity).hostname, photoUrl: null }; } catch { return { name: identity.slice(0, 20), photoUrl: null }; }
   }
-  // public key: check contacts list, registry cache, then server profiles
+  // public key: contacts by key, registry cache, server profiles by key→url
   const byKey = (CFG.contacts || []).find(c => c.public_key && c.public_key === identity);
   if (byKey) {
     const prof = serverProfiles[byKey.url] || {};
     return { name: prof.display_name || byKey.name, photoUrl: prof.photo_url || null };
   }
   const reg = _keyToProfile[identity];
-  if (reg) {
-    const name = reg.display_name || (reg.username ? ('@' + reg.username) : null);
-    if (name) return { name, photoUrl: null };
-  }
+  if (reg?.display_name || reg?.username) return { name: reg.display_name || ('@' + reg.username), photoUrl: null };
   const keyUrl = serverPublicKeys[identity];
   if (keyUrl) {
     const prof = serverProfiles[keyUrl] || {};
-    const name = prof.display_name || prof.handle;
-    if (name) return { name, photoUrl: prof.photo_url || null };
-    // own server: profile may not be loaded yet, but it's us (fallback 'Me' triggers retry)
-    if (keyUrl === CFG.own_server) return { name: prof.display_name || prof.handle || 'Me', photoUrl: prof.photo_url || null };
-    const contact = (CFG.contacts || []).find(c => c.url === keyUrl);
+    if (prof.display_name || prof.handle) return { name: prof.display_name || prof.handle, photoUrl: prof.photo_url || null };
+    if (_normUrl(keyUrl) === _normUrl(CFG.own_server)) return { name: CFG.own_display_name || prof.handle || 'Me', photoUrl: null };
+    const contact = (CFG.contacts || []).find(c => _normUrl(c.url) === _normUrl(keyUrl));
     if (contact?.name) return { name: contact.name, photoUrl: null };
+    try { return { name: new URL(keyUrl).hostname, photoUrl: null }; } catch {}
   }
   _lookupKeyFromRegistry(identity);
-  const shortKey = identity.slice(0, 8) + '…';
-  return { name: shortKey, photoUrl: null };
+  return { name: identity.slice(0, 8), photoUrl: null };
 }
 
 function _reactorName(identity, postServerUrl) {
