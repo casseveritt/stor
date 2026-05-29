@@ -521,6 +521,28 @@ def create_app(config_path: str | Path) -> FastAPI:
             "public_key": record.get("public_key"),
         }
 
+    @api.get("/contacts/search")
+    async def api_search_contacts(q: str = Query(...)):
+        from registry.client import REGISTRY_URL
+        q = q.strip()
+        if not q:
+            return {"results": []}
+        # Public key: route to lookup-by-key
+        if len(q) >= 40 and not q.startswith("http") and "/" not in q and " " not in q:
+            async with httpx.AsyncClient() as hc:
+                r = await hc.get(REGISTRY_URL + "/lookup-by-key", params={"public_key": q}, timeout=5)
+            if r.is_success:
+                d = r.json()
+                return {"results": [{"username": d.get("username"), "server_url": d["server_url"],
+                                     "display_name": d.get("display_name"), "photo_url": d.get("photo_url"),
+                                     "public_key": q}]}
+            return {"results": []}
+        async with httpx.AsyncClient() as hc:
+            r = await hc.get(REGISTRY_URL + "/search", params={"q": q}, timeout=5)
+        if not r.is_success:
+            raise HTTPException(status_code=502, detail="Registry search failed")
+        return r.json()
+
     class ContactBody(BaseModel):
         name: str
         url: str

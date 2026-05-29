@@ -247,6 +247,25 @@ def create_app(db_path: str) -> FastAPI:
 
     # ── handle directory ──────────────────────────────────────────────────────
 
+    @app.get("/search")
+    def search(q: str, limit: int = 20):
+        q = q.strip()
+        if not q:
+            return {"results": []}
+        pattern = "%" + q.lower() + "%"
+        rows = con.execute(
+            """SELECT username, server_url, display_name, photo_url, public_key
+               FROM handles
+               WHERE LOWER(username) LIKE ? OR LOWER(display_name) LIKE ?
+               ORDER BY username LIMIT ?""",
+            (pattern, pattern, limit),
+        ).fetchall()
+        return {"results": [
+            {"username": r[0], "server_url": r[1], "display_name": r[2],
+             "photo_url": r[3], "public_key": r[4]}
+            for r in rows
+        ]}
+
     @app.get("/lookup-by-key")
     def lookup_by_key(public_key: str):
         row = con.execute(

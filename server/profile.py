@@ -47,6 +47,7 @@ def get_profile(request: Request):
         "handle": node_module._registry_handle,
         "display_name": row[0] if row else None,
         "photo_url": _photo_url(node_address, row[1] if row else None),
+        "public_key": node_module._public_key_b64 or None,
     }
 
 

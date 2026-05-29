@@ -156,6 +156,12 @@
     .contact-profile-info { display: flex; flex-direction: column; gap: 0.15rem; }
     .contact-profile-name { font-size: 0.95rem; color: #e0e0e0; }
     .contact-profile-handle { font-size: 0.78rem; color: #666; }
+    .contact-search-result { display: flex; align-items: center; gap: 0.6rem; padding: 0.4rem 0.6rem; border-radius: 6px; cursor: pointer; background: #1e1e1e; }
+    .contact-search-result:hover { background: #2a2a2a; }
+    .contact-search-result-avatar { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; background: #333; flex-shrink: 0; }
+    .contact-search-result-initials { width: 32px; height: 32px; border-radius: 50%; background: #2a4a7a; display: flex; align-items: center; justify-content: center; font-size: 0.85rem; color: #aac8ff; flex-shrink: 0; }
+    .contact-search-result-name { font-size: 0.88rem; color: #e0e0e0; }
+    .contact-search-result-handle { font-size: 0.75rem; color: #666; }
 
     /* ── shared ── */
     .btn { padding: 0.42rem 1rem; border: none; border-radius: 4px; cursor: pointer; font-size: 0.88rem; }
@@ -356,10 +362,11 @@
     <h3>Add contact</h3>
     <div style="display:flex;flex-direction:column;gap:0.75rem">
       <div style="display:flex;gap:0.5rem">
-        <input type="text" id="add-contact-handle" placeholder="username" style="flex:1" onkeydown="if(event.key==='Enter')lookupHandle()">
-        <button class="btn btn-muted btn-sm" onclick="lookupHandle()">Look up</button>
+        <input type="text" id="add-contact-handle" placeholder="name or @handle" style="flex:1" oninput="scheduleContactSearch(this.value)" onkeydown="if(event.key==='Enter')searchContacts()">
+        <button class="btn btn-muted btn-sm" onclick="searchContacts()">Search</button>
       </div>
       <div id="add-contact-result" style="font-size:0.85rem;color:#aaa;min-height:1.4em"></div>
+      <div id="add-contact-results-list" style="display:flex;flex-direction:column;gap:0.25rem"></div>
       <div id="add-contact-card" hidden class="contact-profile-card">
         <img id="add-contact-photo" alt="" hidden>
         <div id="add-contact-initials" class="contact-profile-initials" hidden></div>
@@ -395,6 +402,15 @@
         <button class="btn btn-primary btn-sm" onclick="saveProfileName()">Save</button>
       </div>
       <div id="profile-status" style="font-size:0.85rem;min-height:1.2em"></div>
+      <hr style="border:none;border-top:1px solid #2a2a2a;margin:0.5rem 0">
+      <div id="profile-pubkey-wrap" hidden style="display:flex;flex-direction:column;gap:0.3rem">
+        <div style="font-size:0.72rem;color:#555;text-transform:uppercase;letter-spacing:0.08em">Public key</div>
+        <div style="display:flex;gap:0.4rem;align-items:center">
+          <code id="profile-pubkey" style="font-size:0.7rem;color:#888;word-break:break-all;flex:1;line-height:1.4"></code>
+          <button class="btn btn-muted btn-sm" style="flex-shrink:0;white-space:nowrap" onclick="copyPublicKey()">Copy</button>
+        </div>
+        <div id="profile-pubkey-copied" style="font-size:0.75rem;color:#4caf50;min-height:1em"></div>
+      </div>
       <hr style="border:none;border-top:1px solid #2a2a2a;margin:0.5rem 0">
       <button class="btn btn-muted btn-sm" style="width:100%" onclick="downloadBackup()">Download backup</button>
     </div>
@@ -583,6 +599,13 @@ async function loadProfileAvatar() {
     if (p.display_name) {
       document.getElementById("handle-display").textContent = p.display_name;
       document.title = p.display_name;
+    }
+    const pkWrap = document.getElementById("profile-pubkey-wrap");
+    if (p.public_key) {
+      document.getElementById("profile-pubkey").textContent = p.public_key;
+      pkWrap.hidden = false;
+    } else {
+      pkWrap.hidden = true;
     }
     const modalImg = document.getElementById("profile-modal-photo");
     const modalInit = document.getElementById("profile-modal-initials");
@@ -820,6 +843,8 @@ function openAddContact() {
   document.getElementById("add-contact-handle").value = "";
   document.getElementById("add-contact-result").textContent = "";
   document.getElementById("add-contact-error").textContent = "";
+  document.getElementById("add-contact-results-list").innerHTML = "";
+  document.getElementById("add-contact-card").hidden = true;
   document.getElementById("add-contact-confirm").hidden = true;
   document.getElementById("add-contact-overlay").hidden = false;
   document.getElementById("add-contact-handle").focus();
@@ -827,31 +852,64 @@ function openAddContact() {
 }
 function closeAddContact() { document.getElementById("add-contact-overlay").hidden = true; }
 
-async function lookupHandle() {
-  const handle = document.getElementById("add-contact-handle").value.trim();
+let _contactSearchTimer = null;
+function scheduleContactSearch(val) {
+  clearTimeout(_contactSearchTimer);
+  _contactSearchTimer = setTimeout(() => searchContacts(val), 300);
+}
+
+async function searchContacts(val) {
+  const q = (val !== undefined ? val : document.getElementById("add-contact-handle").value).trim();
   const result = document.getElementById("add-contact-result");
+  const list = document.getElementById("add-contact-results-list");
   const card = document.getElementById("add-contact-card");
   const confirm = document.getElementById("add-contact-confirm");
   document.getElementById("add-contact-error").textContent = "";
   card.hidden = true;
   confirm.hidden = true;
+  list.innerHTML = "";
   _pendingContact = null;
-  if (!handle) return;
-  result.textContent = "Looking up…";
-  const r = await apiFetch("/api/contacts/lookup?handle=" + encodeURIComponent(handle));
-  if (r.status === 404) { result.textContent = "Handle not found."; return; }
-  if (!r.ok) { result.textContent = "Lookup failed."; return; }
-  const d = await r.json();
-  _pendingContact = d;
-  result.textContent = "";
+  if (!q) { result.textContent = ""; return; }
+  result.textContent = "Searching…";
+  const r = await apiFetch("/api/contacts/search?q=" + encodeURIComponent(q));
+  if (!r.ok) { result.textContent = "Search failed."; return; }
+  const data = await r.json();
+  const results = data.results || [];
+  result.textContent = results.length ? "" : "No matches found.";
+  list.innerHTML = results.map((d, i) => {
+    const name = d.display_name || ("@" + d.username) || d.server_url;
+    const handle = d.username ? "@" + d.username : "";
+    const avatar = d.photo_url
+      ? `<img class="contact-search-result-avatar" src="${esc(d.photo_url)}" alt="">`
+      : `<div class="contact-search-result-initials">${esc((name[0]||'?').toUpperCase())}</div>`;
+    return `<div class="contact-search-result" onclick="selectContactResult(${i})" data-idx="${i}">
+      ${avatar}
+      <div><div class="contact-search-result-name">${esc(name)}</div>${handle ? `<div class="contact-search-result-handle">${esc(handle)}</div>` : ''}</div>
+    </div>`;
+  }).join("");
+  list._results = results;
+  if (results.length === 1) selectContactResult(0);
+}
 
+function selectContactResult(idx) {
+  const list = document.getElementById("add-contact-results-list");
+  const d = list._results && list._results[idx];
+  if (!d) return;
+  list.innerHTML = "";
+  _pendingContact = {
+    handle: d.username || null,
+    display_name: d.display_name || null,
+    server_url: d.server_url,
+    photo_url: d.photo_url || null,
+    public_key: d.public_key || null,
+  };
   const photoEl = document.getElementById("add-contact-photo");
   const initEl  = document.getElementById("add-contact-initials");
   const nameEl  = document.getElementById("add-contact-display-name");
   const hndlEl  = document.getElementById("add-contact-handle-display");
-  const displayName = d.display_name || ("@" + handle);
+  const displayName = d.display_name || (d.username ? "@" + d.username : d.server_url);
   nameEl.textContent = displayName;
-  hndlEl.textContent = "@" + handle;
+  hndlEl.textContent = d.username ? "@" + d.username : "";
   if (d.photo_url) {
     photoEl.src = d.photo_url;
     photoEl.hidden = false;
@@ -861,8 +919,8 @@ async function lookupHandle() {
     initEl.hidden = false;
     photoEl.hidden = true;
   }
-  card.hidden = false;
-  confirm.hidden = false;
+  document.getElementById("add-contact-card").hidden = false;
+  document.getElementById("add-contact-confirm").hidden = false;
 }
 
 async function confirmAddContact() {
@@ -1614,6 +1672,18 @@ async function saveProfileName() {
   } else {
     status.style.color = "#e06c6c"; status.textContent = "Failed to save.";
   }
+}
+
+function copyPublicKey() {
+  const key = document.getElementById("profile-pubkey").textContent;
+  const msg = document.getElementById("profile-pubkey-copied");
+  navigator.clipboard.writeText(key).then(() => {
+    msg.textContent = "Copied!";
+    setTimeout(() => { msg.textContent = ""; }, 2000);
+  }).catch(() => {
+    msg.style.color = "#e06c6c";
+    msg.textContent = "Copy failed — select and copy manually.";
+  });
 }
 
 async function uploadProfilePhoto(input) {
