@@ -74,6 +74,12 @@
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
     .post-thumb.loading { animation: pulse 1.4s ease-in-out infinite; }
     .post-foot { margin-top: 0.6rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: 0.76rem; color: #555; }
+    .post-menu-btn { background: none; border: none; color: #888; font-size: 1rem; cursor: pointer; padding: 0 0.25rem; line-height: 1; border-radius: 4px; flex-shrink: 0; }
+    .post-menu-btn:hover { background: #333; color: #ccc; }
+    .post-menu-popup { position: absolute; right: 0; top: calc(100% + 4px); background: #2a2a2a; border: 1px solid #444; border-radius: 6px; z-index: 200; min-width: 110px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); overflow: hidden; }
+    .post-menu-popup button { display: block; width: 100%; background: none; border: none; color: #ddd; text-align: left; padding: 0.45rem 0.9rem; font-size: 0.85rem; cursor: pointer; }
+    .post-menu-popup button:hover { background: #3a3a3a; }
+    .post-menu-popup button.danger { color: #e06c6c; }
     .post-date { flex-shrink: 0; font-size: 0.72rem; color: #444; }
 
     /* ── overlays ── */
@@ -113,10 +119,10 @@
     .comment-author { font-size: 0.73rem; color: #666; margin-bottom: 0.2rem; display: flex; align-items: center; justify-content: space-between; }
     .comment-body { font-size: 0.88rem; color: #ccc; white-space: pre-wrap; word-break: break-word; }
     .comment-replies { margin-left: 1rem; padding-left: 0.75rem; border-left: 2px solid #2a2a2a; }
-    .comment-form { margin-top: 0.75rem; }
-    .comment-form textarea { background: #222; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; padding: 0.5rem; width: 100%; font-size: 0.88rem; resize: vertical; min-height: 60px; outline: none; font-family: inherit; }
+    .comment-form { margin-top: 0.75rem; display: flex; align-items: flex-start; gap: 0.5rem; }
+    .comment-form textarea { background: #222; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; padding: 0.3rem 0.5rem; font-size: 0.88rem; resize: none; height: 30px; outline: none; font-family: inherit; flex: 1; line-height: 1.4; overflow: hidden; }
     .comment-form textarea:focus { border-color: #4285f4; }
-    .comment-form-footer { display: flex; justify-content: flex-end; margin-top: 0.4rem; }
+    .comment-form-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 0.25rem; flex-shrink: 0; }
 
     /* ── reactions ── */
     .reaction-bar { display: flex; flex-wrap: wrap; gap: 0.2rem; margin-top: 0.35rem; align-items: center; justify-content: flex-end; }
@@ -741,7 +747,8 @@ function _rerenderVisibleAuthorNames() {
     el.querySelector('.comment-author-name').textContent = au.name;
   });
   document.querySelectorAll('.reaction-btn[data-reactors]').forEach(btn => {
-    if (btn.title) { btn.title = ""; _setReactorTitle(btn); }
+    btn.title = "";
+    _setReactorTitle(btn);
   });
 }
 
@@ -1202,8 +1209,12 @@ function makePostCard(post, idx) {
   const rightGroup = document.createElement("span");
   rightGroup.style.cssText = "display:inline-flex;align-items:center;gap:0.35rem;flex-shrink:0";
   rightGroup.className = "post-author-right";
+  const isOwnPost = IS_OWNER && post._server_url === CFG.own_server;
   rightGroup.innerHTML = (dateFmt ? `<span class="post-date">${dateFmt}</span>` : '')
-    + _levelIconHtml(post.visibility, post.visibility);
+    + _levelIconHtml(post.visibility, post.visibility)
+    + `<span style="position:relative;display:inline-flex">`
+    + `<button class="post-menu-btn" title="More options" onclick="openPostMenu(event,${idx},'${esc(post.id)}',${isOwnPost})">…</button>`
+    + `</span>`;
   author.appendChild(rightGroup);
   div.appendChild(author);
 
@@ -1248,13 +1259,8 @@ function makePostCard(post, idx) {
   const tagHtml = (post.tags || []).map(t =>
     '<span class="tag-chip' + (activeTags.has(t) ? " active" : "") + '">' + esc(t) + '</span>'
   ).join("");
-  let ownerHtml = "";
-  if (IS_OWNER && post._server_url === CFG.own_server) {
-    ownerHtml = '<button class="btn btn-muted btn-sm" style="margin-left:auto" onclick="openEdit(' + idx + ')">Edit</button>'
-      + '<button class="btn btn-sm" style="background:#5a1f1f;color:#e06c6c" onclick="confirmDelete(' + idx + ')">Delete</button>';
-  }
-  if (tagHtml || ownerHtml) {
-    foot.innerHTML = tagHtml + (ownerHtml || '<span style="margin-left:auto"></span>');
+  if (tagHtml) {
+    foot.innerHTML = tagHtml;
     div.appendChild(foot);
   }
 
@@ -1284,6 +1290,7 @@ function makePostCard(post, idx) {
 
 // ── keyboard nav ───────────────────────────────────────────────────────────
 document.addEventListener("keydown", e => {
+  if (e.key === "Escape") closeAllPostMenus();
   if (!document.getElementById("lightbox").hidden && e.key === "Escape") closeLightbox();
   if (!document.getElementById("compose-overlay").hidden && e.key === "Escape") closeCompose();
   if (!document.getElementById("edit-overlay").hidden && e.key === "Escape") closeEdit();
@@ -1494,8 +1501,8 @@ function _renderCommentsInto(post, comments, panel) {
     roots.map(c => renderOne(c, 0)).join("")
     + '<div class="comment-form">'
     + '<textarea class="comment-input" data-post-id="' + esc(post.id) + '" placeholder="Add a comment…"></textarea>'
-    + '<div class="comment-form-footer"><button class="btn btn-primary btn-sm" onclick="submitComment(\'' + esc(post.id) + '\',\'' + esc(post._server_url) + '\')">Post</button>'
-    + '<span class="comment-error" data-post-id="' + esc(post.id) + '" style="color:#e06c6c;font-size:0.82rem;margin-left:0.5rem"></span></div>'
+    + '<div class="comment-form-actions"><button class="btn btn-primary btn-sm" onclick="submitComment(\'' + esc(post.id) + '\',\'' + esc(post._server_url) + '\')">Post</button>'
+    + '<span class="comment-error" data-post-id="' + esc(post.id) + '" style="color:#e06c6c;font-size:0.82rem"></span></div>'
     + '</div>';
 }
 
@@ -1656,6 +1663,44 @@ function prependPost(post) {
   const timeline = document.getElementById("timeline");
   timeline.insertBefore(makePostCard(post, 0), timeline.firstChild);
   document.getElementById("empty-msg").hidden = true;
+}
+
+// ── post context menu ──────────────────────────────────────────────────────
+function closeAllPostMenus() {
+  document.querySelectorAll('.post-menu-popup').forEach(m => m.remove());
+}
+
+function openPostMenu(e, idx, postId, isOwn) {
+  e.stopPropagation();
+  closeAllPostMenus();
+  const btn = e.currentTarget;
+  const wrap = btn.parentElement;
+  const popup = document.createElement('div');
+  popup.className = 'post-menu-popup';
+  if (isOwn) {
+    popup.innerHTML =
+      `<button onclick="closeAllPostMenus();openEdit(${idx})">Edit</button>`
+      + `<button class="danger" onclick="closeAllPostMenus();confirmDelete(${idx})">Delete</button>`;
+  } else {
+    popup.innerHTML =
+      `<button onclick="closeAllPostMenus();hidePost('${esc(postId)}',${idx})">Hide</button>`;
+  }
+  wrap.appendChild(popup);
+  const dismiss = ev => { if (!popup.contains(ev.target) && ev.target !== btn) { closeAllPostMenus(); document.removeEventListener('click', dismiss, true); } };
+  setTimeout(() => document.addEventListener('click', dismiss, true), 0);
+}
+
+async function hidePost(postId, idx) {
+  allPosts.splice(idx, 1);
+  document.querySelectorAll(".post-card[data-idx]").forEach(c => {
+    const i = parseInt(c.dataset.idx);
+    if (i === idx) c.remove();
+    else if (i > idx) c.dataset.idx = i - 1;
+  });
+  _openPanels.delete(postId);
+  if (_openPanels.size === 0) _stopDetailPoll();
+  document.getElementById("empty-msg").hidden = allPosts.length > 0;
+  loadTagSidebar();
 }
 
 // ── edit / delete ──────────────────────────────────────────────────────────
