@@ -1164,6 +1164,20 @@ async function toggleReaction(postId, serverUrl, emoji, commentId, _btn) {
   });
 }
 
+// ── visibility / access icons ──────────────────────────────────────────────
+function _levelIcon(level) {
+  if (level === 'public')        return '🌐';
+  if (level === 'authenticated') return '<img src="/static/favicon.svg" style="width:0.85em;height:0.85em;vertical-align:middle">';
+  if (level === 'contacts')      return '👥';
+  if (level === 'private')       return '<svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor"><path d="M0.5 1.5L11.5 1.5L7.5 6.5L7.5 10.5L4.5 10.5L4.5 6.5Z"/></svg>';
+  return '';
+}
+function _levelIconHtml(level, title) {
+  const icon = _levelIcon(level);
+  if (!icon) return '';
+  return `<span title="${esc(title || level)}" style="font-size:0.82rem;opacity:0.65;display:inline-flex;align-items:center;flex-shrink:0">${icon}</span>`;
+}
+
 // ── post card ──────────────────────────────────────────────────────────────
 function _isPostCached(post) {
   return post._is_cached || serverOnline[post._server_url] === false;
@@ -1180,12 +1194,11 @@ function makePostCard(post, idx) {
   author.dataset.server = post._server_url;
   _renderAuthorInto(author, post._server_url);
   const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleDateString() : "";
-  if (dateFmt) {
-    const dateEl = document.createElement("span");
-    dateEl.className = "post-date";
-    dateEl.textContent = dateFmt;
-    author.appendChild(dateEl);
-  }
+  const rightGroup = document.createElement("span");
+  rightGroup.style.cssText = "display:inline-flex;align-items:center;gap:0.35rem;flex-shrink:0";
+  rightGroup.innerHTML = _levelIconHtml(post.visibility, post.visibility)
+    + (dateFmt ? `<span class="post-date">${dateFmt}</span>` : '');
+  author.appendChild(rightGroup);
   div.appendChild(author);
 
   const bodyText = (post.body || "").replace(/\[asset:[0-9a-f-]+\]/g, "").trim();
@@ -1239,9 +1252,6 @@ function makePostCard(post, idx) {
     div.appendChild(foot);
   }
 
-  const visIcon = {private: "🔒", contacts: "👥", authenticated: "🔑", public: "🌐"}[post.visibility] || "";
-  const commentLock = post.visibility === "public" && post.comment_access === "contacts" ? "💬" : "";
-
   const rbarWrap = document.createElement('div');
   rbarWrap.innerHTML = reactionBarHtml(post.reactions || [], post.id, post._server_url, '');
   div.appendChild(rbarWrap.firstChild);
@@ -1251,9 +1261,9 @@ function makePostCard(post, idx) {
   const toggle = document.createElement("div");
   toggle.className = "comments-toggle";
   toggle.dataset.postId = post.id;
-  const visHtml = visIcon ? '<span title="' + esc(post.visibility || "") + (commentLock ? "; comments: contacts" : "") + '" style="font-size:0.82rem;opacity:0.7;pointer-events:none">' + visIcon + commentLock + '</span>' : '';
+  const commentIconHtml = _levelIconHtml(post.comment_access, 'comments: ' + (post.comment_access || 'contacts'));
   toggle.innerHTML = '<span class="comments-toggle-arrow">▶</span><span class="comments-toggle-label">'
-    + count + ' comment' + (count !== 1 ? 's' : '') + '</span>' + visHtml;
+    + count + ' comment' + (count !== 1 ? 's' : '') + '</span>' + commentIconHtml;
   toggle.onclick = () => _toggleComments(post, div);
   div.appendChild(toggle);
 
