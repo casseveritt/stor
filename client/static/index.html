@@ -74,7 +74,7 @@
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
     .post-thumb.loading { animation: pulse 1.4s ease-in-out infinite; }
     .post-foot { margin-top: 0.6rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: 0.76rem; color: #555; }
-    .post-menu-btn { background: none; border: none; color: #888; font-size: 1rem; cursor: pointer; padding: 0 0.25rem; line-height: 1; border-radius: 4px; flex-shrink: 0; }
+    .post-menu-btn { background: none; border: none; color: #888; font-size: 1rem; cursor: pointer; padding: 0 0.25rem; line-height: 1; border-radius: 4px; flex-shrink: 0; display:flex; align-items:center; }
     .post-menu-btn:hover { background: #333; color: #ccc; }
     .post-menu-popup { position: absolute; right: 0; top: calc(100% + 4px); background: #2a2a2a; border: 1px solid #444; border-radius: 6px; z-index: 200; min-width: 110px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); overflow: hidden; }
     .post-menu-popup button { display: block; width: 100%; background: none; border: none; color: #ddd; text-align: left; padding: 0.45rem 0.9rem; font-size: 0.85rem; cursor: pointer; }
@@ -813,6 +813,7 @@ async function fetchServerProfiles() {
         document.querySelectorAll(".post-author").forEach(el => {
           if (el.dataset.server === url) _renderAuthorInto(el, url);
         });
+        _rerenderVisibleAuthorNames();
       }
     } catch {}
   }));
@@ -1107,20 +1108,23 @@ function _resolveIdentity(identity, postServerUrl) {
     _lookupKeyFromRegistry(identity);
     return { name: '…', photoUrl: null };
   }
-  // public key: check /node cache, then contacts list, then registry
-  const keyUrl = serverPublicKeys[identity];
-  if (keyUrl) {
-    const prof = serverProfiles[keyUrl] || {};
-    const contact = (CFG.contacts || []).find(c => c.url === keyUrl);
-    return { name: prof.display_name || prof.handle || (contact && contact.name) || '…', photoUrl: prof.photo_url || null };
-  }
+  // public key: check contacts list, registry cache, then server profiles
   const byKey = (CFG.contacts || []).find(c => c.public_key && c.public_key === identity);
   if (byKey) {
     const prof = serverProfiles[byKey.url] || {};
     return { name: prof.display_name || byKey.name, photoUrl: prof.photo_url || null };
   }
   const reg = _keyToProfile[identity];
-  if (reg) return { name: reg.display_name || ('@' + reg.username), photoUrl: null };
+  if (reg) {
+    const name = reg.display_name || (reg.username ? ('@' + reg.username) : null);
+    if (name) return { name, photoUrl: null };
+  }
+  const keyUrl = serverPublicKeys[identity];
+  if (keyUrl) {
+    const prof = serverProfiles[keyUrl] || {};
+    const name = prof.display_name || prof.handle;
+    if (name) return { name, photoUrl: prof.photo_url || null };
+  }
   _lookupKeyFromRegistry(identity);
   return { name: '…', photoUrl: null };
 }
@@ -1209,10 +1213,11 @@ function makePostCard(post, idx) {
   const rightGroup = document.createElement("span");
   rightGroup.style.cssText = "display:inline-flex;align-items:center;gap:0.35rem;flex-shrink:0";
   rightGroup.className = "post-author-right";
-  const isOwnPost = IS_OWNER && post._server_url === CFG.own_server;
+  const _norm = u => (u || '').replace(/\/+$/, '');
+  const isOwnPost = IS_OWNER && _norm(post._server_url) === _norm(CFG.own_server);
   rightGroup.innerHTML = (dateFmt ? `<span class="post-date">${dateFmt}</span>` : '')
     + _levelIconHtml(post.visibility, post.visibility)
-    + `<span style="position:relative;display:inline-flex">`
+    + `<span style="position:relative;display:inline-flex;align-items:center">`
     + `<button class="post-menu-btn" title="More options" onclick="openPostMenu(event,${idx},'${esc(post.id)}',${isOwnPost})">…</button>`
     + `</span>`;
   author.appendChild(rightGroup);
