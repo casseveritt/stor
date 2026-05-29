@@ -1281,10 +1281,11 @@ function _commentAuthor(identity, postServerUrl) {
     return { name: prof.display_name || byKey.name, photoUrl: prof.photo_url || null };
   }
   if (identity.startsWith("https://") || identity.startsWith("http://")) {
+    const prof = serverProfiles[identity] || {};
+    if (prof.display_name || prof.handle) return { name: prof.display_name || prof.handle, photoUrl: prof.photo_url || null };
     const byUrl = (CFG.contacts || []).find(c => c.url === identity);
     if (byUrl) {
-      const prof = serverProfiles[byUrl.url] || {};
-      return { name: prof.display_name || byUrl.name, photoUrl: prof.photo_url || null };
+      return { name: byUrl.name, photoUrl: prof.photo_url || null };
     }
     // URL-shaped identity with no matching contact — look up in registry
     const urlCached = _keyToProfile[identity];
