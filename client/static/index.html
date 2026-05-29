@@ -110,9 +110,8 @@
     .comments-header { font-size: 0.85rem; color: #777; margin-bottom: 0.75rem; }
     .comment { padding: 0.5rem 0; border-bottom: 1px solid #1a1a1a; }
     .comment:last-of-type { border-bottom: none; }
-    .comment-author { font-size: 0.73rem; color: #666; margin-bottom: 0.2rem; }
+    .comment-author { font-size: 0.73rem; color: #666; margin-bottom: 0.2rem; display: flex; align-items: center; justify-content: space-between; }
     .comment-body { font-size: 0.88rem; color: #ccc; white-space: pre-wrap; word-break: break-word; }
-    .comment-foot { font-size: 0.72rem; color: #555; margin-top: 0.2rem; }
     .comment-replies { margin-left: 1rem; padding-left: 0.75rem; border-left: 2px solid #2a2a2a; }
     .comment-form { margin-top: 0.75rem; }
     .comment-form textarea { background: #222; color: #e0e0e0; border: 1px solid #333; border-radius: 4px; padding: 0.5rem; width: 100%; font-size: 0.88rem; resize: vertical; min-height: 60px; outline: none; font-family: inherit; }
@@ -1479,10 +1478,13 @@ function _renderCommentsInto(post, comments, panel) {
       ? `<img src="${esc(au.photoUrl)}" class="post-author-avatar" alt="">`
       : `<span class="post-author-initials">${esc((au.name[0]||'?').toUpperCase())}</span>`;
     const identityAttr = c.author_identity ? ` data-identity="${esc(c.author_identity)}" data-server="${esc(post._server_url || '')}"` : '';
+    const dateFmt = fmtDate(c.created_at);
     return '<div class="comment">'
-      + `<div class="comment-author" style="display:flex;align-items:center;gap:0.4rem"${identityAttr}>` + avatar + `<span class="comment-author-name">${esc(au.name)}</span></div>`
+      + `<div class="comment-author"${identityAttr}>`
+      + `<span style="display:inline-flex;align-items:center;gap:0.4rem">` + avatar + `<span class="comment-author-name">${esc(au.name)}</span></span>`
+      + (dateFmt ? `<span class="post-date">${dateFmt}</span>` : '')
+      + `</div>`
       + '<div class="comment-body">' + esc(c.body) + '</div>'
-      + '<div class="comment-foot">' + fmtDate(c.created_at) + '</div>'
       + reactionBarHtml(c.reactions || [], post.id, post._server_url, c.id)
       + (replies.length ? '<div class="comment-replies">' + replies.map(r => renderOne(r, depth+1)).join("") + '</div>' : '')
       + '</div>';
