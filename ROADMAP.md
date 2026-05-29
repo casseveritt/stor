@@ -98,7 +98,14 @@ Allow users to react to posts and comments with emoji (👍 ❤️ 😂 etc.). R
 server-side, attributed to the reactor's identity (owner or contact node). Display as counts
 grouped by emoji below each post/comment.
 
-**7. Chat / direct messages**
+**7. @mention notifications**
+When a post or comment contains `@handle`, the sender's server should push a notification to
+the tagged contact's server (a lightweight federated ping: post ID + sender). The contact's
+client can then surface an "unread mentions" count/badge and a mentions feed. Requires: parse
+@mentions on post/comment create, fan-out ping to tagged servers, mentions table on receiving
+server, badge in client header.
+
+**8. Chat / direct messages**
 Real-time or near-real-time 1:1 and small-group messaging between contacts. Messages are
 encrypted end-to-end (sender encrypts to recipient's public key), stored on the sender's
 node, and pushed or polled by the recipient's node. Key open questions: push vs. poll

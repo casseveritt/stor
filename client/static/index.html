@@ -1654,10 +1654,15 @@ function hideMentionDropdown() {
 }
 
 function _selectMention(c) {
+  const state = _mentionState;
+  if (!state) return;
   const ta = document.getElementById('compose-body');
   const tag = _mentionTag(c) + ' ';
-  const before = ta.value.substring(0, _mentionState.start);
-  const after = ta.value.substring(ta.selectionStart);
+  const before = ta.value.substring(0, state.start);
+  // Use the known end of "@query" from state rather than ta.selectionStart,
+  // which can be wrong if focus shifted momentarily during the click.
+  const mentionEnd = state.start + 1 + state.query.length;
+  const after = ta.value.substring(mentionEnd);
   ta.value = before + tag + after;
   const p = before.length + tag.length;
   ta.selectionStart = ta.selectionEnd = p;
@@ -1681,6 +1686,7 @@ function onComposeKeydown(e) {
     const c = _mentionState.contacts[_mentionState.focused];
     if (c) { e.preventDefault(); _selectMention(c); }
   } else if (e.key === 'Escape') {
+    e.preventDefault();  // prevent compose modal from closing while dropdown is open
     hideMentionDropdown();
   }
 }
