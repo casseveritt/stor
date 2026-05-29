@@ -6,6 +6,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, File, HTTPException, Request, UploadFile
 from fastapi.responses import Response
+from PIL import Image
 from pydantic import BaseModel
 
 from .auth import OwnerDep
@@ -69,12 +70,24 @@ def update_profile(body: _ProfileBody, request: Request, identity: OwnerDep):
 
 @router.put("/photo")
 async def update_photo(request: Request, identity: OwnerDep, file: UploadFile = File(...)):
-    content = await file.read()
-    if len(content) > MAX_PHOTO_BYTES:
+    raw = await file.read()
+    if len(raw) > MAX_PHOTO_BYTES:
         raise HTTPException(status_code=413, detail="Photo too large (max 5 MB)")
-    media_type = file.content_type or "image/jpeg"
+    media_type = (file.content_type or "").lower()
     if not media_type.startswith("image/"):
         raise HTTPException(status_code=415, detail="Photo must be an image")
+
+    # Convert to JPEG at ingest — normalises WebP, PNG, HEIC, etc.
+    try:
+        img = Image.open(io.BytesIO(raw))
+        img.thumbnail(PHOTO_THUMB)
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=90)
+        content = buf.getvalue()
+    except Exception:
+        raise HTTPException(status_code=415, detail="Could not decode image")
 
     content_hash = hashlib.sha256(content).hexdigest()
     store_path: Path = request.app.state.store_path
@@ -86,7 +99,7 @@ async def update_photo(request: Request, identity: OwnerDep, file: UploadFile = 
 
     db = request.app.state.db
     row = _get_row(db)
-    _save(db, row[0] if row else None, content_hash, media_type)
+    _save(db, row[0] if row else None, content_hash, "image/jpeg")
 
     fn = getattr(request.app.state, "trigger_heartbeat", None)
     if fn:
@@ -110,16 +123,8 @@ def get_photo(request: Request):
 
     content = decrypt_bytes(file_path.read_bytes(), request.app.state.file_key)
 
-    from PIL import Image
-    img = Image.open(io.BytesIO(content))
-    img.thumbnail(PHOTO_THUMB)
-    if img.mode not in ("RGB", "L"):
-        img = img.convert("RGB")
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG")
-
     return Response(
-        content=buf.getvalue(),
+        content=content,
         media_type="image/jpeg",
         headers={"Cache-Control": "public, max-age=3600"},
     )
