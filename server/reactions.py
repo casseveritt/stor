@@ -12,10 +12,16 @@ ALLOWED_EMOJI = {"👍", "👎", "❤️", "😄", "😮", "😢", "🎉"}
 
 
 def _reactor(identity, request: Request) -> str:
-    """Return a non-null reactor identity string: '' for owner, origin URL for federated."""
+    """Return a non-null reactor identity string: '' for owner, public key for federated, '<anon>' otherwise."""
     if identity.is_owner:
         return ""
-    return request.headers.get("X-Origin-Server", "") or "__anon__"
+    origin = request.headers.get("X-Origin-Server", "")
+    if origin:
+        db = request.app.state.db
+        row = db.execute("SELECT public_key FROM contacts WHERE server_url = ?", (origin,)).fetchone()
+        if row and row[0]:
+            return row[0]
+    return "<anon>"
 
 
 def get_reactions(db, post_id: str, comment_id: str, viewer: str) -> list[dict]:

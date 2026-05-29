@@ -484,7 +484,8 @@ def post_comment(post_id: str, payload: _CommentBody, request: Request, identity
         if row:
             author_identity = row[0]
     elif not identity.is_owner and origin_server:
-        author_identity = origin_server
+        row = db.execute("SELECT public_key FROM contacts WHERE server_url = ?", (origin_server,)).fetchone()
+        author_identity = row[0] if row and row[0] else "<anon>"
 
     db.execute(
         """INSERT INTO comments
