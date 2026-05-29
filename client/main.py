@@ -169,6 +169,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     def api_config():
         return {
             "own_server": config.own_server,
+            "identity_proxy_url": config.identity_proxy_url,
             "servers": [
                 {"name": _server_name(url), "url": url, "authenticated": bool(_token(url))}
                 for url in _all_servers()

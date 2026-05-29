@@ -247,6 +247,18 @@ def create_app(db_path: str) -> FastAPI:
 
     # ── handle directory ──────────────────────────────────────────────────────
 
+    @app.get("/lookup-by-key")
+    def lookup_by_key(public_key: str):
+        row = con.execute(
+            "SELECT username, server_url, display_name, photo_url "
+            "FROM handles WHERE public_key = ?", (public_key,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Key not found")
+        username, server_url, display_name, photo_url = row
+        return {"username": username, "server_url": server_url,
+                "display_name": display_name, "photo_url": photo_url}
+
     @app.get("/lookup/{username}")
     def lookup(username: str):
         username = username.lower()

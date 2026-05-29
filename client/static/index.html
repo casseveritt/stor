@@ -444,7 +444,9 @@ let IS_OWNER = false;
 let serverStatuses = {};
 let serverHandles = {};
 let serverProfiles = {};
-let serverPublicKeys = {}; // url → base64 public key
+let serverPublicKeys = {}; // base64 pubkey → server url
+let _keyToProfile = {};   // base64 pubkey → {username, display_name} from registry
+let _pendingKeyLookups = new Set();
 
 // ── client session token ───────────────────────────────────────────────────
 function getClientToken() { return localStorage.getItem("contacc_client_session"); }
@@ -639,6 +641,59 @@ async function removeContact(url) {
   const cfg = await (await apiFetch("/api/config")).json();
   CFG = cfg;
   renderServerList();
+}
+
+function _isPublicKey(s) {
+  // base64url/base64 strings of ~44 chars that aren't URLs
+  if (!s || s.startsWith("http") || s.startsWith("google:") || s === "__anon__") return false;
+  return /^[A-Za-z0-9+/=_-]{32,}$/.test(s);
+}
+
+function _lookupKeyFromRegistry(identity) {
+  if (_pendingKeyLookups.has(identity) || _keyToProfile[identity]) return;
+  _pendingKeyLookups.add(identity);
+  const registryUrl = (CFG.identity_proxy_url || "").replace(/\/$/, "");
+  if (!registryUrl) { _pendingKeyLookups.delete(identity); return; }
+  let url;
+  if (identity.startsWith("http://") || identity.startsWith("https://")) {
+    // URL identity — fetch the node's public key then look up in registry
+    const nodeUrl = identity + "/node";
+    fetch(nodeUrl).then(r => r.ok ? r.json() : null).then(d => {
+      if (d?.public_key) {
+        serverPublicKeys[d.public_key] = identity;
+        return fetch(registryUrl + "/lookup-by-key?public_key=" + encodeURIComponent(d.public_key))
+          .then(r2 => r2.ok ? r2.json() : null);
+      }
+      return null;
+    }).then(d => {
+      if (d) { _keyToProfile[identity] = d; _rerenderVisibleAuthorNames(); }
+    }).catch(() => {}).finally(() => _pendingKeyLookups.delete(identity));
+  } else {
+    // raw public key
+    fetch(registryUrl + "/lookup-by-key?public_key=" + encodeURIComponent(identity))
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d) {
+          _keyToProfile[identity] = d;
+          if (d.server_url) serverPublicKeys[identity] = d.server_url;
+          _rerenderVisibleAuthorNames();
+        }
+      })
+      .catch(() => {})
+      .finally(() => _pendingKeyLookups.delete(identity));
+  }
+}
+
+function _rerenderVisibleAuthorNames() {
+  document.querySelectorAll('.comment-author[data-identity]').forEach(el => {
+    const identity = el.dataset.identity;
+    const serverUrl = el.dataset.server || CFG.own_server;
+    const au = _commentAuthor(identity, serverUrl);
+    el.querySelector('.comment-author-name').textContent = au.name;
+  });
+  document.querySelectorAll('.reaction-btn[data-reactors]').forEach(btn => {
+    if (btn.title) { btn.title = ""; _setReactorTitle(btn); }
+  });
 }
 
 async function fetchServerHandles() {
@@ -902,8 +957,10 @@ function _reactorName(identity, postServerUrl) {
   if (prof.handle) return prof.handle;
   const contact = (CFG.contacts || []).find(c => c.url === identity);
   if (contact?.name) return contact.name;
-  try { return new URL(identity).host; } catch {}
-  return identity;
+  const keyProf = _keyToProfile[identity];
+  if (keyProf) return keyProf.display_name || ('@' + keyProf.username);
+  _lookupKeyFromRegistry(identity);
+  return '…';
 }
 
 function reactionBarHtml(reactions, postId, serverUrl, commentId) {
@@ -1229,10 +1286,19 @@ function _commentAuthor(identity, postServerUrl) {
       const prof = serverProfiles[byUrl.url] || {};
       return { name: prof.display_name || byUrl.name, photoUrl: prof.photo_url || null };
     }
-    // URL-shaped identity with no matching contact — show domain as name
-    try { return { name: new URL(identity).host, photoUrl: null }; } catch {}
+    // URL-shaped identity with no matching contact — look up in registry
+    const urlCached = _keyToProfile[identity];
+    if (urlCached) return { name: urlCached.display_name || ('@' + urlCached.username), photoUrl: null };
+    _lookupKeyFromRegistry(identity);
+    return { name: '…', photoUrl: null };
   }
-  return { name: identity, photoUrl: null };
+  if (_isPublicKey(identity)) {
+    const cached = _keyToProfile[identity];
+    if (cached) return { name: cached.display_name || ('@' + cached.username), photoUrl: null };
+    _lookupKeyFromRegistry(identity);
+    return { name: '…', photoUrl: null };
+  }
+  return { name: '…', photoUrl: null };
 }
 
 function _renderCommentsInto(post, comments, panel) {
@@ -1245,8 +1311,9 @@ function _renderCommentsInto(post, comments, panel) {
     const avatar = au.photoUrl
       ? `<img src="${esc(au.photoUrl)}" class="post-author-avatar" alt="">`
       : `<span class="post-author-initials">${esc((au.name[0]||'?').toUpperCase())}</span>`;
+    const identityAttr = c.author_identity ? ` data-identity="${esc(c.author_identity)}" data-server="${esc(post._server_url || '')}"` : '';
     return '<div class="comment">'
-      + '<div class="comment-author" style="display:flex;align-items:center;gap:0.4rem">' + avatar + '<span>' + esc(au.name) + '</span></div>'
+      + `<div class="comment-author" style="display:flex;align-items:center;gap:0.4rem"${identityAttr}>` + avatar + `<span class="comment-author-name">${esc(au.name)}</span></div>`
       + '<div class="comment-body">' + esc(c.body) + '</div>'
       + '<div class="comment-foot">' + fmtDate(c.created_at) + '</div>'
       + reactionBarHtml(c.reactions || [], post.id, post._server_url, c.id)
