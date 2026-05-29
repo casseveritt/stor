@@ -17,7 +17,7 @@
     header { background: #1a1a1a; padding: 0.6rem 1rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2a2a2a; position: sticky; top: 0; z-index: 20; gap: 0.5rem; }
     .header-left  { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
     .header-right { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
-    .post-author { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; cursor: default; justify-content: space-between; }
+    .post-author { display: flex; align-items: center; margin-bottom: 0.35rem; cursor: default; justify-content: space-between; }
     .post-author-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
     .post-author-initials { width: 20px; height: 20px; border-radius: 50%; background: #2a4a7a; display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: #aac8ff; flex-shrink: 0; }
     .post-author-name { font-size: 0.8rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -824,6 +824,8 @@ function _renderAuthorInto(el, url) {
   el.title = handle ? `@${handle}` : name;
   const right = el.querySelector('.post-author-right');
   el.innerHTML = "";
+  const left = document.createElement("span");
+  left.style.cssText = "display:inline-flex;align-items:center;gap:0.4rem;min-width:0";
   if (p?.photo_url) {
     const img = document.createElement("img");
     img.src = p.photo_url;
@@ -835,17 +837,18 @@ function _renderAuthorInto(el, url) {
       init.textContent = name[0].toUpperCase();
       img.replaceWith(init);
     };
-    el.appendChild(img);
+    left.appendChild(img);
   } else {
     const init = document.createElement("div");
     init.className = "post-author-initials";
     init.textContent = name[0].toUpperCase();
-    el.appendChild(init);
+    left.appendChild(init);
   }
   const nameEl = document.createElement("span");
   nameEl.className = "post-author-name";
   nameEl.textContent = name;
-  el.appendChild(nameEl);
+  left.appendChild(nameEl);
+  el.appendChild(left);
   if (right) el.appendChild(right);
 }
 
