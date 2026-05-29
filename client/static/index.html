@@ -1269,8 +1269,8 @@ function makePostCard(post, idx) {
   toggle.className = "comments-toggle";
   toggle.dataset.postId = post.id;
   const commentIconHtml = _levelIconHtml(post.comment_access, 'comments: ' + (post.comment_access || 'contacts'));
-  toggle.innerHTML = '<span class="comments-toggle-arrow">▶</span><span class="comments-toggle-label">'
-    + count + ' comment' + (count !== 1 ? 's' : '') + '</span>' + commentIconHtml;
+  toggle.innerHTML = '<span style="display:inline-flex;align-items:center;gap:0.35rem"><span class="comments-toggle-arrow">▶</span><span class="comments-toggle-label">'
+    + count + ' comment' + (count !== 1 ? 's' : '') + '</span></span>' + commentIconHtml;
   toggle.onclick = () => _toggleComments(post, div);
   div.appendChild(toggle);
 
