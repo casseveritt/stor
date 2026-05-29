@@ -427,6 +427,15 @@
         </div>
         <div id="privkey-status" style="font-size:0.8rem;min-height:1em"></div>
       </div>
+      <hr style="border:none;border-top:1px solid #2a2a2a;margin:0.5rem 0">
+      <div id="change-pass-wrap" style="display:flex;flex-direction:column;gap:0.4rem">
+        <div style="font-size:0.72rem;color:#555;text-transform:uppercase;letter-spacing:0.08em">Change passphrase</div>
+        <input type="password" id="cp-current" placeholder="Current passphrase">
+        <input type="password" id="cp-new" placeholder="New passphrase">
+        <input type="password" id="cp-confirm" placeholder="Confirm new passphrase" onkeydown="if(event.key==='Enter')changePassphrase()">
+        <button class="btn btn-muted btn-sm" onclick="changePassphrase()">Change passphrase</button>
+        <div id="cp-status" style="font-size:0.8rem;min-height:1em"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -1725,6 +1734,31 @@ async function downloadPrivateKey() {
   document.getElementById("privkey-passphrase").value = "";
   status.style.color = "#4caf50"; status.textContent = "Downloaded.";
   setTimeout(() => { status.textContent = ""; }, 3000);
+}
+
+async function changePassphrase() {
+  const current = document.getElementById("cp-current").value;
+  const newPass = document.getElementById("cp-new").value;
+  const confirm = document.getElementById("cp-confirm").value;
+  const status = document.getElementById("cp-status");
+  if (!current || !newPass) { status.style.color = "#e06c6c"; status.textContent = "All fields required."; return; }
+  if (newPass !== confirm) { status.style.color = "#e06c6c"; status.textContent = "New passphrases don't match."; return; }
+  status.style.color = "#888"; status.textContent = "Changing passphrase (re-encrypting files)…";
+  const r = await apiFetch("/setup/change-passphrase", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({current_passphrase: current, new_passphrase: newPass, confirm_new_passphrase: confirm}),
+  });
+  if (r.status === 403) { status.style.color = "#e06c6c"; status.textContent = "Wrong current passphrase."; return; }
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({}));
+    status.style.color = "#e06c6c"; status.textContent = err.detail || "Failed to change passphrase."; return;
+  }
+  document.getElementById("cp-current").value = "";
+  document.getElementById("cp-new").value = "";
+  document.getElementById("cp-confirm").value = "";
+  status.style.color = "#4caf50"; status.textContent = "Passphrase changed.";
+  setTimeout(() => { status.textContent = ""; }, 4000);
 }
 
 async function saveProfileName() {

@@ -12,7 +12,12 @@ from cryptography.exceptions import InvalidTag
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-from .crypto import decrypt_bytes, derive_master_key
+from .auth import OwnerDep
+from .config import NodeConfig
+from .crypto import (
+    decrypt_bytes, derive_master_key, derive_subkeys, encrypt_bytes,
+    ARGON2_TIME_COST, ARGON2_MEMORY_COST, ARGON2_PARALLELISM,
+)
 from .db import WrongPassphraseError
 
 router = APIRouter(prefix="/setup")
@@ -235,6 +240,74 @@ async def setup_restore(request: Request, bundle: UploadFile = File(...), passph
         },
         "internal_token": config_data["internal_token"],
     }
+
+
+class ChangePassphraseBody(BaseModel):
+    current_passphrase: str
+    new_passphrase: str
+    confirm_new_passphrase: str
+
+
+@router.post("/change-passphrase")
+def change_passphrase(body: ChangePassphraseBody, request: Request, identity: OwnerDep):
+    if body.new_passphrase != body.confirm_new_passphrase:
+        raise HTTPException(400, "New passphrases do not match")
+    if not body.new_passphrase:
+        raise HTTPException(400, "New passphrase cannot be empty")
+
+    app = request.app
+    config_path = Path(app.state.config_path)
+    config = NodeConfig.load(config_path)
+
+    # Verify current passphrase
+    old_salt = bytes.fromhex(config.argon2_salt)
+    old_master_key = derive_master_key(
+        body.current_passphrase, old_salt,
+        config.argon2_time_cost, config.argon2_memory_cost, config.argon2_parallelism,
+    )
+    try:
+        privkey_bytes = decrypt_bytes(base64.b64decode(config.encrypted_private_key), old_master_key)
+    except Exception:
+        raise HTTPException(403, "Wrong current passphrase")
+
+    _, old_file_key = derive_subkeys(old_master_key)
+
+    # Derive new keys
+    new_salt = os.urandom(16)
+    new_master_key = derive_master_key(body.new_passphrase, new_salt)
+    new_db_key, new_file_key = derive_subkeys(new_master_key)
+
+    # Re-encrypt all asset files in place
+    store_path = Path(config.store_path)
+    files_dir = store_path / "files"
+    if files_dir.exists():
+        for fpath in files_dir.rglob("*"):
+            if not fpath.is_file():
+                continue
+            try:
+                plaintext = decrypt_bytes(fpath.read_bytes(), old_file_key)
+                fpath.write_bytes(encrypt_bytes(plaintext, new_file_key))
+            except Exception as exc:
+                raise HTTPException(500, f"Failed to re-encrypt {fpath.name}: {exc}")
+
+    # Rekey the SQLCipher database
+    app.state.db.execute(f"PRAGMA rekey = \"x'{new_db_key.hex()}'\"")
+    app.state.db.commit()
+
+    # Update node_config.json
+    import json as _json
+    config_data = _json.loads(config_path.read_text())
+    config_data["argon2_salt"] = new_salt.hex()
+    config_data["argon2_time_cost"] = ARGON2_TIME_COST
+    config_data["argon2_memory_cost"] = ARGON2_MEMORY_COST
+    config_data["argon2_parallelism"] = ARGON2_PARALLELISM
+    config_data["encrypted_private_key"] = base64.b64encode(encrypt_bytes(privkey_bytes, new_master_key)).decode()
+    config_path.write_text(_json.dumps(config_data, indent=2))
+
+    # Update running state
+    app.state.file_key = new_file_key
+
+    return {"status": "ok"}
 
 
 def _create_node_config(
