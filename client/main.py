@@ -17,6 +17,7 @@ Server OAuth flow:
   3. callback.html POSTs server token to /client/session, stores client token
 """
 import base64
+import json
 import logging
 import os
 import secrets
@@ -175,6 +176,26 @@ def create_app(config_path: str | Path) -> FastAPI:
             h["Authorization"] = f"Bearer {t}"
         return h
 
+    async def _sign_federated(method: str, path: str, body: bytes) -> dict:
+        """Return X-Timestamp and X-Signature headers by asking the server to sign."""
+        import hashlib, time as _time
+        ts = str(int(_time.time()))
+        body_hash = hashlib.sha256(body).hexdigest()
+        canonical = f"{method}\n{path}\n{ts}\n{body_hash}"
+        try:
+            async with httpx.AsyncClient() as hc:
+                r = await hc.post(
+                    _server + "/auth/sign-federated",
+                    json={"canonical": canonical},
+                    headers=_internal_headers(),
+                    timeout=5,
+                )
+            if r.is_success:
+                return {"X-Timestamp": ts, "X-Signature": r.json()["signature"]}
+        except Exception:
+            pass
+        return {}
+
     def _server_name(url: str) -> str:
         if url == config.own_server:
             return "me"
@@ -252,7 +273,8 @@ def create_app(config_path: str | Path) -> FastAPI:
             if cursor: params.append(("cursor", cursor))
             if q: params.append(("q", q))
             for t in tags: params.append(("tags", t))
-            fetch_headers = {**_headers(src), "X-Origin-Server": config.own_server}
+            fetch_headers = {**_headers(src), "X-Origin-Server": config.own_server,
+                             **await _sign_federated("GET", "/posts", b"")}
             fetch_url = _server if is_own else src
             async with httpx.AsyncClient() as hc:
                 r = await hc.get(fetch_url + "/posts", params=params, headers=fetch_headers, timeout=10.0)
@@ -295,7 +317,8 @@ def create_app(config_path: str | Path) -> FastAPI:
                 return []
             try:
                 fetch_url = _server if url == config.own_server else url
-                fetch_headers = {**_headers(url), "X-Origin-Server": config.own_server}
+                fetch_headers = {**_headers(url), "X-Origin-Server": config.own_server,
+                                 **await _sign_federated("GET", "/posts", b"")}
                 async with httpx.AsyncClient() as hc:
                     r = await hc.get(fetch_url + "/posts", params=params_base, headers=fetch_headers, timeout=10.0)
                 if r.is_success:
@@ -312,7 +335,8 @@ def create_app(config_path: str | Path) -> FastAPI:
             if not new_url:
                 return []
             try:
-                retry_headers = {**_headers(new_url), "X-Origin-Server": config.own_server}
+                retry_headers = {**_headers(new_url), "X-Origin-Server": config.own_server,
+                                 **await _sign_federated("GET", "/posts", b"")}
                 async with httpx.AsyncClient() as hc:
                     r = await hc.get(new_url + "/posts", params=params_base, headers=retry_headers, timeout=10.0)
                 if not r.is_success:
@@ -392,8 +416,10 @@ def create_app(config_path: str | Path) -> FastAPI:
     @api.get("/posts/{post_id}/comments")
     async def api_get_comments(post_id: str, server: str = ""):
         src = server or config.own_server
+        path = f"/posts/{post_id}/comments"
+        h = {**_headers(src), "X-Origin-Server": config.own_server, **await _sign_federated("GET", path, b"")}
         async with httpx.AsyncClient() as hc:
-            r = await hc.get(_call_url(src) + f"/posts/{post_id}/comments", headers=_headers(src))
+            r = await hc.get(_call_url(src) + path, headers=h)
         if not r.is_success:
             raise HTTPException(status_code=r.status_code)
         return r.json()
@@ -401,14 +427,12 @@ def create_app(config_path: str | Path) -> FastAPI:
     @api.post("/posts/{post_id}/comments")
     async def api_post_comment(post_id: str, request: Request, server: str = ""):
         src = server or config.own_server
-        payload = await request.json()
-        headers = {**_headers(src), "X-Origin-Server": config.own_server}
+        path = f"/posts/{post_id}/comments"
+        body = json.dumps(await request.json()).encode()
+        h = {**_headers(src), "X-Origin-Server": config.own_server,
+             "Content-Type": "application/json", **await _sign_federated("POST", path, body)}
         async with httpx.AsyncClient() as hc:
-            r = await hc.post(
-                _call_url(src) + f"/posts/{post_id}/comments",
-                json=payload,
-                headers=headers,
-            )
+            r = await hc.post(_call_url(src) + path, content=body, headers=h)
         if not r.is_success:
             raise HTTPException(status_code=r.status_code)
         return r.json()
@@ -416,14 +440,12 @@ def create_app(config_path: str | Path) -> FastAPI:
     @api.post("/posts/{post_id}/react")
     async def api_react(post_id: str, request: Request, server: str = ""):
         src = server or config.own_server
-        payload = await request.json()
-        headers = {**_headers(src), "X-Origin-Server": config.own_server}
+        path = f"/posts/{post_id}/react"
+        body = json.dumps(await request.json()).encode()
+        h = {**_headers(src), "X-Origin-Server": config.own_server,
+             "Content-Type": "application/json", **await _sign_federated("POST", path, body)}
         async with httpx.AsyncClient() as hc:
-            r = await hc.post(
-                _call_url(src) + f"/posts/{post_id}/react",
-                json=payload,
-                headers=headers,
-            )
+            r = await hc.post(_call_url(src) + path, content=body, headers=h)
         if not r.is_success:
             raise HTTPException(status_code=r.status_code)
         return r.json()
@@ -568,6 +590,8 @@ def create_app(config_path: str | Path) -> FastAPI:
     @api.post("/contacts", status_code=201)
     async def api_add_contact(body: ContactBody):
         from client.config import ContactEntry
+        if body.url == config.own_server:
+            raise HTTPException(status_code=400, detail="Cannot add yourself as a contact")
         if any(c.url == body.url for c in config.contacts):
             raise HTTPException(status_code=409, detail="Contact with this URL already exists")
         config.contacts.append(ContactEntry(name=body.name, url=body.url, handle=body.handle, public_key=body.public_key))

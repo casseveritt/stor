@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 
-from .auth import AuthDep, OptionalAuthDep, OwnerDep
+from .auth import AuthDep, FederatedSigDep, OptionalAuthDep, OwnerDep
 from .crypto import encrypt_bytes
 
 router = APIRouter()
@@ -184,6 +184,7 @@ async def create_post(
 def get_posts(
     request: Request,
     identity: OptionalAuthDep,
+    _sig: FederatedSigDep = None,
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str = Query(default=""),
     tags: list[str] = Query(default=[]),
@@ -276,7 +277,7 @@ def get_posts(
 # ── get / update / delete post ────────────────────────────────────────────────
 
 @router.get("/posts/{post_id}")
-def get_post(post_id: str, request: Request, identity: OptionalAuthDep):
+def get_post(post_id: str, request: Request, identity: OptionalAuthDep, _sig: FederatedSigDep = None):
     db = request.app.state.db
     row = db.execute(
         f"SELECT {_POST_COLS_NO_ALIAS} FROM posts WHERE id = ? AND deleted = 0", (post_id,)
@@ -429,7 +430,7 @@ def _is_known_contact(db, server_url: str) -> bool:
 
 
 @router.get("/posts/{post_id}/comments")
-def fetch_post_comments(post_id: str, request: Request, identity: OptionalAuthDep):
+def fetch_post_comments(post_id: str, request: Request, identity: OptionalAuthDep, _sig: FederatedSigDep = None):
     from .reactions import get_reactions
     db = request.app.state.db
     _require_post_access(db, post_id, identity, request.headers.get("X-Origin-Server"))
@@ -462,7 +463,7 @@ class _CommentBody(BaseModel):
 
 
 @router.post("/posts/{post_id}/comments", status_code=201)
-def post_comment(post_id: str, payload: _CommentBody, request: Request, identity: OptionalAuthDep):
+def post_comment(post_id: str, payload: _CommentBody, request: Request, identity: OptionalAuthDep, _sig: FederatedSigDep = None):
     db = request.app.state.db
     origin_server = request.headers.get("X-Origin-Server")
     _require_post_access(db, post_id, identity, origin_server)

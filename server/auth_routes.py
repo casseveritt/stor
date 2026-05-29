@@ -1,9 +1,11 @@
 """OAuth2/OIDC login and callback endpoints."""
+import base64
 from urllib.parse import quote
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 
 from . import auth as auth_module
 from . import sso as sso_module
@@ -137,3 +139,17 @@ def me(request: Request, identity: AuthDep):
     if row:
         return {"role": "recipient", "identity": row[0], "display_name": row[1]}
     return {"role": "recipient", "identity": None}
+
+
+class _SignBody(BaseModel):
+    canonical: str
+
+
+@router.post("/sign-federated")
+def sign_federated(body: _SignBody, request: Request):
+    """Internal: sign a canonical string with the node's private key for outbound federated requests."""
+    private_key = getattr(request.app.state, "private_key", None)
+    if not private_key:
+        raise HTTPException(status_code=503, detail="Node locked")
+    sig = base64.b64encode(private_key.sign(body.canonical.encode())).decode()
+    return {"signature": sig}

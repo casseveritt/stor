@@ -890,7 +890,7 @@ async function searchContacts(val) {
   const r = await apiFetch("/api/contacts/search?q=" + encodeURIComponent(q));
   if (!r.ok) { result.textContent = "Search failed."; return; }
   const data = await r.json();
-  const results = data.results || [];
+  const results = (data.results || []).filter(d => d.server_url !== CFG.own_server);
   result.textContent = results.length ? "" : "No matches found.";
   list.innerHTML = results.map((d, i) => {
     const name = d.display_name || ("@" + d.username) || d.server_url;

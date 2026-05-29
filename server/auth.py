@@ -1,17 +1,17 @@
-"""Token authentication and ACL enforcement.
+"""Token authentication, ACL enforcement, and federated request signing.
 
 Three token kinds:
-  Owner tokens   — Ed25519-signed, self-verifying, no DB lookup.
-                   Format: base64url(<32B id> | <8B expiry> | <64B sig>), 139 chars.
-  Recipient tokens — random 32B stored in `tokens` table; revocable via DB.
-                   Format: base64url(<32B random>), 43 chars.
-  Share tokens   — Ed25519-signed JSON payload, self-verifying, no DB lookup.
-                   Format: s1.<base64url payload>.<base64url sig>
-                   Carry a watermark identity and optional per-asset scope.
+  Owner tokens   -- Ed25519-signed, self-verifying, no DB lookup.
+                    Format: base64url(<32B id> | <8B expiry> | <64B sig>), 139 chars.
+  Recipient tokens -- random 32B stored in `tokens` table; revocable via DB.
+                    Format: base64url(<32B random>), 43 chars.
+  Share tokens   -- Ed25519-signed JSON payload, self-verifying, no DB lookup.
+                    Format: s1.<base64url payload>.<base64url sig>
 
-Verification order: share → owner → DB.
+Verification order: share -> owner -> DB.
 """
 import base64
+import hashlib
 import json
 import os
 import struct
@@ -23,6 +23,8 @@ from typing import Annotated
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from fastapi import Depends, Header, HTTPException, Request, status
+
+FEDERATED_TIMESTAMP_TOLERANCE = 300  # 5 minutes
 
 _public_key: Ed25519PublicKey | None = None
 _private_key: Ed25519PrivateKey | None = None
@@ -220,6 +222,55 @@ def require_owner(identity: AuthDep) -> TokenIdentity:
 
 
 OwnerDep = Annotated[TokenIdentity, Depends(require_owner)]
+
+
+# ── federated request signature verification ─────────────────────────────────
+
+async def verify_federated_signature(request: Request) -> None:
+    """Verify Ed25519 signature on federated requests from contacts with known public keys.
+
+    - No X-Origin-Server → not federated, skip.
+    - Known contact with no stored public key → accept (can't verify).
+    - Known contact with stored public key + valid signature → accept.
+    - Known contact with stored public key but missing/invalid signature → reject 401.
+    """
+    origin = request.headers.get("X-Origin-Server", "")
+    if not origin:
+        return
+    db = request.app.state.db
+    row = db.execute("SELECT public_key FROM contacts WHERE server_url = ?", (origin,)).fetchone()
+    if not row or not row[0]:
+        return  # contact has no public key — cannot verify
+
+    timestamp_str = request.headers.get("X-Timestamp", "")
+    signature_b64 = request.headers.get("X-Signature", "")
+
+    if not timestamp_str or not signature_b64:
+        raise HTTPException(status_code=401,
+                            detail="Federated request from verified contact requires a signature")
+
+    try:
+        ts = int(timestamp_str)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Invalid X-Timestamp")
+
+    if abs(time.time() - ts) > FEDERATED_TIMESTAMP_TOLERANCE:
+        raise HTTPException(status_code=401, detail="Federated request timestamp too skewed")
+
+    body = await request.body()
+    body_hash = hashlib.sha256(body).hexdigest()
+    canonical = f"{request.method}\n{request.url.path}\n{timestamp_str}\n{body_hash}"
+
+    try:
+        pub_bytes = base64.b64decode(row[0] + "==")
+        pub_key = Ed25519PublicKey.from_public_bytes(pub_bytes)
+        sig = base64.b64decode(signature_b64 + "==")
+        pub_key.verify(sig, canonical.encode())
+    except (InvalidSignature, Exception):
+        raise HTTPException(status_code=401, detail="Invalid federated signature")
+
+
+FederatedSigDep = Annotated[None, Depends(verify_federated_signature)]
 
 
 # ── ACL helper ────────────────────────────────────────────────────────────────

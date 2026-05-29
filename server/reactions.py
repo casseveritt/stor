@@ -4,7 +4,7 @@ import time
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from .auth import OptionalAuthDep
+from .auth import FederatedSigDep, OptionalAuthDep
 
 router = APIRouter()
 
@@ -53,7 +53,7 @@ class _ReactBody(BaseModel):
 
 
 @router.post("/posts/{post_id}/react", status_code=200)
-def toggle_reaction(post_id: str, payload: _ReactBody, request: Request, identity: OptionalAuthDep):
+def toggle_reaction(post_id: str, payload: _ReactBody, request: Request, identity: OptionalAuthDep, _sig: FederatedSigDep = None):
     if payload.emoji not in ALLOWED_EMOJI:
         raise HTTPException(status_code=422, detail=f"Emoji must be one of {sorted(ALLOWED_EMOJI)}")
 
