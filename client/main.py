@@ -378,14 +378,27 @@ def create_app(config_path: str | Path) -> FastAPI:
     # ── config / status ───────────────────────────────────────────────────
 
     @api.get("/config")
-    def api_config():
+    async def api_config():
         import hashlib
         cache_dir = Path("/data/photo_cache")
         def _has_cached_photo(url: str) -> bool:
             key = hashlib.sha256(url.encode()).hexdigest()
             return (cache_dir / key).exists()
+        own_display_name = None
+        own_handle = None
+        try:
+            async with httpx.AsyncClient() as hc:
+                r = await hc.get(_server + "/profile", headers=_internal_headers(), timeout=2)
+                if r.is_success:
+                    p = r.json()
+                    own_display_name = p.get("display_name")
+                    own_handle = p.get("handle")
+        except Exception:
+            pass
         return {
             "own_server": config.own_server,
+            "own_display_name": own_display_name,
+            "own_handle": own_handle,
             "identity_proxy_url": os.environ.get("CONTACC_IDENTITY_PROXY_URL", ""),
             "servers": [
                 {"name": _server_name(url), "url": url, "authenticated": bool(_token(url))}

@@ -489,6 +489,14 @@
 <script>
 // ── state ──────────────────────────────────────────────────────────────────
 let CFG = null;
+function _setCFG(cfg) {
+  CFG = cfg;
+  if (cfg?.own_display_name || cfg?.own_handle) {
+    if (!serverProfiles[cfg.own_server]?.display_name) {
+      serverProfiles[cfg.own_server] = { display_name: cfg.own_display_name, handle: cfg.own_handle };
+    }
+  }
+}
 let activeServer = null;
 let activeTags = new Set();
 let allPosts = [];
@@ -573,8 +581,9 @@ async function continueInit() {
       return;
     }
   }
-  CFG = await r.json().catch(() => null);
-  if (!CFG) { document.getElementById("login-error").textContent = "Could not load config."; showView("login"); return; }
+  const _rawCfg = await r.json().catch(() => null);
+  if (!_rawCfg) { document.getElementById("login-error").textContent = "Could not load config."; showView("login"); return; }
+  _setCFG(_rawCfg);
 
   document.getElementById("login-server").textContent = CFG.own_server;
 
@@ -701,7 +710,7 @@ async function removeContact(url) {
   if (!r.ok) { alert("Failed to remove contact."); return; }
   if (activeServer === url) setActiveServer(-1);
   const cfg = await (await apiFetch("/api/config")).json();
-  CFG = cfg;
+  _setCFG(cfg);
   renderServerList();
 }
 
@@ -988,7 +997,7 @@ async function confirmAddContact() {
   if (!r.ok) { err.textContent = "Failed to add contact."; return; }
   closeAddContact();
   const cfg = await (await apiFetch("/api/config")).json();
-  CFG = cfg;
+  _setCFG(cfg);
   renderServerList();
   fetchServerHandles();
   fetchServerProfiles();
@@ -1141,9 +1150,9 @@ function _showReactorTooltip(event, btn) {
     if (_reactorTooltipBtn !== btn) return;
     const updated = reactors.map(id => _reactorName(id, serverUrl));
     tip.textContent = updated.join('\n') || '–';
-    if (updated.some(n => n === '…' || n === '?') && delay < 8000) _retryReactorTooltip(delay * 2);
+    if (updated.some(n => n.endsWith('…') || n === '?' || n === 'Me') && delay < 8000) _retryReactorTooltip(delay * 2);
   }, delay);
-  if (names.some(n => n === '…' || n === '?')) _retryReactorTooltip(800);
+  if (names.some(n => n.endsWith('…') || n === '?' || n === 'Me')) _retryReactorTooltip(800);
 }
 function _hideReactorTooltip() {
   _reactorTooltipBtn = null;
@@ -1189,11 +1198,14 @@ function _resolveIdentity(identity, postServerUrl) {
     const prof = serverProfiles[keyUrl] || {};
     const name = prof.display_name || prof.handle;
     if (name) return { name, photoUrl: prof.photo_url || null };
+    // own server: profile may not be loaded yet, but it's us (fallback 'Me' triggers retry)
+    if (keyUrl === CFG.own_server) return { name: prof.display_name || prof.handle || 'Me', photoUrl: prof.photo_url || null };
     const contact = (CFG.contacts || []).find(c => c.url === keyUrl);
     if (contact?.name) return { name: contact.name, photoUrl: null };
   }
   _lookupKeyFromRegistry(identity);
-  return { name: keyUrl ? '…' : '?', photoUrl: null };
+  const shortKey = identity.slice(0, 8) + '…';
+  return { name: shortKey, photoUrl: null };
 }
 
 function _reactorName(identity, postServerUrl) {
