@@ -121,7 +121,20 @@ def get_photo(request: Request):
     if not file_path.exists():
         raise HTTPException(status_code=404, detail="Photo file not found")
 
-    content = decrypt_bytes(file_path.read_bytes(), request.app.state.file_key)
+    raw = decrypt_bytes(file_path.read_bytes(), request.app.state.file_key)
+
+    # New uploads are pre-converted to JPEG; legacy stored files may be other formats.
+    media_type = row[2] or "image/jpeg"
+    if media_type == "image/jpeg":
+        content = raw
+    else:
+        img = Image.open(io.BytesIO(raw))
+        img.thumbnail(PHOTO_THUMB)
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG")
+        content = buf.getvalue()
 
     return Response(
         content=content,
