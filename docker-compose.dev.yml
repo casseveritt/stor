@@ -25,6 +25,8 @@ services:
 
   client-1:
     <<: *dev
+    environment:
+      CONTACC_DEV: "1"
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/client-1:/data
@@ -37,6 +39,8 @@ services:
     command: python -m server.main /data/node_config.json --host 0.0.0.0 --port 9443 --reload
 
   client-2:
+    environment:
+      CONTACC_DEV: "1"
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/client-2:/data
@@ -49,6 +53,8 @@ services:
     command: python -m server.main /data/node_config.json --host 0.0.0.0 --port 9443 --reload
 
   client-3:
+    environment:
+      CONTACC_DEV: "1"
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/client-3:/data

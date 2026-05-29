@@ -289,6 +289,12 @@
     <div class="header-right">
       <button id="compose-btn" class="btn btn-primary btn-sm" onclick="openCompose()" hidden>+ Post</button>
       <button class="btn btn-muted btn-sm" onclick="logout()">Sign out</button>
+      <span id="dev-menu-wrap" style="position:relative;display:none">
+        <button class="btn btn-sm" style="background:#2a1a00;color:#f90;border:1px solid #a60" onclick="_toggleDevMenu()">Dev ▾</button>
+        <div id="dev-menu-popup" hidden style="position:absolute;right:0;top:calc(100% + 4px);background:#1e1e1e;border:1px solid #555;border-radius:6px;z-index:300;min-width:180px;box-shadow:0 4px 12px rgba(0,0,0,0.6);overflow:hidden">
+          <button onclick="_toggleDevMenu();runDbCheck()" style="display:block;width:100%;background:none;border:none;color:#ddd;text-align:left;padding:0.5rem 1rem;font-size:0.85rem;cursor:pointer" onmouseover="this.style.background='#333'" onmouseout="this.style.background='none'">DB consistency check</button>
+        </div>
+      </span>
     </div>
   </header>
   <div id="body-wrap">
@@ -486,6 +492,19 @@
   </div>
 </div>
 
+<!-- ── dev: db check modal ────────────────────────────────────────────────── -->
+<div id="db-check-overlay" class="overlay" hidden onclick="maybeClose('db-check-overlay',event)">
+  <div class="modal" style="min-width:min(90vw,640px);max-height:80vh;display:flex;flex-direction:column">
+    <button class="modal-close" onclick="document.getElementById('db-check-overlay').hidden=true">&#x2715;</button>
+    <h3>DB Consistency Check</h3>
+    <div id="db-check-body" style="flex:1;overflow-y:auto;margin-top:0.75rem;font-size:0.88rem"></div>
+    <div style="display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1rem;flex-shrink:0">
+      <button class="btn btn-muted btn-sm" onclick="document.getElementById('db-check-overlay').hidden=true">Close</button>
+      <button class="btn btn-primary btn-sm" id="db-fix-btn" hidden onclick="runDbFix()">Fix selected</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ── state ──────────────────────────────────────────────────────────────────
 let CFG = null;
@@ -616,6 +635,7 @@ async function loadIdentity() {
   const d = await r.json();
   IS_OWNER = d.role === "owner";
   document.getElementById("compose-btn").hidden = !IS_OWNER;
+  document.getElementById("dev-menu-wrap").style.display = (CFG?.dev && IS_OWNER) ? '' : 'none';
   const identity = d.identity || "";
   const nodeR = await fetch("/node");
   const nodeD = nodeR.ok ? await nodeR.json() : {};
@@ -2239,6 +2259,89 @@ async function doUnlock() {
     if (!r.ok) { err.textContent = d.detail || "Wrong passphrase."; return; }
     location.reload();
   } catch { err.textContent = "Network error."; }
+}
+
+// ── dev menu ───────────────────────────────────────────────────────────────
+function _toggleDevMenu() {
+  const popup = document.getElementById('dev-menu-popup');
+  popup.hidden = !popup.hidden;
+  if (!popup.hidden) {
+    const dismiss = e => {
+      if (!popup.contains(e.target)) {
+        popup.hidden = true;
+        document.removeEventListener('click', dismiss, true);
+      }
+    };
+    setTimeout(() => document.addEventListener('click', dismiss, true), 0);
+  }
+}
+
+let _dbCheckIssues = [];
+
+async function runDbCheck() {
+  const overlay = document.getElementById('db-check-overlay');
+  const body = document.getElementById('db-check-body');
+  const fixBtn = document.getElementById('db-fix-btn');
+  body.innerHTML = '<em style="color:#888">Running checks…</em>';
+  fixBtn.hidden = true;
+  overlay.hidden = false;
+  try {
+    const r = await apiFetch('/api/dev/db-check');
+    const d = await r.json();
+    _dbCheckIssues = d.issues || [];
+    _renderDbCheckResults(_dbCheckIssues);
+  } catch(e) {
+    body.innerHTML = `<span style="color:#e06c6c">Error: ${esc(String(e))}</span>`;
+  }
+}
+
+function _renderDbCheckResults(issues) {
+  const body = document.getElementById('db-check-body');
+  const fixBtn = document.getElementById('db-fix-btn');
+  if (!issues.length) {
+    body.innerHTML = '<span style="color:#4caf50">✓ No issues found.</span>';
+    fixBtn.hidden = true;
+    return;
+  }
+  const fixable = issues.filter(i => i.fix);
+  fixBtn.hidden = fixable.length === 0;
+  body.innerHTML = issues.map(issue => `
+    <div style="margin-bottom:1rem;padding:0.6rem 0.75rem;background:#1a1a1a;border:1px solid #333;border-radius:6px">
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem">
+        ${issue.fix ? `<input type="checkbox" class="db-fix-check" data-id="${esc(issue.id)}" checked style="accent-color:#4285f4">` : '<span style="color:#888;font-size:0.8rem">ℹ</span>'}
+        <strong style="color:${issue.fix ? '#e0a060' : '#aaa'}">${esc(issue.title)}</strong>
+        <span style="color:#555;font-size:0.8rem">(${issue.items.length})</span>
+        ${issue.fix ? '' : '<span style="color:#555;font-size:0.75rem;margin-left:auto">manual fix required</span>'}
+      </div>
+      <ul style="margin:0 0 0 1.2rem;padding:0;color:#888;font-size:0.8rem;font-family:monospace">
+        ${issue.items.slice(0, 10).map(i => `<li>${esc(i)}</li>`).join('')}
+        ${issue.items.length > 10 ? `<li style="color:#555">…and ${issue.items.length - 10} more</li>` : ''}
+      </ul>
+    </div>
+  `).join('');
+}
+
+async function runDbFix() {
+  const checked = [...document.querySelectorAll('.db-fix-check:checked')].map(el => el.dataset.id);
+  if (!checked.length) return;
+  const fixBtn = document.getElementById('db-fix-btn');
+  fixBtn.disabled = true;
+  fixBtn.textContent = 'Fixing…';
+  try {
+    const r = await apiFetch('/api/dev/db-fix', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({fix_ids: checked}),
+    });
+    const d = await r.json();
+    _dbCheckIssues = d.issues || [];
+    _renderDbCheckResults(_dbCheckIssues);
+  } catch(e) {
+    document.getElementById('db-check-body').innerHTML = `<span style="color:#e06c6c">Fix error: ${esc(String(e))}</span>`;
+  } finally {
+    fixBtn.disabled = false;
+    fixBtn.textContent = 'Fix selected';
+  }
 }
 </script>
 <div id="reactor-tooltip" hidden></div>
