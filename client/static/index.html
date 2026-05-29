@@ -717,20 +717,19 @@ function _lookupKeyFromRegistry(identity) {
       }
       return null;
     }).then(d => {
-      if (d) { _keyToProfile[identity] = d; _rerenderVisibleAuthorNames(); }
-    }).catch(() => {}).finally(() => _pendingKeyLookups.delete(identity));
+      _keyToProfile[identity] = d || {};
+      _rerenderVisibleAuthorNames();
+    }).catch(() => { _keyToProfile[identity] = {}; }).finally(() => _pendingKeyLookups.delete(identity));
   } else {
     // raw public key
     fetch(registryUrl + "/lookup-by-key?public_key=" + encodeURIComponent(identity))
       .then(r => r.ok ? r.json() : null)
       .then(d => {
-        if (d) {
-          _keyToProfile[identity] = d;
-          if (d.server_url) serverPublicKeys[identity] = d.server_url;
-          _rerenderVisibleAuthorNames();
-        }
+        if (d && d.server_url) serverPublicKeys[identity] = d.server_url;
+        _keyToProfile[identity] = d || {};
+        _rerenderVisibleAuthorNames();
       })
-      .catch(() => {})
+      .catch(() => { _keyToProfile[identity] = {}; })
       .finally(() => _pendingKeyLookups.delete(identity));
   }
 }
@@ -823,6 +822,7 @@ function _renderAuthorInto(el, url) {
   const name = _authorName(url);
   const handle = p?.handle || serverHandles[url];
   el.title = handle ? `@${handle}` : name;
+  const right = el.querySelector('.post-author-right');
   el.innerHTML = "";
   if (p?.photo_url) {
     const img = document.createElement("img");
@@ -846,6 +846,7 @@ function _renderAuthorInto(el, url) {
   nameEl.className = "post-author-name";
   nameEl.textContent = name;
   el.appendChild(nameEl);
+  if (right) el.appendChild(right);
 }
 
 function setActiveServer(i) {
@@ -1070,7 +1071,9 @@ function _setReactorTitle(btn) {
   if (btn.title) return;
   const reactors = JSON.parse(btn.dataset.reactors || '[]');
   const serverUrl = btn.dataset.server || CFG.own_server;
-  btn.title = reactors.map(id => _reactorName(id, serverUrl)).join(', ') || '…';
+  const names = reactors.map(id => _reactorName(id, serverUrl));
+  if (names.some(n => n === '…')) return;  // wait for async lookup to complete
+  btn.title = names.join('\n') || '…';
 }
 
 function _resolveIdentity(identity, postServerUrl) {
@@ -1196,6 +1199,7 @@ function makePostCard(post, idx) {
   const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleDateString() : "";
   const rightGroup = document.createElement("span");
   rightGroup.style.cssText = "display:inline-flex;align-items:center;gap:0.35rem;flex-shrink:0";
+  rightGroup.className = "post-author-right";
   rightGroup.innerHTML = _levelIconHtml(post.visibility, post.visibility)
     + (dateFmt ? `<span class="post-date">${dateFmt}</span>` : '');
   author.appendChild(rightGroup);
