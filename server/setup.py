@@ -12,7 +12,6 @@ from cryptography.exceptions import InvalidTag
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-from .auth import OwnerDep
 from .config import NodeConfig
 from .crypto import (
     decrypt_bytes, derive_master_key, derive_subkeys, encrypt_bytes,
@@ -249,7 +248,7 @@ class ChangePassphraseBody(BaseModel):
 
 
 @router.post("/change-passphrase")
-def change_passphrase(body: ChangePassphraseBody, request: Request, identity: OwnerDep):
+def change_passphrase(body: ChangePassphraseBody, request: Request):
     if body.new_passphrase != body.confirm_new_passphrase:
         raise HTTPException(400, "New passphrases do not match")
     if not body.new_passphrase:

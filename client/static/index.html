@@ -1744,7 +1744,7 @@ async function changePassphrase() {
   if (!current || !newPass) { status.style.color = "#e06c6c"; status.textContent = "All fields required."; return; }
   if (newPass !== confirm) { status.style.color = "#e06c6c"; status.textContent = "New passphrases don't match."; return; }
   status.style.color = "#888"; status.textContent = "Changing passphrase (re-encrypting files)…";
-  const r = await apiFetch("/setup/change-passphrase", {
+  const r = await apiFetch("/api/settings/change-passphrase", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({current_passphrase: current, new_passphrase: newPass, confirm_new_passphrase: confirm}),

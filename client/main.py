@@ -697,6 +697,16 @@ def create_app(config_path: str | Path) -> FastAPI:
             headers={"Content-Disposition": "attachment; filename=contacc-private-key.pem"},
         )
 
+    @api.post("/settings/change-passphrase")
+    async def api_change_passphrase(request: Request):
+        payload = await request.json()
+        async with httpx.AsyncClient() as hc:
+            r = await hc.post(_server + "/setup/change-passphrase", json=payload,
+                              headers=_internal_headers(), timeout=120)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", r.text))
+        return r.json()
+
     @api.put("/profile")
     async def api_update_profile(request: Request):
         if not _token(config.own_server):
