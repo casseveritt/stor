@@ -474,6 +474,19 @@ def create_app(config_path: str | Path) -> FastAPI:
             raise HTTPException(status_code=r.status_code)
         return r.json()
 
+    @api.get("/profile/private-key")
+    def api_download_private_key():
+        private_key = app.state.private_key
+        if not private_key:
+            raise HTTPException(status_code=503, detail="Node is locked — private key not available")
+        from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption
+        pem = private_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
+        return Response(
+            content=pem,
+            media_type="application/x-pem-file",
+            headers={"Content-Disposition": "attachment; filename=contacc-private-key.pem"},
+        )
+
     @api.put("/profile")
     async def api_update_profile(request: Request):
         if not _token(config.own_server):
