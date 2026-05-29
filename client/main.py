@@ -191,7 +191,11 @@ def create_app(config_path: str | Path) -> FastAPI:
                     timeout=5,
                 )
             if r.is_success:
-                return {"X-Timestamp": ts, "X-Signature": r.json()["signature"]}
+                data = r.json()
+                headers = {"X-Timestamp": ts, "X-Signature": data["signature"]}
+                if data.get("public_key"):
+                    headers["X-Public-Key"] = data["public_key"]
+                return headers
         except Exception:
             pass
         return {}

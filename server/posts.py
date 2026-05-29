@@ -206,9 +206,8 @@ def get_posts(
 
     if not identity.is_owner:
         origin_server = request.headers.get("X-Origin-Server", "")
-        is_contact = bool(origin_server and db.execute(
-            "SELECT 1 FROM contacts WHERE server_url = ?", (origin_server,)
-        ).fetchone())
+        origin_pub_key = request.headers.get("X-Public-Key", "")
+        is_contact = _is_known_contact(db, origin_server, origin_pub_key)
         if identity.is_share:
             if identity.share_post_ids is not None:
                 placeholders = ",".join("?" * len(identity.share_post_ids))
@@ -292,10 +291,9 @@ def get_post(post_id: str, request: Request, identity: OptionalAuthDep, _sig: Fe
         if visibility == "private":
             raise HTTPException(status_code=403, detail="Access denied")
         if visibility in ("contacts", "authenticated"):
-            is_contact = bool(origin_server and db.execute(
-                "SELECT 1 FROM contacts WHERE server_url = ?", (origin_server,)
-            ).fetchone())
-            is_authenticated = bool(origin_server)
+            origin_pub_key = request.headers.get("X-Public-Key", "")
+            is_contact = _is_known_contact(db, origin_server, origin_pub_key)
+            is_authenticated = bool(origin_server or origin_pub_key)
             passes = is_authenticated if visibility == "authenticated" else is_contact
             if not passes and not _check_post_access(db, post_id, identity):
                 raise HTTPException(status_code=403, detail="Access denied")
@@ -394,7 +392,7 @@ def _check_post_access(db, post_id: str, identity) -> bool:
     return False
 
 
-def _require_post_access(db, post_id: str, identity, origin_server: str | None = None) -> None:
+def _require_post_access(db, post_id: str, identity, origin_server: str | None = None, origin_pub_key: str | None = None) -> None:
     """Check that the requester can view AND comment on this post."""
     row = db.execute(
         "SELECT visibility, comment_access, post_type FROM posts WHERE id = ? AND deleted = 0", (post_id,)
@@ -407,8 +405,8 @@ def _require_post_access(db, post_id: str, identity, origin_server: str | None =
     if post_type == "inner_monologue":
         raise HTTPException(status_code=404, detail="Post not found")
 
-    is_authenticated = bool(origin_server)
-    is_contact = bool(origin_server and _is_known_contact(db, origin_server))
+    is_authenticated = bool(origin_server or origin_pub_key)
+    is_contact = _is_known_contact(db, origin_server or "", origin_pub_key)
     has_explicit = _check_post_access(db, post_id, identity)
 
     def _passes(level: str) -> bool:
@@ -423,17 +421,28 @@ def _require_post_access(db, post_id: str, identity, origin_server: str | None =
         raise HTTPException(status_code=403, detail="Comments restricted")
 
 
-def _is_known_contact(db, server_url: str) -> bool:
-    return db.execute(
-        "SELECT 1 FROM contacts WHERE server_url = ?", (server_url,)
-    ).fetchone() is not None
+def _is_known_contact(db, server_url: str, public_key: str | None = None) -> bool:
+    if public_key:
+        row = db.execute(
+            "SELECT id, server_url FROM contacts WHERE public_key = ?", (public_key,)
+        ).fetchone()
+        if row:
+            if server_url and row[1] != server_url:
+                db.execute("UPDATE contacts SET server_url = ? WHERE id = ?", (server_url, row[0]))
+                db.commit()
+            return True
+    if server_url:
+        return db.execute(
+            "SELECT 1 FROM contacts WHERE server_url = ?", (server_url,)
+        ).fetchone() is not None
+    return False
 
 
 @router.get("/posts/{post_id}/comments")
 def fetch_post_comments(post_id: str, request: Request, identity: OptionalAuthDep, _sig: FederatedSigDep = None):
     from .reactions import get_reactions
     db = request.app.state.db
-    _require_post_access(db, post_id, identity, request.headers.get("X-Origin-Server"))
+    _require_post_access(db, post_id, identity, request.headers.get("X-Origin-Server"), request.headers.get("X-Public-Key"))
     rows = db.execute(
         """SELECT c.id, c.content_hash, c.post_id, c.parent_id, c.author_recipient_id,
                   c.body, c.created_at, c.predecessor, c.successor, c.deleted,
@@ -466,7 +475,7 @@ class _CommentBody(BaseModel):
 def post_comment(post_id: str, payload: _CommentBody, request: Request, identity: OptionalAuthDep, _sig: FederatedSigDep = None):
     db = request.app.state.db
     origin_server = request.headers.get("X-Origin-Server")
-    _require_post_access(db, post_id, identity, origin_server)
+    _require_post_access(db, post_id, identity, origin_server, request.headers.get("X-Public-Key"))
 
     if payload.parent_id:
         if db.execute(
@@ -484,9 +493,15 @@ def post_comment(post_id: str, payload: _CommentBody, request: Request, identity
         row = db.execute("SELECT identity FROM recipients WHERE id = ?", (author_id,)).fetchone()
         if row:
             author_identity = row[0]
-    elif not identity.is_owner and origin_server:
-        row = db.execute("SELECT public_key FROM contacts WHERE server_url = ?", (origin_server,)).fetchone()
-        author_identity = row[0] if row and row[0] else "<anon>"
+    elif not identity.is_owner:
+        pub_key_header = request.headers.get("X-Public-Key", "")
+        row = db.execute("SELECT public_key FROM contacts WHERE public_key = ?", (pub_key_header,)).fetchone() if pub_key_header else None
+        if not row and origin_server:
+            row = db.execute("SELECT public_key FROM contacts WHERE server_url = ?", (origin_server,)).fetchone()
+        if row and row[0]:
+            author_identity = row[0]
+        elif origin_server or pub_key_header:
+            author_identity = "<anon>"
 
     db.execute(
         """INSERT INTO comments

@@ -229,16 +229,25 @@ OwnerDep = Annotated[TokenIdentity, Depends(require_owner)]
 async def verify_federated_signature(request: Request) -> None:
     """Verify Ed25519 signature on federated requests from contacts with known public keys.
 
-    - No X-Origin-Server → not federated, skip.
+    - No X-Origin-Server and no X-Public-Key → not federated, skip.
     - Known contact with no stored public key → accept (can't verify).
     - Known contact with stored public key + valid signature → accept.
     - Known contact with stored public key but missing/invalid signature → reject 401.
+    Looks up contact by X-Public-Key first (URL-independent), falls back to X-Origin-Server.
     """
     origin = request.headers.get("X-Origin-Server", "")
-    if not origin:
+    pub_key_header = request.headers.get("X-Public-Key", "")
+    if not origin and not pub_key_header:
         return
     db = request.app.state.db
-    row = db.execute("SELECT public_key FROM contacts WHERE server_url = ?", (origin,)).fetchone()
+    row = None
+    if pub_key_header:
+        row = db.execute("SELECT public_key, server_url FROM contacts WHERE public_key = ?", (pub_key_header,)).fetchone()
+        if row and origin and row[1] != origin:
+            db.execute("UPDATE contacts SET server_url = ? WHERE public_key = ?", (origin, pub_key_header))
+            db.commit()
+    if not row and origin:
+        row = db.execute("SELECT public_key, server_url FROM contacts WHERE server_url = ?", (origin,)).fetchone()
     if not row or not row[0]:
         return  # contact has no public key — cannot verify
 

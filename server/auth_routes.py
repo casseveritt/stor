@@ -8,6 +8,7 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from . import auth as auth_module
+from . import node as node_module
 from . import sso as sso_module
 from .auth import AuthDep
 from .sso import SSOError, UnknownIdentityError
@@ -152,4 +153,4 @@ def sign_federated(body: _SignBody, request: Request):
     if not private_key:
         raise HTTPException(status_code=503, detail="Node locked")
     sig = base64.b64encode(private_key.sign(body.canonical.encode())).decode()
-    return {"signature": sig}
+    return {"signature": sig, "public_key": node_module._public_key_b64}
