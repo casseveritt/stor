@@ -947,20 +947,43 @@ function _setReactorTitle(btn) {
   btn.title = reactors.map(id => _reactorName(id, serverUrl)).join(', ') || '…';
 }
 
-function _reactorName(identity, postServerUrl) {
+function _resolveIdentity(identity, postServerUrl) {
+  // null/empty → owner of the post's server
   if (!identity) {
-    const prof = serverProfiles[postServerUrl || CFG.own_server] || {};
-    return prof.display_name || prof.handle || 'Owner';
+    const url = postServerUrl || CFG.own_server;
+    const prof = serverProfiles[url] || {};
+    return { name: prof.display_name || prof.handle || 'Owner', photoUrl: prof.photo_url || null };
   }
-  const prof = serverProfiles[identity] || {};
-  if (prof.display_name) return prof.display_name;
-  if (prof.handle) return prof.handle;
-  const contact = (CFG.contacts || []).find(c => c.url === identity);
-  if (contact?.name) return contact.name;
-  const keyProf = _keyToProfile[identity];
-  if (keyProf) return keyProf.display_name || ('@' + keyProf.username);
+  // public key in /node cache → resolve via server URL
+  const keyUrl = serverPublicKeys[identity];
+  if (keyUrl) {
+    const prof = serverProfiles[keyUrl] || {};
+    const contact = (CFG.contacts || []).find(c => c.url === keyUrl);
+    return { name: prof.display_name || prof.handle || (contact && contact.name) || keyUrl, photoUrl: prof.photo_url || null };
+  }
+  // server URL → check serverProfiles first (covers own server), then contacts
+  if (identity.startsWith('http://') || identity.startsWith('https://')) {
+    const prof = serverProfiles[identity] || {};
+    if (prof.display_name || prof.handle) return { name: prof.display_name || prof.handle, photoUrl: prof.photo_url || null };
+    const contact = (CFG.contacts || []).find(c => c.url === identity);
+    if (contact) return { name: contact.name, photoUrl: prof.photo_url || null };
+  }
+  // public key stored directly on a contact
+  const byKey = (CFG.contacts || []).find(c => c.public_key && c.public_key === identity);
+  if (byKey) {
+    const prof = serverProfiles[byKey.url] || {};
+    return { name: prof.display_name || byKey.name, photoUrl: prof.photo_url || null };
+  }
+  // registry cache (async lookup result)
+  const reg = _keyToProfile[identity];
+  if (reg) return { name: reg.display_name || ('@' + reg.username), photoUrl: null };
+  // unknown — trigger async lookup and hold with placeholder
   _lookupKeyFromRegistry(identity);
-  return '…';
+  return { name: '…', photoUrl: null };
+}
+
+function _reactorName(identity, postServerUrl) {
+  return _resolveIdentity(identity, postServerUrl).name;
 }
 
 function reactionBarHtml(reactions, postId, serverUrl, commentId) {
@@ -1262,44 +1285,7 @@ async function _loadCommentsIntoPanel(post, panel) {
 }
 
 function _commentAuthor(identity, postServerUrl) {
-  // null → owner of the post's server
-  if (!identity) {
-    const url = postServerUrl || CFG.own_server;
-    const prof = serverProfiles[url] || {};
-    return { name: prof.display_name || prof.handle || "Owner", photoUrl: prof.photo_url || null };
-  }
-  // match by public_key: first from /node cache, then from CFG.contacts
-  const keyUrl = serverPublicKeys[identity];
-  if (keyUrl) {
-    const prof = serverProfiles[keyUrl] || {};
-    const contact = (CFG.contacts || []).find(c => c.url === keyUrl);
-    return { name: prof.display_name || prof.handle || (contact && contact.name) || keyUrl, photoUrl: prof.photo_url || null };
-  }
-  const byKey = (CFG.contacts || []).find(c => c.public_key && c.public_key === identity);
-  if (byKey) {
-    const prof = serverProfiles[byKey.url] || {};
-    return { name: prof.display_name || byKey.name, photoUrl: prof.photo_url || null };
-  }
-  if (identity.startsWith("https://") || identity.startsWith("http://")) {
-    const prof = serverProfiles[identity] || {};
-    if (prof.display_name || prof.handle) return { name: prof.display_name || prof.handle, photoUrl: prof.photo_url || null };
-    const byUrl = (CFG.contacts || []).find(c => c.url === identity);
-    if (byUrl) {
-      return { name: byUrl.name, photoUrl: prof.photo_url || null };
-    }
-    // URL-shaped identity with no matching contact — look up in registry
-    const urlCached = _keyToProfile[identity];
-    if (urlCached) return { name: urlCached.display_name || ('@' + urlCached.username), photoUrl: null };
-    _lookupKeyFromRegistry(identity);
-    return { name: '…', photoUrl: null };
-  }
-  if (_isPublicKey(identity)) {
-    const cached = _keyToProfile[identity];
-    if (cached) return { name: cached.display_name || ('@' + cached.username), photoUrl: null };
-    _lookupKeyFromRegistry(identity);
-    return { name: '…', photoUrl: null };
-  }
-  return { name: '…', photoUrl: null };
+  return _resolveIdentity(identity, postServerUrl);
 }
 
 function _renderCommentsInto(post, comments, panel) {
