@@ -225,14 +225,26 @@ def create_app(config_path: str | Path) -> FastAPI:
     return app
 
 
+def _dev_factory() -> FastAPI:
+    """Factory for uvicorn --reload mode; reads config path from env."""
+    return create_app(os.environ["CONTACC_CONFIG"])
+
+
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser(description="Run a contacc node")
     parser.add_argument("config", help="Path to node_config.json")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=9443)
+    parser.add_argument("--reload", action="store_true", help="Reload on source changes (dev mode)")
     parser.add_argument("--print-token", action="store_true", help="Print an owner token to stdout before serving")
     args = parser.parse_args()
+
+    if args.reload:
+        os.environ["CONTACC_CONFIG"] = args.config
+        uvicorn.run("server.main:_dev_factory", factory=True, host=args.host, port=args.port,
+                    reload=True, reload_dirs=["/app"], proxy_headers=True, forwarded_allow_ips="*")
+        return
 
     app = create_app(args.config)
 

@@ -1,0 +1,43 @@
+# Dev mode override: mounts repo source at /app and enables --reload.
+# Python changes take effect automatically (uvicorn restarts the worker).
+# Static file changes (HTML/JS/CSS) take effect immediately with no restart.
+#
+# Usage:
+#   sudo docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+#   sudo docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --profile node2
+#
+# To stop dev mode, go back to the normal compose file:
+#   sudo docker compose up -d --force-recreate
+
+x-dev: &dev
+  volumes:
+    - .:/app
+  # watchfiles (uvicorn's reloader) needs this off so it can detect changes
+  read_only: false
+
+services:
+  server-1:
+    <<: *dev
+    volumes:
+      - .:/app
+      - ${CONTACC_DATA_DIR}/server-1:/data
+    command: python -m server.main /data/node_config.json --host 0.0.0.0 --port 9443 --reload
+
+  client-1:
+    <<: *dev
+    volumes:
+      - .:/app
+      - ${CONTACC_DATA_DIR}/client-1:/data
+    command: python -m client.main /data/client_config.json --host 0.0.0.0 --port 9444 --reload
+
+  server-2:
+    volumes:
+      - .:/app
+      - ${CONTACC_DATA_DIR}/server-2:/data
+    command: python -m server.main /data/node_config.json --host 0.0.0.0 --port 9443 --reload
+
+  client-2:
+    volumes:
+      - .:/app
+      - ${CONTACC_DATA_DIR}/client-2:/data
+    command: python -m client.main /data/client_config.json --host 0.0.0.0 --port 9444 --reload
