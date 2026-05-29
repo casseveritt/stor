@@ -118,6 +118,7 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
     node_module.setup(node_address, private_key, config.watermark_enabled, config.registry_handle)
     auth_module.setup(private_key)
 
+    app.state.private_key = private_key
     app.state.internal_token = config.internal_token
     app.state.initialized = True
     log.info("Node %s ready.", node_address)

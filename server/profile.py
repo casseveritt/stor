@@ -109,6 +109,40 @@ async def update_photo(request: Request, identity: OwnerDep, file: UploadFile = 
     return {"content_hash": content_hash}
 
 
+class _PrivateKeyBody(BaseModel):
+    passphrase: str
+
+
+@router.post("/private-key")
+def get_private_key(body: _PrivateKeyBody, request: Request, identity: OwnerDep):
+    private_key = getattr(request.app.state, "private_key", None)
+    if not private_key:
+        raise HTTPException(status_code=503, detail="Node is locked — private key not available")
+    # Verify passphrase by re-deriving and comparing public keys
+    try:
+        from .config import NodeConfig
+        from .crypto import derive_master_key, decrypt_bytes
+        import base64
+        config = NodeConfig.load(request.app.state.config_path)
+        salt = bytes.fromhex(config.argon2_salt)
+        master_key = derive_master_key(body.passphrase, salt,
+                                       config.argon2_time_cost,
+                                       config.argon2_memory_cost,
+                                       config.argon2_parallelism)
+        privkey_bytes = decrypt_bytes(base64.b64decode(config.encrypted_private_key), master_key)
+    except Exception:
+        raise HTTPException(status_code=401, detail="Wrong passphrase")
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+    from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption
+    verified_key = Ed25519PrivateKey.from_private_bytes(privkey_bytes)
+    pem = verified_key.private_bytes(Encoding.PEM, PrivateFormat.PKCS8, NoEncryption())
+    return Response(
+        content=pem,
+        media_type="application/x-pem-file",
+        headers={"Content-Disposition": "attachment; filename=contacc-private-key.pem"},
+    )
+
+
 @router.get("/photo")
 def get_photo(request: Request):
     db = request.app.state.db

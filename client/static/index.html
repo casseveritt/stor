@@ -417,7 +417,13 @@
       </div>
       <hr style="border:none;border-top:1px solid #2a2a2a;margin:0.5rem 0">
       <button class="btn btn-muted btn-sm" style="width:100%" onclick="downloadBackup()">Download backup</button>
-      <button class="btn btn-muted btn-sm" style="width:100%" onclick="downloadPrivateKey()">Download private key</button>
+      <div id="privkey-download-wrap" style="display:flex;flex-direction:column;gap:0.4rem">
+        <div style="display:flex;gap:0.5rem">
+          <input type="password" id="privkey-passphrase" placeholder="Passphrase to confirm" style="flex:1" onkeydown="if(event.key==='Enter')downloadPrivateKey()">
+          <button class="btn btn-muted btn-sm" style="flex-shrink:0;white-space:nowrap" onclick="downloadPrivateKey()">Download private key</button>
+        </div>
+        <div id="privkey-status" style="font-size:0.8rem;min-height:1em"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -1670,8 +1676,26 @@ function closeProfile() { document.getElementById("profile-overlay").hidden = tr
 function downloadBackup() {
   window.location.href = "/api/backup" + clientTokenParam(false);
 }
-function downloadPrivateKey() {
-  window.location.href = "/api/profile/private-key" + clientTokenParam(false);
+async function downloadPrivateKey() {
+  const passphrase = document.getElementById("privkey-passphrase").value;
+  const status = document.getElementById("privkey-status");
+  if (!passphrase) { status.style.color = "#e06c6c"; status.textContent = "Enter your passphrase."; return; }
+  status.style.color = "#888"; status.textContent = "Verifying…";
+  const r = await apiFetch("/api/profile/private-key", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({passphrase}),
+  });
+  if (r.status === 401) { status.style.color = "#e06c6c"; status.textContent = "Wrong passphrase."; return; }
+  if (!r.ok) { status.style.color = "#e06c6c"; status.textContent = "Download failed."; return; }
+  const blob = await r.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url; a.download = "contacc-private-key.pem"; a.click();
+  URL.revokeObjectURL(url);
+  document.getElementById("privkey-passphrase").value = "";
+  status.style.color = "#4caf50"; status.textContent = "Downloaded.";
+  setTimeout(() => { status.textContent = ""; }, 3000);
 }
 
 async function saveProfileName() {
