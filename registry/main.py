@@ -34,7 +34,7 @@ MAX_TTL = 86400       # 24 hours
 MIN_TTL = 300         # 5 minutes
 TIMESTAMP_TOLERANCE = 300  # ±5 min replay window
 
-USERNAME_RE = re.compile(r'^[a-zA-Z0-9_-]{1,32}$')
+USERNAME_RE = re.compile(r'^[a-z_][a-z0-9_]{0,31}$')
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -188,7 +188,7 @@ def create_app(db_path: str) -> FastAPI:
     let _profileUrl = null;
 
     async function lookup() {
-      const handle = document.getElementById("handle").value.trim();
+      const handle = document.getElementById("handle").value.trim().toLowerCase();
       const err = document.getElementById("err");
       const card = document.getElementById("profile-card");
       err.textContent = "";
@@ -233,6 +233,7 @@ def create_app(db_path: str) -> FastAPI:
 
     @app.get("/go/{username}")
     def go(username: str):
+        username = username.lower()
         row = con.execute(
             "SELECT server_url FROM handles WHERE username = ?", (username,)
         ).fetchone()
@@ -248,6 +249,7 @@ def create_app(db_path: str) -> FastAPI:
 
     @app.get("/lookup/{username}")
     def lookup(username: str):
+        username = username.lower()
         row = con.execute(
             "SELECT server_url, public_key, ttl, updated_at, display_name, photo_url "
             "FROM handles WHERE username = ?", (username,)
@@ -276,9 +278,10 @@ def create_app(db_path: str) -> FastAPI:
 
     @app.post("/register/{username}", status_code=201)
     def register(username: str, body: RegisterBody):
+        username = username.lower()
         if not USERNAME_RE.match(username):
             raise HTTPException(status_code=400,
-                                detail="Username must be 1–32 chars: letters, digits, _ or -")
+                                detail="Handle must start with a letter or _, followed by letters, digits, or _ (max 32 chars)")
         _check_timestamp(body.timestamp)
         ttl = _clamp_ttl(body.ttl)
         msg = f"contacc:register:{username}:{body.server_url}:{body.timestamp}"
@@ -307,6 +310,7 @@ def create_app(db_path: str) -> FastAPI:
 
     @app.put("/update/{username}")
     def update(username: str, body: UpdateBody):
+        username = username.lower()
         _check_timestamp(body.timestamp)
         row = con.execute(
             "SELECT public_key FROM handles WHERE username = ?", (username,)

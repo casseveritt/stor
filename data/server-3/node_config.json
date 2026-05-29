@@ -1,0 +1,14 @@
+{
+  "node_address": "https://starkville.hopto.org:8445",
+  "store_path": "/data",
+  "argon2_salt": "3d5415949e6161b8ed58af8d774131ad",
+  "argon2_time_cost": 3,
+  "argon2_memory_cost": 65536,
+  "argon2_parallelism": 4,
+  "encrypted_private_key": "stMJsqMR0pRlj/40AaWNY+1aCUtAQ4GLYNAPn2bDfuGz7NEqRJJcAezW4FnD7I5DajqRWpAYuq4xAy/G",
+  "watermark_enabled": false,
+  "sso_owner_identity": "google:lucas.everitt@gmail.com",
+  "identity_proxy_url": "https://starkville.hopto.org:8421",
+  "registry_handle": "lucas",
+  "internal_token": "2aihAyuiYcGtjla1lKb0v2VFC6CMVf18EptYLja-wq0"
+}
