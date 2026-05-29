@@ -17,7 +17,7 @@
     header { background: #1a1a1a; padding: 0.6rem 1rem; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #2a2a2a; position: sticky; top: 0; z-index: 20; gap: 0.5rem; }
     .header-left  { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
     .header-right { display: flex; align-items: center; gap: 0.5rem; flex-shrink: 0; }
-    .post-author { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; cursor: default; }
+    .post-author { display: flex; align-items: center; gap: 0.4rem; margin-bottom: 0.35rem; cursor: default; justify-content: space-between; }
     .post-author-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
     .post-author-initials { width: 20px; height: 20px; border-radius: 50%; background: #2a4a7a; display: flex; align-items: center; justify-content: center; font-size: 0.6rem; color: #aac8ff; flex-shrink: 0; }
     .post-author-name { font-size: 0.8rem; color: #888; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -102,7 +102,7 @@
     .tag-chip.active { background: #1e2d4a; color: #6aa3f5; }
 
     /* ── comments ── */
-    .comments-toggle { display: flex; align-items: center; gap: 0.35rem; padding: 0.45rem 0 0; margin-top: 0.5rem; border-top: 1px solid #252525; font-size: 0.8rem; color: #666; cursor: pointer; user-select: none; }
+    .comments-toggle { display: flex; align-items: center; gap: 0.35rem; padding: 0.45rem 0 0; margin-top: 0.5rem; border-top: 1px solid #252525; font-size: 0.8rem; color: #666; cursor: pointer; user-select: none; justify-content: space-between; }
     .comments-toggle:hover { color: #999; }
     .comments-toggle-arrow { font-size: 0.65rem; transition: transform 0.15s; }
     .comments-panel { padding-top: 0.75rem; }
@@ -1179,6 +1179,13 @@ function makePostCard(post, idx) {
   author.className = "post-author";
   author.dataset.server = post._server_url;
   _renderAuthorInto(author, post._server_url);
+  const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleDateString() : "";
+  if (dateFmt) {
+    const dateEl = document.createElement("span");
+    dateEl.className = "post-date";
+    dateEl.textContent = dateFmt;
+    author.appendChild(dateEl);
+  }
   div.appendChild(author);
 
   const bodyText = (post.body || "").replace(/\[asset:[0-9a-f-]+\]/g, "").trim();
@@ -1222,17 +1229,18 @@ function makePostCard(post, idx) {
   const tagHtml = (post.tags || []).map(t =>
     '<span class="tag-chip' + (activeTags.has(t) ? " active" : "") + '">' + esc(t) + '</span>'
   ).join("");
-  const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleDateString() : "";
-  const visIcon = {private: "🔒", contacts: "👥", authenticated: "🔑", public: "🌐"}[post.visibility] || "";
-  const commentLock = post.visibility === "public" && post.comment_access === "contacts" ? "💬" : "";
-  const visHtml = visIcon ? '<span title="' + esc(post.visibility || "") + (commentLock ? "; comments: contacts" : "") + '" style="font-size:0.82rem;opacity:0.7">' + visIcon + commentLock + '</span>' : '';
   let ownerHtml = "";
   if (IS_OWNER && post._server_url === CFG.own_server) {
     ownerHtml = '<button class="btn btn-muted btn-sm" style="margin-left:auto" onclick="openEdit(' + idx + ')">Edit</button>'
       + '<button class="btn btn-sm" style="background:#5a1f1f;color:#e06c6c" onclick="confirmDelete(' + idx + ')">Delete</button>';
   }
-  foot.innerHTML = tagHtml + visHtml + (ownerHtml || '<span style="margin-left:auto"></span>') + '<span class="post-date">' + dateFmt + '</span>';
-  div.appendChild(foot);
+  if (tagHtml || ownerHtml) {
+    foot.innerHTML = tagHtml + (ownerHtml || '<span style="margin-left:auto"></span>');
+    div.appendChild(foot);
+  }
+
+  const visIcon = {private: "🔒", contacts: "👥", authenticated: "🔑", public: "🌐"}[post.visibility] || "";
+  const commentLock = post.visibility === "public" && post.comment_access === "contacts" ? "💬" : "";
 
   const rbarWrap = document.createElement('div');
   rbarWrap.innerHTML = reactionBarHtml(post.reactions || [], post.id, post._server_url, '');
@@ -1243,8 +1251,9 @@ function makePostCard(post, idx) {
   const toggle = document.createElement("div");
   toggle.className = "comments-toggle";
   toggle.dataset.postId = post.id;
+  const visHtml = visIcon ? '<span title="' + esc(post.visibility || "") + (commentLock ? "; comments: contacts" : "") + '" style="font-size:0.82rem;opacity:0.7;pointer-events:none">' + visIcon + commentLock + '</span>' : '';
   toggle.innerHTML = '<span class="comments-toggle-arrow">▶</span><span class="comments-toggle-label">'
-    + count + ' comment' + (count !== 1 ? 's' : '') + '</span>';
+    + count + ' comment' + (count !== 1 ? 's' : '') + '</span>' + visHtml;
   toggle.onclick = () => _toggleComments(post, div);
   div.appendChild(toggle);
 
