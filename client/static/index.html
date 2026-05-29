@@ -74,7 +74,7 @@
     @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
     .post-thumb.loading { animation: pulse 1.4s ease-in-out infinite; }
     .post-foot { margin-top: 0.6rem; display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; font-size: 0.76rem; color: #555; }
-    .post-date { flex-shrink: 0; }
+    .post-date { flex-shrink: 0; font-size: 0.72rem; color: #444; }
 
     /* ── overlays ── */
     .overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.88); display: flex; align-items: center; justify-content: center; z-index: 50; }
@@ -1200,8 +1200,8 @@ function makePostCard(post, idx) {
   const rightGroup = document.createElement("span");
   rightGroup.style.cssText = "display:inline-flex;align-items:center;gap:0.35rem;flex-shrink:0";
   rightGroup.className = "post-author-right";
-  rightGroup.innerHTML = _levelIconHtml(post.visibility, post.visibility)
-    + (dateFmt ? `<span class="post-date">${dateFmt}</span>` : '');
+  rightGroup.innerHTML = (dateFmt ? `<span class="post-date">${dateFmt}</span>` : '')
+    + _levelIconHtml(post.visibility, post.visibility);
   author.appendChild(rightGroup);
   div.appendChild(author);
 
