@@ -98,7 +98,15 @@ Allow users to react to posts and comments with emoji (👍 ❤️ 😂 etc.). R
 server-side, attributed to the reactor's identity (owner or contact node). Display as counts
 grouped by emoji below each post/comment.
 
-**7. Plaintext metadata hardening**
+**7. Chat / direct messages**
+Real-time or near-real-time 1:1 and small-group messaging between contacts. Messages are
+encrypted end-to-end (sender encrypts to recipient's public key), stored on the sender's
+node, and pushed or polled by the recipient's node. Key open questions: push vs. poll
+delivery, read receipts, group key management, and how chat threads relate to the existing
+post/comment data model. Likely a distinct `messages` table and a separate UI panel rather
+than shoehorning into posts.
+
+**8. Plaintext metadata hardening**
 Some metadata (post timestamps, asset filenames) is stored or transmitted in plaintext.
 Assess what leaks and whether it matters for the threat model.
 
