@@ -17,6 +17,7 @@ Server OAuth flow:
   3. callback.html POSTs server token to /client/session, stores client token
 """
 import base64
+import hashlib
 import json
 import logging
 import os
