@@ -63,6 +63,7 @@
 
     /* ── post card ── */
     .post-card { background: #1e1e1e; border-radius: 8px; padding: 1rem; transition: background 0.1s; border: 1px solid #2a2a2a; }
+    .post-stale { opacity: 0.75; }
     .post-cached { filter: saturate(0.25) brightness(0.75); position: relative; }
     .post-cached::after { content: "cached"; position: absolute; top: 0.4rem; right: 0.5rem; font-size: 0.65rem; color: #666; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 3px; padding: 1px 5px; pointer-events: none; letter-spacing: 0.03em; }
     .post-cached .reaction-btn, .post-cached .reaction-add, .post-cached .comment-form, .post-cached .emoji-picker { pointer-events: none; opacity: 0.4; }
@@ -761,6 +762,8 @@ async function fetchServerHandles() {
         const d = await r.json();
         if (d.handle) { serverHandles[s.url] = d.handle; renderServerList(); }
         if (d.public_key) serverPublicKeys[d.public_key] = s.url;
+        const activity7d = (d.posts_7d || 0) + (d.comments_7d || 0);
+        _serverPollIntervals[s.url] = _computePollInterval(activity7d);
       }
     } catch {}
   }
@@ -1020,13 +1023,45 @@ function scheduleSearch(val) {
 async function loadFeed() {
   showView("feed");
   renderServerList();
-  const ok = await resetFeed(true);
-  if (!ok) { showView("login"); return false; }
+
+  // Render from cache immediately so the page is populated before any network calls.
+  if (allPosts.length === 0 && !activeServer && !currentSearch && activeTags.size === 0) {
+    const cached = _loadFeedCache();
+    if (cached?.posts?.length) {
+      const timeline = document.getElementById("timeline");
+      for (const post of cached.posts) {
+        post._is_stale = true;
+        allPosts.push(post);
+        const card = makePostCard(post, allPosts.length - 1);
+        card.classList.add('post-stale');
+        timeline.appendChild(card);
+      }
+      const n = allPosts.length;
+      document.getElementById("feed-status").textContent = n + "+ posts (refreshing…)";
+      document.getElementById("empty-msg").hidden = true;
+    }
+  }
+
+  // Auth check — redirect to login if unauthenticated.
+  const authCheck = await apiFetch("/api/feed?limit=1");
+  if (authCheck.status === 401) { showView("login"); return false; }
+
   loadIdentity();
   loadTagSidebar();
-  fetchServerHandles();
+  fetchServerHandles().then(() => _startBgFetch());
   fetchServerProfiles();
-  _startFeedPoll();
+
+  // Fetch fresh data from all servers immediately; results update cards in place.
+  const servers = activeServer ? [activeServer] : [CFG.own_server, ...(CFG.contacts || []).map(c => c.url)];
+  for (const url of servers) _serverLastFetched[url] = 0;  // mark all due now
+  _runBgFetch();  // fire but don't await — updates arrive and patch the DOM
+
+  // If we had no cache, do a blocking load.
+  if (allPosts.filter(p => !p._is_stale).length === 0) {
+    const ok = await resetFeed(true);
+    if (!ok) { showView("login"); return false; }
+  }
+
   return true;
 }
 
@@ -1064,6 +1099,9 @@ async function loadMore(allowLoginRedirect = false) {
   for (const post of data.posts) {
     allPosts.push(post);
     timeline.appendChild(makePostCard(post, allPosts.length - 1));
+  }
+  if (!nextCursor && !currentSearch && activeTags.size === 0 && !activeServer) {
+    _saveFeedCache(allPosts);
   }
   nextCursor = data.next_cursor || null;
   document.getElementById("load-more-btn").hidden = !nextCursor;
@@ -1329,11 +1367,23 @@ function renderPostBody(post) {
 }
 
 // ── polling ────────────────────────────────────────────────────────────────
-const POLL_DETAIL_MS = 20_000;
-const POLL_FEED_MS   = 60_000;
-let _feedPollTimer   = null;
-let _detailPollTimer = null;
-const _openPanels    = new Map(); // postId → post
+const POLL_DETAIL_MS    = 20_000;
+const BG_CHECK_MS       = 60_000;   // how often the scheduler wakes to check due servers
+const DEFAULT_POLL_MS   = 30 * 60_000;
+const MIN_POLL_MS       =  5 * 60_000;
+const MAX_POLL_MS       = 60 * 60_000;
+
+let _detailPollTimer  = null;
+let _bgFetchTimer     = null;
+let _serverLastFetched  = {};     // url → ms timestamp of last successful fetch
+let _serverPollIntervals = {};    // url → ms (computed from node activity)
+const _openPanels = new Map();    // postId → post
+
+function _computePollInterval(activity7d) {
+  if (!activity7d) return MAX_POLL_MS;
+  const perDay = activity7d / 7;
+  return Math.max(MIN_POLL_MS, Math.min(MAX_POLL_MS, Math.round(30 * 60_000 / perDay)));
+}
 
 function _startDetailPoll() {
   clearInterval(_detailPollTimer);
@@ -1343,9 +1393,18 @@ function _startDetailPoll() {
 function _stopDetailPoll() {
   clearInterval(_detailPollTimer); _detailPollTimer = null;
 }
-function _startFeedPoll() {
-  clearInterval(_feedPollTimer);
-  _feedPollTimer = setInterval(_pollFeed, POLL_FEED_MS);
+function _startBgFetch() {
+  clearInterval(_bgFetchTimer);
+  _bgFetchTimer = setInterval(_runBgFetch, BG_CHECK_MS);
+}
+
+// ── localStorage feed cache ────────────────────────────────────────────────
+function _cacheKey() { return 'feedv4:' + (CFG?.own_server || ''); }
+function _saveFeedCache(posts) {
+  try { localStorage.setItem(_cacheKey(), JSON.stringify({ ts: Date.now(), posts: posts.slice(0, 100) })); } catch(e) {}
+}
+function _loadFeedCache() {
+  try { return JSON.parse(localStorage.getItem(_cacheKey()) || 'null'); } catch(e) { return null; }
 }
 
 async function _pollOpenPanels() {
@@ -1368,45 +1427,23 @@ async function _pollOpenPanels() {
   }
 }
 
-async function _pollFeed() {
-  if (document.hidden || allPosts.length === 0) return;
+// Apply a fresh batch of posts from one server to the visible feed.
+function _applyFreshPosts(freshPosts) {
   const newestTs = allPosts[0]?.created_at || 0;
-  const servers = activeServer ? [activeServer] : [CFG.own_server, ...(CFG.contacts || []).map(c => c.url)];
   let newCount = 0;
-  const updatedPosts = new Map(); // postId → updated post data
+  const byId = new Map(freshPosts.map(p => [p.id, p]));
 
-  await Promise.all(servers.map(async url => {
-    try {
-      const params = url !== CFG.own_server ? '?server=' + encodeURIComponent(url) : '';
-      const r = await apiFetch('/api/feed?limit=20' + (params ? '&' + params.slice(1) : ''));
-      if (!r.ok) { serverOnline[url] = false; return; }
-      const d = await r.json();
-      if (d.server_status) {
-        for (const [surl, status] of Object.entries(d.server_status)) {
-          serverOnline[surl] = status === "online";
-        }
-      }
-      for (const post of (d.posts || [])) {
-        if (post.created_at > newestTs) newCount++;
-        updatedPosts.set(post.id, post);
-      }
-    } catch { serverOnline[url] = false; }
-  }));
-
-  // Update comment counts and reactions on all visible cards
   document.querySelectorAll('.post-card[data-post-id]').forEach(card => {
-    const updated = updatedPosts.get(card.dataset.postId);
+    const updated = byId.get(card.dataset.postId);
     if (!updated) return;
     const post = allPosts.find(p => p.id === updated.id);
-    if (post) { post.comment_count = updated.comment_count; post.reactions = updated.reactions; }
-    // update toggle label when panel is closed
+    if (post) { post.comment_count = updated.comment_count; post.reactions = updated.reactions; post.body = updated.body; }
     const panel = card.querySelector('.comments-panel');
     const toggle = card.querySelector('.comments-toggle');
     if (panel?.hidden && toggle) {
       const count = updated.comment_count || 0;
       toggle.querySelector('.comments-toggle-label').textContent = count + ' comment' + (count !== 1 ? 's' : '');
     }
-    // update post-level reaction bar
     if (updated.reactions) {
       const serverUrl = post?._server_url || CFG.own_server;
       card.querySelectorAll(`.reaction-bar[data-post-id="${updated.id}"][data-comment-id=""]`).forEach(bar => {
@@ -1415,18 +1452,60 @@ async function _pollFeed() {
         bar.replaceWith(tmp.firstChild);
       });
     }
+    // drop the stale marker now that fresh data has arrived
+    card.classList.remove('post-stale');
   });
 
-  // Re-evaluate cached state for all visible cards based on updated serverOnline
   document.querySelectorAll('.post-card[data-post-id]').forEach(card => {
     const post = allPosts.find(p => p.id === card.dataset.postId);
-    if (!post) return;
-    const shouldBeCached = _isPostCached(post);
-    card.classList.toggle('post-cached', shouldBeCached);
+    if (post) card.classList.toggle('post-cached', _isPostCached(post));
   });
 
-  const banner = document.getElementById('new-posts-banner');
-  if (newCount > 0) { banner.textContent = 'New posts available — click to refresh'; banner.hidden = false; }
+  for (const p of freshPosts) { if (p.created_at > newestTs) newCount++; }
+  if (newCount > 0) {
+    const banner = document.getElementById('new-posts-banner');
+    banner.textContent = 'New posts available — click to refresh';
+    banner.hidden = false;
+  }
+}
+
+// Merge fresh posts from one server into the global cache on disk.
+function _mergeCachePosts(serverUrl, freshPosts) {
+  const cached = _loadFeedCache();
+  const existing = (cached?.posts || []).filter(p => p._server_url !== serverUrl);
+  const merged = [...freshPosts, ...existing]
+    .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))
+    .slice(0, 100);
+  _saveFeedCache(merged);
+}
+
+// Fetch one server, update cache, update visible feed if on feed view.
+async function _fetchOneServer(url) {
+  try {
+    const params = url !== CFG.own_server ? '?server=' + encodeURIComponent(url) : '';
+    const r = await apiFetch('/api/feed?limit=50' + (params ? '&' + params.slice(1) : ''));
+    if (!r.ok) { serverOnline[url] = false; renderServerList(); return; }
+    const d = await r.json();
+    serverOnline[url] = true;
+    if (d.server_status) {
+      for (const [u, st] of Object.entries(d.server_status)) serverOnline[u] = st === 'online';
+    }
+    const posts = d.posts || [];
+    _serverLastFetched[url] = Date.now();
+    _mergeCachePosts(url, posts);
+    if (!document.getElementById('feed-view').hidden) _applyFreshPosts(posts);
+    renderServerList();
+  } catch { serverOnline[url] = false; renderServerList(); }
+}
+
+// Background scheduler: wakes every minute, fetches servers that are due.
+async function _runBgFetch() {
+  const now = Date.now();
+  const servers = activeServer ? [activeServer] : [CFG.own_server, ...(CFG.contacts || []).map(c => c.url)];
+  await Promise.all(servers.map(async url => {
+    const interval = _serverPollIntervals[url] || DEFAULT_POLL_MS;
+    if (now - (_serverLastFetched[url] || 0) >= interval) await _fetchOneServer(url);
+  }));
 }
 
 function refreshFeed() {

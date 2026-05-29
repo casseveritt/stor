@@ -29,18 +29,28 @@ def health():
 
 @router.get("/node")
 def node_metadata(request: Request):
+    import time as _time
     db = request.app.state.db
     public_posts = db.execute("SELECT COUNT(*) FROM posts WHERE is_public = 1 AND deleted = 0").fetchone()[0]
     public_assets = db.execute("SELECT COUNT(*) FROM assets WHERE is_public = 1 AND deleted = 0").fetchone()[0]
     profile_row = db.execute(
         "SELECT display_name, photo_content_hash FROM profile WHERE id = 1"
     ).fetchone()
+    week_ago = _time.time() - 7 * 86400
+    posts_7d = db.execute("SELECT COUNT(*) FROM posts WHERE created_at > ? AND deleted = 0", (week_ago,)).fetchone()[0]
+    comments_7d = db.execute("SELECT COUNT(*) FROM comments WHERE created_at > ? AND deleted = 0", (week_ago,)).fetchone()[0]
+    last_post = db.execute("SELECT MAX(created_at) FROM posts WHERE deleted = 0").fetchone()[0] or 0
+    last_comment = db.execute("SELECT MAX(created_at) FROM comments WHERE deleted = 0").fetchone()[0] or 0
+    last_reaction = db.execute("SELECT MAX(created_at) FROM reactions").fetchone()[0] or 0
     result = {
         "node": _node_address,
         "public_key": _public_key_b64,
         "watermark_policy": "enabled" if _watermark_enabled else "disabled",
         "public_posts": public_posts,
         "public_assets": public_assets,
+        "posts_7d": posts_7d,
+        "comments_7d": comments_7d,
+        "last_activity_at": max(last_post, last_comment, last_reaction),
     }
     if _registry_handle:
         result["handle"] = _registry_handle
