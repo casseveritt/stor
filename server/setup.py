@@ -3,6 +3,7 @@ import base64
 import io
 import json
 import os
+import re
 import secrets
 import zipfile
 from pathlib import Path
@@ -65,9 +66,20 @@ def setup_status(request: Request):
     return {"state": _state(request.app)}
 
 
+_HANDLE_RE = re.compile(r'^[a-z_][a-z0-9_]*$')
+
+
+def _validate_handle_format(handle: str) -> None:
+    h = handle.lower()
+    if not _HANDLE_RE.match(h):
+        raise HTTPException(400, "Handle must start with a letter or _, followed by letters, digits, or _")
+
+
 @router.get("/check-handle")
 def check_handle(handle: str, request: Request):
     """Return 200 if handle is available, 400 if taken, 502 if registry unreachable."""
+    handle = handle.lower()
+    _validate_handle_format(handle)
     identity_proxy_url = os.environ.get("CONTACC_IDENTITY_PROXY_URL", "https://starkville.hopto.org:8421")
     registry_url = os.environ.get("CONTACC_REGISTRY_URL", identity_proxy_url)
     _check_handle_available(handle, registry_url)
@@ -107,6 +119,8 @@ def setup_new(body: NewBody, request: Request):
         raise HTTPException(400, "Owner identity must be in the form google:you@example.com")
     if not body.handle:
         raise HTTPException(400, "Handle is required")
+    body.handle = body.handle.lower()
+    _validate_handle_format(body.handle)
 
     config_path = Path(app.state.config_path)
     node_address = app.state.node_address or ""

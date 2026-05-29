@@ -1565,11 +1565,18 @@ function showSetupTab(tab) {
 }
 
 function checkHandleAvailability() {
-  const handle = document.getElementById("setup-handle").value.trim();
+  const input = document.getElementById("setup-handle");
+  input.value = input.value.toLowerCase();
+  const handle = input.value.trim();
   const status = document.getElementById("setup-handle-status");
   _handleAvailable = false;
   clearTimeout(_handleCheckTimer);
   if (!handle) { status.textContent = ""; return; }
+  if (!/^[a-z_][a-z0-9_]*$/.test(handle)) {
+    status.style.color = "#e06c6c";
+    status.textContent = "Handle must start with a letter or _, followed by letters, digits, or _.";
+    return;
+  }
   status.style.color = "#888";
   status.textContent = "Checking…";
   _handleCheckTimer = setTimeout(async () => {
@@ -1603,7 +1610,7 @@ function _badSetupToken(msg) {
 
 async function doSetupNew() {
   const email = document.getElementById("setup-owner-email").value.trim();
-  const handle = document.getElementById("setup-handle").value.trim();
+  const handle = document.getElementById("setup-handle").value.trim().toLowerCase();
   const pass = document.getElementById("setup-passphrase").value;
   const confirm = document.getElementById("setup-passphrase-confirm").value;
   const err = document.getElementById("setup-new-error");
