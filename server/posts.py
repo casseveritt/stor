@@ -523,6 +523,53 @@ def post_comment(post_id: str, payload: _CommentBody, request: Request, identity
     }
 
 
+class _EditCommentBody(BaseModel):
+    body: str
+
+
+@router.patch("/posts/{post_id}/comments/{comment_id}")
+def edit_comment(post_id: str, comment_id: str, payload: _EditCommentBody, request: Request, identity: OptionalAuthDep):
+    db = request.app.state.db
+    row = db.execute(
+        "SELECT author_identity, deleted FROM comments WHERE id = ? AND post_id = ?",
+        (comment_id, post_id),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    author_identity, deleted = row
+    if deleted:
+        raise HTTPException(status_code=410, detail="Comment deleted")
+    if not identity.is_owner:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if author_identity not in (None, ""):
+        raise HTTPException(status_code=403, detail="Can only edit your own comments")
+    content_hash = hashlib.sha256(payload.body.encode()).hexdigest()
+    db.execute(
+        "UPDATE comments SET body = ?, content_hash = ? WHERE id = ?",
+        (payload.body, content_hash, comment_id),
+    )
+    db.commit()
+    return {"id": comment_id, "body": payload.body, "content_hash": content_hash}
+
+
+@router.delete("/posts/{post_id}/comments/{comment_id}", status_code=204)
+def delete_comment(post_id: str, comment_id: str, request: Request, identity: OptionalAuthDep):
+    db = request.app.state.db
+    row = db.execute(
+        "SELECT author_identity FROM comments WHERE id = ? AND post_id = ? AND deleted = 0",
+        (comment_id, post_id),
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Comment not found")
+    author_identity = row[0]
+    if not identity.is_owner:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if author_identity not in (None, ""):
+        raise HTTPException(status_code=403, detail="Can only delete your own comments")
+    db.execute("UPDATE comments SET deleted = 1 WHERE id = ?", (comment_id,))
+    db.commit()
+
+
 # ── post ACL ──────────────────────────────────────────────────────────────────
 
 @router.get("/posts/{post_id}/acl")

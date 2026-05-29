@@ -1491,10 +1491,14 @@ function _renderCommentsInto(post, comments, panel) {
       : `<span class="post-author-initials">${esc((au.name[0]||'?').toUpperCase())}</span>`;
     const identityAttr = c.author_identity ? ` data-identity="${esc(c.author_identity)}" data-server="${esc(post._server_url || '')}"` : '';
     const dateFmt = fmtDate(c.created_at);
-    return '<div class="comment">'
+    const isOwnComment = IS_OWNER && post._server_url === CFG.own_server && (!c.author_identity || c.author_identity === '');
+    const menuBtn = `<span style="position:relative;display:inline-flex;align-items:center"><button class="post-menu-btn" title="More options" onclick="openCommentMenu(event,'${esc(post.id)}','${esc(post._server_url)}','${esc(c.id)}',${isOwnComment})">…</button></span>`;
+    return '<div class="comment" data-comment-id="' + esc(c.id) + '">'
       + `<div class="comment-author"${identityAttr}>`
       + `<span style="display:inline-flex;align-items:center;gap:0.4rem">` + avatar + `<span class="comment-author-name">${esc(au.name)}</span></span>`
+      + `<span style="display:inline-flex;align-items:center;gap:0.35rem;flex-shrink:0">`
       + (dateFmt ? `<span class="post-date">${dateFmt}</span>` : '')
+      + menuBtn + `</span>`
       + `</div>`
       + '<div class="comment-body">' + esc(c.body) + '</div>'
       + reactionBarHtml(c.reactions || [], post.id, post._server_url, c.id)
@@ -1706,6 +1710,80 @@ async function hidePost(postId, idx) {
   if (_openPanels.size === 0) _stopDetailPoll();
   document.getElementById("empty-msg").hidden = allPosts.length > 0;
   loadTagSidebar();
+}
+
+// ── comment context menu ───────────────────────────────────────────────────
+function openCommentMenu(e, postId, serverUrl, commentId, isOwn) {
+  e.stopPropagation();
+  closeAllPostMenus();
+  const btn = e.currentTarget;
+  const wrap = btn.parentElement;
+  const popup = document.createElement('div');
+  popup.className = 'post-menu-popup';
+  if (isOwn) {
+    popup.innerHTML =
+      `<button onclick="closeAllPostMenus();editCommentInline('${esc(postId)}','${esc(serverUrl)}','${esc(commentId)}')">Edit</button>`
+      + `<button class="danger" onclick="closeAllPostMenus();deleteComment('${esc(postId)}','${esc(serverUrl)}','${esc(commentId)}')">Delete</button>`;
+  }
+  wrap.appendChild(popup);
+  const dismiss = ev => { if (!popup.contains(ev.target) && ev.target !== btn) { closeAllPostMenus(); document.removeEventListener('click', dismiss, true); } };
+  setTimeout(() => document.addEventListener('click', dismiss, true), 0);
+}
+
+function editCommentInline(postId, serverUrl, commentId) {
+  const commentEl = document.querySelector('.comment[data-comment-id="' + commentId + '"]');
+  if (!commentEl) return;
+  const bodyEl = commentEl.querySelector('.comment-body');
+  if (!bodyEl) return;
+  const original = bodyEl.textContent;
+  const ta = document.createElement('textarea');
+  ta.value = original;
+  ta.style.cssText = 'width:100%;background:#222;color:#e0e0e0;border:1px solid #4285f4;border-radius:4px;padding:0.4rem;font-size:0.88rem;resize:vertical;min-height:60px;outline:none;font-family:inherit;box-sizing:border-box';
+  const actions = document.createElement('div');
+  actions.style.cssText = 'display:flex;gap:0.5rem;justify-content:flex-end;margin-top:0.3rem';
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn btn-primary btn-sm';
+  saveBtn.textContent = 'Save';
+  const cancelBtn = document.createElement('button');
+  cancelBtn.className = 'btn btn-muted btn-sm';
+  cancelBtn.textContent = 'Cancel';
+  actions.appendChild(cancelBtn);
+  actions.appendChild(saveBtn);
+  bodyEl.replaceWith(ta);
+  ta.after(actions);
+  ta.focus();
+  cancelBtn.onclick = () => { actions.remove(); ta.replaceWith(bodyEl); };
+  saveBtn.onclick = async () => {
+    const newBody = ta.value.trim();
+    if (!newBody) return;
+    saveBtn.disabled = true;
+    const r = await apiFetch('/api/posts/' + postId + '/comments/' + commentId, {
+      method: 'PATCH', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({body: newBody}),
+    });
+    if (r.ok) {
+      bodyEl.textContent = newBody;
+      actions.remove();
+      ta.replaceWith(bodyEl);
+    } else {
+      saveBtn.disabled = false;
+    }
+  };
+}
+
+async function deleteComment(postId, serverUrl, commentId) {
+  if (!confirm('Delete this comment?')) return;
+  const r = await apiFetch('/api/posts/' + postId + '/comments/' + commentId, {method: 'DELETE'});
+  if (r.ok || r.status === 204) {
+    const commentEl = document.querySelector('.comment[data-comment-id="' + commentId + '"]');
+    if (commentEl) commentEl.remove();
+    const post = allPosts.find(p => p.id === postId);
+    if (post) {
+      post.comment_count = Math.max(0, (post.comment_count || 1) - 1);
+      const toggle = document.querySelector('.comments-toggle[data-post-id="' + postId + '"] .comments-toggle-label');
+      if (toggle) { const n = post.comment_count; toggle.textContent = n + ' comment' + (n !== 1 ? 's' : ''); }
+    }
+  }
 }
 
 // ── edit / delete ──────────────────────────────────────────────────────────
