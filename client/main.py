@@ -464,9 +464,10 @@ def create_app(config_path: str | Path) -> FastAPI:
         if q: params_base.append(("q", q))
         for t in tags: params_base.append(("tags", t))
 
-        async def _fetch_one(url: str):
+        async def _fetch_one(url: str) -> tuple[list, bool]:
+            """Returns (posts, server_was_live)."""
             if not _token(url) and url == config.own_server:
-                return []
+                return [], True
             contact = next((c for c in config.contacts if c.url == url), None)
             contact_key = (contact.public_key if contact else None) or hashlib.sha256(url.encode()).hexdigest()
             is_contact_node = url != config.own_server
@@ -494,32 +495,35 @@ def create_app(config_path: str | Path) -> FastAPI:
 
             result = await _try_fetch(url)
             if result is not None:
-                return result
+                return result, True
             # Fetch failed — try refreshing URL from registry
             if contact and contact.public_key:
                 new_url = await _refresh_url_for_pubkey(contact.public_key)
                 if new_url and new_url != url:
                     result = await _try_fetch(new_url)
                     if result is not None:
-                        return result
+                        return result, True
             # Fall back to cached posts (serve expired as last resort)
             if is_contact_node:
                 cached = _read_cached_posts(contact_key) or _read_cached_posts(contact_key, allow_expired=True)
                 if cached:
                     log.info("Serving %d cached posts for %s", len(cached), url)
-                    return cached
-            return []
+                    for p in cached:
+                        p["_is_cached"] = True
+                    return cached, False
+            return [], not is_contact_node  # own server empty = live; contact empty = unknown, treat as offline
 
         import asyncio
-        results = await asyncio.gather(*[_fetch_one(url) for url in servers])
+        raw_results = await asyncio.gather(*[_fetch_one(url) for url in servers])
+        server_status = {url: ("online" if live else "offline") for url, (_, live) in zip(servers, raw_results)}
         merged = sorted(
-            [p for batch in results for p in batch],
+            [p for posts, _ in raw_results for p in posts],
             key=lambda p: p.get("created_at", 0),
             reverse=True,
         )[:limit]
 
         next_cursor = str(merged[-1]["created_at"]) if len(merged) == limit else None
-        return {"posts": merged, "next_cursor": next_cursor}
+        return {"posts": merged, "server_status": server_status, "next_cursor": next_cursor}
 
     # ── posts ─────────────────────────────────────────────────────────────
 

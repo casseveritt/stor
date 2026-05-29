@@ -63,6 +63,9 @@
 
     /* ── post card ── */
     .post-card { background: #1e1e1e; border-radius: 8px; padding: 1rem; transition: background 0.1s; border: 1px solid #2a2a2a; }
+    .post-cached { filter: saturate(0.25) brightness(0.75); position: relative; }
+    .post-cached::after { content: "cached"; position: absolute; top: 0.4rem; right: 0.5rem; font-size: 0.65rem; color: #666; background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 3px; padding: 1px 5px; pointer-events: none; letter-spacing: 0.03em; }
+    .post-cached .reaction-btn, .post-cached .reaction-add, .post-cached .comment-form, .post-cached .emoji-picker { pointer-events: none; opacity: 0.4; }
     .post-source { font-size: 0.72rem; color: #555; margin-bottom: 0.4rem; }
     .post-body { font-size: 0.92rem; color: #ccc; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
     .post-thumbs { display: flex; gap: 4px; margin-top: 0.6rem; overflow-x: auto; }
@@ -474,6 +477,7 @@ let nextCursor = null, currentSearch = null, searchTimer = null;
 let pendingFiles = [];
 let IS_OWNER = false;
 let serverStatuses = {};
+let serverOnline = {};  // server_url → boolean, from server_status in feed response
 let serverHandles = {};
 let serverProfiles = {};
 let serverPublicKeys = {}; // base64 pubkey → server url
@@ -1029,6 +1033,11 @@ async function loadMore(allowLoginRedirect = false) {
   const data = await r.json();
   const src = activeServer || CFG.own_server;
   serverStatuses[src] = "ok";
+  if (data.server_status) {
+    for (const [url, status] of Object.entries(data.server_status)) {
+      serverOnline[url] = status === "online";
+    }
+  }
   renderServerList();
 
   const timeline = document.getElementById("timeline");
@@ -1147,9 +1156,13 @@ async function toggleReaction(postId, serverUrl, emoji, commentId, _btn) {
 }
 
 // ── post card ──────────────────────────────────────────────────────────────
+function _isPostCached(post) {
+  return post._is_cached || serverOnline[post._server_url] === false;
+}
+
 function makePostCard(post, idx) {
   const div = document.createElement("div");
-  div.className = "post-card";
+  div.className = "post-card" + (_isPostCached(post) ? " post-cached" : "");
   div.dataset.idx = idx;
   div.dataset.postId = post.id;
 
@@ -1178,8 +1191,11 @@ function makePostCard(post, idx) {
         img.alt = ""; img.loading = "lazy";
         const params = post._server_url !== CFG.own_server
           ? "?server=" + encodeURIComponent(post._server_url) : "";
-        img.src = "/api/assets/" + asset.id + "/thumb" + params + clientTokenParam(!!params);
-        const fullSrc = "/api/assets/" + asset.id + params + clientTokenParam(!!params);
+        const thumbBase = "/api/assets/" + asset.id + "/thumb" + params + clientTokenParam(!!params);
+        const hashQ = asset.content_hash ? (thumbBase.includes('?') ? '&' : '?') + 'hash=' + encodeURIComponent(asset.content_hash) : '';
+        img.src = thumbBase + hashQ;
+        const fullBase = "/api/assets/" + asset.id + params + clientTokenParam(!!params);
+        const fullSrc = fullBase + (asset.content_hash ? (fullBase.includes('?') ? '&' : '?') + 'hash=' + encodeURIComponent(asset.content_hash) : '');
         img.onclick = () => openLightbox(fullSrc);
         strip.appendChild(img);
       } else {
@@ -1317,13 +1333,18 @@ async function _pollFeed() {
     try {
       const params = url !== CFG.own_server ? '?server=' + encodeURIComponent(url) : '';
       const r = await apiFetch('/api/feed?limit=20' + (params ? '&' + params.slice(1) : ''));
-      if (!r.ok) return;
+      if (!r.ok) { serverOnline[url] = false; return; }
       const d = await r.json();
+      if (d.server_status) {
+        for (const [surl, status] of Object.entries(d.server_status)) {
+          serverOnline[surl] = status === "online";
+        }
+      }
       for (const post of (d.posts || [])) {
         if (post.created_at > newestTs) newCount++;
         updatedPosts.set(post.id, post);
       }
-    } catch {}
+    } catch { serverOnline[url] = false; }
   }));
 
   // Update comment counts and reactions on all visible cards
@@ -1348,6 +1369,14 @@ async function _pollFeed() {
         bar.replaceWith(tmp.firstChild);
       });
     }
+  });
+
+  // Re-evaluate cached state for all visible cards based on updated serverOnline
+  document.querySelectorAll('.post-card[data-post-id]').forEach(card => {
+    const post = allPosts.find(p => p.id === card.dataset.postId);
+    if (!post) return;
+    const shouldBeCached = _isPostCached(post);
+    card.classList.toggle('post-cached', shouldBeCached);
   });
 
   const banner = document.getElementById('new-posts-banner');
