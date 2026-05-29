@@ -28,7 +28,7 @@ from typing import Optional
 import httpx
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -67,6 +67,26 @@ def create_app(config_path: str | Path) -> FastAPI:
     app = FastAPI(title="contacc client")
     app.state.config = config
     app.state.config_path = config_path
+
+    @app.on_event("startup")
+    async def _warm_photo_cache():
+        import asyncio
+        asyncio.create_task(_refresh_contact_photos())
+
+    async def _refresh_contact_photos():
+        import hashlib
+        cache_dir = Path("/data/photo_cache")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        for contact in config.contacts:
+            try:
+                async with httpx.AsyncClient() as hc:
+                    r = await hc.get(contact.url + "/profile/photo", timeout=5)
+                if r.is_success:
+                    key = hashlib.sha256(contact.url.encode()).hexdigest()
+                    (cache_dir / key).write_bytes(r.content)
+                    log.info("Cached photo for %s", contact.url)
+            except Exception:
+                pass
 
     # Decrypt private key at startup if we have key material and passphrase
     passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
@@ -167,6 +187,11 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     @api.get("/config")
     def api_config():
+        import hashlib
+        cache_dir = Path("/data/photo_cache")
+        def _has_cached_photo(url: str) -> bool:
+            key = hashlib.sha256(url.encode()).hexdigest()
+            return (cache_dir / key).exists()
         return {
             "own_server": config.own_server,
             "identity_proxy_url": os.environ.get("CONTACC_IDENTITY_PROXY_URL", ""),
@@ -175,6 +200,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                 for url in _all_servers()
             ],
             "contacts": [{"name": c.name, "url": c.url, "handle": c.handle, "public_key": c.public_key} for c in config.contacts],
+            "cached_photos": [c.url for c in config.contacts if _has_cached_photo(c.url)],
         }
 
     # ── auth ──────────────────────────────────────────────────────────────
@@ -558,6 +584,31 @@ def create_app(config_path: str | Path) -> FastAPI:
         return {"ok": True}
 
     app.include_router(api)
+
+    # ── contact photo cache (public — no client auth, contact URLs only) ──────
+
+    @app.get("/api/contacts/photo")
+    async def api_contact_photo(url: str):
+        import hashlib
+        if not any(c.url == url for c in config.contacts):
+            raise HTTPException(status_code=403, detail="Not a known contact")
+        cache_dir = Path("/data/photo_cache")
+        cache_key = hashlib.sha256(url.encode()).hexdigest()
+        cache_file = cache_dir / cache_key
+        try:
+            async with httpx.AsyncClient() as hc:
+                r = await hc.get(url + "/profile/photo", timeout=5)
+            if r.is_success:
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cache_file.write_bytes(r.content)
+                return Response(content=r.content, media_type="image/jpeg",
+                                headers={"Cache-Control": "public, max-age=3600"})
+        except Exception:
+            pass
+        if cache_file.exists():
+            return Response(content=cache_file.read_bytes(), media_type="image/jpeg",
+                            headers={"Cache-Control": "public, max-age=3600"})
+        raise HTTPException(status_code=404, detail="Photo not available")
 
     # ── setup intercepts: capture key material returned by server ─────────────
 

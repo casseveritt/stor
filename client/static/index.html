@@ -711,13 +711,46 @@ async function fetchServerHandles() {
 
 async function fetchServerProfiles() {
   const servers = [CFG.own_server, ...(CFG.contacts || []).map(c => c.url)];
+  // Seed from server (authoritative — knows what's actually on disk) + localStorage
+  const cachedPhotos = new Set([...(CFG.cached_photos || []), ...JSON.parse(localStorage.getItem('cachedContactPhotos') || '[]')]);
+
+  // Pre-seed contacts from local config so names show even when offline;
+  // only set photo_url if we've previously confirmed a cached photo exists.
+  for (const c of (CFG.contacts || [])) {
+    if (!serverProfiles[c.url]) {
+      serverProfiles[c.url] = {
+        display_name: c.name,
+        handle: c.handle,
+        photo_url: cachedPhotos.has(c.url) ? "/api/contacts/photo?url=" + encodeURIComponent(c.url) : null,
+      };
+    }
+  }
+
   await Promise.all(servers.map(async url => {
     try {
       const r = url === CFG.own_server
         ? await apiFetch("/api/profile")
         : await fetch(url + "/profile");
       if (r.ok) {
-        serverProfiles[url] = await r.json();
+        const profile = await r.json();
+        if (url !== CFG.own_server) {
+          const proxyUrl = "/api/contacts/photo?url=" + encodeURIComponent(url);
+          if (profile.photo_url) {
+            fetch(proxyUrl).catch(() => {}); // warm the cache
+            profile.photo_url = proxyUrl;
+            if (!cachedPhotos.has(url)) {
+              cachedPhotos.add(url);
+              localStorage.setItem('cachedContactPhotos', JSON.stringify([...cachedPhotos]));
+            }
+          } else {
+            if (cachedPhotos.has(url)) {
+              cachedPhotos.delete(url);
+              localStorage.setItem('cachedContactPhotos', JSON.stringify([...cachedPhotos]));
+            }
+            profile.photo_url = null;
+          }
+        }
+        serverProfiles[url] = profile;
         serverStatuses[url] = "ok";
         renderServerList();
         document.querySelectorAll(".post-author").forEach(el => {
@@ -744,6 +777,12 @@ function _renderAuthorInto(el, url) {
     img.src = p.photo_url;
     img.className = "post-author-avatar";
     img.alt = name;
+    img.onerror = () => {
+      const init = document.createElement("div");
+      init.className = "post-author-initials";
+      init.textContent = name[0].toUpperCase();
+      img.replaceWith(init);
+    };
     el.appendChild(img);
   } else {
     const init = document.createElement("div");
