@@ -592,9 +592,9 @@ def create_app(config_path: str | Path) -> FastAPI:
         deduped = []
         for posts, _ in raw_results:
             for p in posts:
-                key = (p.get("_server_url", ""), p.get("id", ""))
-                if key not in seen_ids:
-                    seen_ids.add(key)
+                pid = p.get("id", "")
+                if pid not in seen_ids:
+                    seen_ids.add(pid)
                     deduped.append(p)
         merged = sorted(deduped, key=lambda p: p.get("created_at", 0), reverse=True)[:limit]
 

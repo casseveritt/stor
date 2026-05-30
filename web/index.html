@@ -1623,7 +1623,7 @@ function _startBgFetch() {
 }
 
 // ── localStorage feed cache ────────────────────────────────────────────────
-function _cacheKey() { return 'feedv4:' + (CFG?.own_server || ''); }
+function _cacheKey() { return 'feedv5:' + (CFG?.own_server || ''); }
 function _saveFeedCache(posts) {
   try { localStorage.setItem(_cacheKey(), JSON.stringify({ ts: Date.now(), posts: posts.slice(0, 100) })); } catch(e) {}
 }
@@ -1697,7 +1697,8 @@ function _applyFreshPosts(freshPosts) {
 // Merge fresh posts from one server into the global cache on disk.
 function _mergeCachePosts(serverUrl, freshPosts) {
   const cached = _loadFeedCache();
-  const existing = (cached?.posts || []).filter(p => p._server_url !== serverUrl);
+  const freshIds = new Set(freshPosts.map(p => p.id));
+  const existing = (cached?.posts || []).filter(p => p._server_url !== serverUrl && !freshIds.has(p.id));
   const merged = [...freshPosts, ...existing]
     .sort((a, b) => (b.created_at || 0) - (a.created_at || 0))
     .slice(0, 100);
