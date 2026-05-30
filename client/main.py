@@ -968,8 +968,11 @@ def create_app(config_path: str | Path) -> FastAPI:
         cache_key = hashlib.sha256(url.encode()).hexdigest()
         cache_file = cache_dir / cache_key
         try:
+            sign_hdrs = await _sign_federated("GET", "/profile/photo", b"")
             async with httpx.AsyncClient() as hc:
-                r = await hc.get(url + "/profile/photo", timeout=5)
+                r = await hc.get(url + "/profile/photo",
+                                 headers={"X-Origin-Server": config.own_server, **sign_hdrs},
+                                 timeout=5)
             if r.is_success:
                 cache_dir.mkdir(parents=True, exist_ok=True)
                 cache_file.write_bytes(r.content)

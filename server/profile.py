@@ -9,7 +9,7 @@ from fastapi.responses import Response
 from PIL import Image
 from pydantic import BaseModel
 
-from .auth import OwnerDep
+from .auth import OwnerDep, OptionalAuthDep
 from .crypto import decrypt_bytes, encrypt_bytes
 
 router = APIRouter(prefix="/profile")
@@ -144,7 +144,9 @@ def get_private_key(body: _PrivateKeyBody, request: Request, identity: OwnerDep)
 
 
 @router.get("/photo")
-def get_photo(request: Request):
+def get_photo(request: Request, identity: OptionalAuthDep):
+    if not (identity and identity.is_owner) and not request.headers.get("X-Public-Key"):
+        raise HTTPException(status_code=403, detail="Profile photo requires authentication")
     db = request.app.state.db
     row = _get_row(db)
     if not row or not row[1]:

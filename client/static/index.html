@@ -654,13 +654,14 @@ async function loadProfileAvatar() {
     const p = await r.json();
     const avatarImg = document.getElementById("profile-avatar");
     const avatarInit = document.getElementById("profile-avatar-initials");
+    const initName = (p.display_name || p.handle || "?")[0].toUpperCase();
     if (p.photo_url) {
+      avatarImg.onerror = () => { avatarImg.hidden = true; avatarInit.textContent = initName; avatarInit.hidden = false; };
       avatarImg.src = p.photo_url + "?t=" + Date.now();
       avatarImg.hidden = false;
       avatarInit.hidden = true;
     } else {
-      const name = p.display_name || p.handle || "?";
-      avatarInit.textContent = name[0].toUpperCase();
+      avatarInit.textContent = initName;
       avatarInit.hidden = false;
       avatarImg.hidden = true;
     }
@@ -679,12 +680,12 @@ async function loadProfileAvatar() {
     const modalImg = document.getElementById("profile-modal-photo");
     const modalInit = document.getElementById("profile-modal-initials");
     if (p.photo_url) {
+      modalImg.onerror = () => { modalImg.hidden = true; modalInit.textContent = initName; modalInit.hidden = false; };
       modalImg.src = p.photo_url + "?t=" + Date.now();
       modalImg.hidden = false;
       modalInit.hidden = true;
     } else {
-      const name = p.display_name || p.handle || "?";
-      modalInit.textContent = name[0].toUpperCase();
+      modalInit.textContent = initName;
       modalInit.hidden = false;
       modalImg.hidden = true;
     }
@@ -709,9 +710,10 @@ function renderServerList() {
     const status = serverStatuses[s.url] || "wait";
     const prof = serverProfiles[s.url];
     const label = esc(_authorName(s.url));
+    const sInitial = esc((s.name||'?')[0].toUpperCase());
     const avatarHtml = prof && prof.photo_url
-      ? `<img src="${esc(prof.photo_url)}" class="post-author-avatar" alt="">`
-      : `<span class="post-author-initials">${esc((s.name||'?')[0].toUpperCase())}</span>`;
+      ? `<img src="${esc(prof.photo_url)}" class="post-author-avatar" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span class="post-author-initials" hidden>${sInitial}</span>`
+      : `<span class="post-author-initials">${sInitial}</span>`;
     return '<div class="contact-row">'
       + '<button class="server-btn' + (activeServer === s.url ? " active" : "") + '" onclick="setActiveServer(' + globalIdx + ')" title="' + esc(s.name) + '">'
       + avatarHtml
@@ -959,9 +961,10 @@ async function searchContacts(val) {
   list.innerHTML = results.map((d, i) => {
     const name = d.display_name || ("@" + d.username) || d.server_url;
     const handle = d.username ? "@" + d.username : "";
+    const rInitial = esc((name[0]||'?').toUpperCase());
     const avatar = d.photo_url
-      ? `<img class="contact-search-result-avatar" src="${esc(d.photo_url)}" alt="">`
-      : `<div class="contact-search-result-initials">${esc((name[0]||'?').toUpperCase())}</div>`;
+      ? `<img class="contact-search-result-avatar" src="${esc(d.photo_url)}" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><div class="contact-search-result-initials" hidden>${rInitial}</div>`
+      : `<div class="contact-search-result-initials">${rInitial}</div>`;
     return `<div class="contact-search-result" onclick="selectContactResult(${i})" data-idx="${i}">
       ${avatar}
       <div><div class="contact-search-result-name">${esc(name)}</div>${handle ? `<div class="contact-search-result-handle">${esc(handle)}</div>` : ''}</div>
@@ -991,6 +994,7 @@ function selectContactResult(idx) {
   nameEl.textContent = displayName;
   hndlEl.textContent = d.username ? "@" + d.username : "";
   if (d.photo_url) {
+    photoEl.onerror = () => { photoEl.hidden = true; initEl.textContent = displayName[0].toUpperCase(); initEl.hidden = false; };
     photoEl.src = d.photo_url;
     photoEl.hidden = false;
     initEl.hidden = true;
