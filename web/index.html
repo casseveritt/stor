@@ -1805,7 +1805,7 @@ function _renderCommentsInto(post, comments, panel) {
       + (dateFmt ? `<span class="post-date">${dateFmt}</span>` : '')
       + menuBtn + `</span>`
       + `</div>`
-      + '<div class="comment-body">' + esc(c.body) + '</div>'
+      + '<div class="comment-body">' + _renderMentions(c.body || '') + '</div>'
       + reactionBarHtml(c.reactions || [], post.id, post._server_url, c.id)
       + (replies.length ? '<div class="comment-replies">' + replies.map(r => renderOne(r, depth+1)).join("") + '</div>' : '')
       + '</div>';
