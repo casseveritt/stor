@@ -1367,7 +1367,7 @@ function makePostCard(post, idx) {
   if (bodyText) {
     const p = document.createElement("div");
     p.className = "post-body";
-    p.textContent = bodyText;
+    p.innerHTML = _renderMentions(bodyText);
     div.appendChild(p);
   }
 
@@ -1463,7 +1463,7 @@ function renderPostBody(post) {
         const label = (a && a.title) ? a.title : aid.slice(0, 8) + "…";
         rendered += '<span class="asset-block"><a class="asset-file" href="' + url + '" download>' + mimeIcon(a && a.media_type) + ' ' + esc(label) + '</a></span>';
       }
-    } else { rendered += esc(part); }
+    } else { rendered += _renderMentions(part); }
   }
   return rendered;
 }
@@ -1723,7 +1723,22 @@ async function submitComment(postId, serverUrl) {
 let _mentionState = null;
 
 function _mentionTag(c) {
-  return '@' + (c.name.trim().split(/\s+/)[0] || c.handle || 'contact');
+  const label = c.name.trim().split(/\s+/)[0] || c.handle || 'contact';
+  return c.public_key ? `@[${label}|${c.public_key}]` : `@${label}`;
+}
+
+// Render @[label|pubkey] tokens in a post body as styled mention spans.
+// Falls back to the embedded label for contacts not in this client's list.
+function _renderMentions(text) {
+  return text.split(/(@\[[^\]]+\])/).map(part => {
+    const m = part.match(/^@\[([^|]+)\|([^\]]+)\]$/);
+    if (!m) return esc(part);
+    const contact = (CFG?.contacts || []).find(c => c.public_key === m[2]);
+    const label = contact
+      ? (contact.name.trim().split(/\s+/)[0] || contact.handle || m[1])
+      : m[1];
+    return `<span class="mention-hl">@${esc(label)}</span>`;
+  }).join('');
 }
 
 function onComposeInput() {
@@ -1746,7 +1761,8 @@ function onComposeInput() {
   contacts.forEach((c, i) => {
     const el = document.createElement('div');
     el.className = 'mention-item' + (i === 0 ? ' focused' : '');
-    el.innerHTML = `<span class="mention-item-name">${esc(c.name)}</span><span class="mention-item-handle">${esc(_mentionTag(c))}</span>`;
+    const shortLabel = c.name.trim().split(/\s+/)[0] || c.handle || 'contact';
+    el.innerHTML = `<span class="mention-item-name">${esc(c.name)}</span><span class="mention-item-handle">@${esc(shortLabel)}</span>`;
     el.onmousedown = e => { e.preventDefault(); _selectMention(c); };
     dd.appendChild(el);
   });
@@ -1801,16 +1817,15 @@ function _updateComposeHighlight() {
   const ta = document.getElementById('compose-body');
   const hl = document.getElementById('compose-highlight');
   if (!hl || !ta) return;
-  const knownTags = new Set((CFG?.contacts || []).map(c => _mentionTag(c).toLowerCase()));
+  const knownPubkeys = new Set((CFG?.contacts || []).map(c => c.public_key).filter(Boolean));
+  const knownLegacy = new Set((CFG?.contacts || []).map(c =>
+    '@' + (c.name.trim().split(/\s+/)[0] || c.handle || 'contact').toLowerCase()));
   const escaped = ta.value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  const highlighted = escaped.replace(/@(\S+)/g, (full, word) => {
-    if (knownTags.has(('@' + word).toLowerCase())) {
-      return `<mark class="mention-hl">${full}</mark>`;
-    }
-    return full;
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const highlighted = escaped.replace(/@(?:\[[^\]]*\]|\S+)/g, full => {
+    const m = full.match(/^@\[([^|]*)\|([^\]]+)\]$/);
+    if (m) return knownPubkeys.has(m[2]) ? `<mark class="mention-hl">${full}</mark>` : full;
+    return knownLegacy.has(full.toLowerCase()) ? `<mark class="mention-hl">${full}</mark>` : full;
   });
   hl.innerHTML = highlighted + '​';
   hl.scrollTop = ta.scrollTop;
