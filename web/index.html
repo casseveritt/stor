@@ -356,8 +356,6 @@
                 onscroll="_updateHighlight()"
                 onblur="setTimeout(hideMentionDropdown,150)"></textarea>
       <div id="compose-mention-dropdown" class="mention-dropdown" hidden></div>
-<!-- floating mention dropdown for comment inputs -->
-<div id="comment-mention-dropdown" class="mention-dropdown" hidden style="position:fixed;z-index:300"></div>
     </div>
     <div class="drop-zone" id="drop-zone"
          onclick="document.getElementById('file-picker').click()"
@@ -2596,5 +2594,6 @@ async function runDbFix() {
 }
 </script>
 <div id="reactor-tooltip" hidden></div>
+<div id="comment-mention-dropdown" class="mention-dropdown" hidden style="position:fixed;z-index:300"></div>
 </body>
 </html>
