@@ -1321,12 +1321,10 @@ function makePostCard(post, idx) {
   const rightGroup = document.createElement("span");
   rightGroup.style.cssText = "display:inline-flex;align-items:center;gap:0.35rem;flex-shrink:0";
   rightGroup.className = "post-author-right";
-  const _norm = u => (u || '').replace(/\/+$/, '');
-  const isOwnPost = IS_OWNER && _norm(post._server_url) === _norm(CFG.own_server);
   rightGroup.innerHTML = (dateFmt ? `<span class="post-date">${dateFmt}</span>` : '')
     + _levelIconHtml(post.visibility, post.visibility)
     + `<span style="position:relative;display:inline-flex;align-items:center">`
-    + `<button class="post-menu-btn" title="More options" onclick="openPostMenu(event,${idx},'${esc(post.id)}',${isOwnPost})">…</button>`
+    + `<button class="post-menu-btn" title="More options" onclick="openPostMenu(event,${idx},'${esc(post.id)}','${esc(post._server_url||'')}')">…</button>`
     + `</span>`;
   author.appendChild(rightGroup);
   div.appendChild(author);
@@ -1858,7 +1856,9 @@ function closeAllPostMenus() {
   document.querySelectorAll('.post-menu-popup').forEach(m => m.remove());
 }
 
-function openPostMenu(e, idx, postId, isOwn) {
+function openPostMenu(e, idx, postId, serverUrl) {
+  const _norm = u => (u || '').replace(/\/+$/, '');
+  const isOwn = IS_OWNER && _norm(serverUrl) === _norm(CFG?.own_server);
   e.stopPropagation();
   closeAllPostMenus();
   const btn = e.currentTarget;
