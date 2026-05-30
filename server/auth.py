@@ -242,7 +242,27 @@ async def get_identity_or_federated(
         "SELECT public_key, server_url FROM users WHERE public_key = ?", (pub_key_header,)
     ).fetchone()
     if not row:
-        return _GUEST  # unknown key — treat as guest
+        # Unknown key — try to verify it against the origin server on the fly.
+        origin = request.headers.get("X-Origin-Server", "")
+        if not origin:
+            return _GUEST
+        try:
+            import httpx as _httpx
+            nr = await _httpx.AsyncClient().get(origin.rstrip("/") + "/node", timeout=5.0)
+            if not nr.is_success:
+                return _GUEST
+            node_data = nr.json()
+            if node_data.get("public_key") != pub_key_header:
+                return _GUEST  # claimed key doesn't match the server's actual key
+            # Key verified — register this node as a known user.
+            db.execute(
+                "INSERT OR IGNORE INTO users (server_url, name, handle, public_key) VALUES (?, ?, ?, ?)",
+                (origin, node_data.get("handle") or origin, node_data.get("handle") or "", pub_key_header),
+            )
+            db.commit()
+            row = (pub_key_header, origin)
+        except Exception:
+            return _GUEST
 
     timestamp_str = request.headers.get("X-Timestamp", "")
     signature_b64 = request.headers.get("X-Signature", "")
