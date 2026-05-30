@@ -10,6 +10,7 @@ class ContactEntry:
     url: str
     handle: str | None = None
     public_key: str | None = None
+    tag: str | None = None
 
 
 @dataclass

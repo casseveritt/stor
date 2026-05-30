@@ -714,47 +714,48 @@ function renderServerList() {
     const avatarHtml = prof && prof.photo_url
       ? `<img src="${esc(prof.photo_url)}" class="post-author-avatar" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span class="post-author-initials" hidden>${sInitial}</span>`
       : `<span class="post-author-initials">${sInitial}</span>`;
+    const tagLabel = s.tag || s.name.trim().split(/\s+/)[0] || s.handle || '';
     const urlJson = JSON.stringify(s.url).replace(/"/g, '&quot;');
-    const nameJson = JSON.stringify(s.name || '').replace(/"/g, '&quot;');
+    const tagJson = JSON.stringify(s.tag || '').replace(/"/g, '&quot;');
     return '<div class="contact-row">'
-      + '<button class="server-btn' + (activeServer === s.url ? " active" : "") + '" onclick="setActiveServer(' + globalIdx + ')" title="' + esc(s.name) + '">'
+      + '<button class="server-btn' + (activeServer === s.url ? " active" : "") + '" onclick="setActiveServer(' + globalIdx + ')" title="' + esc(tagLabel ? '@' + tagLabel : s.name) + '">'
       + avatarHtml
       + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + label + '</span>'
       + '<span class="server-dot ' + status + '"></span>'
       + '</button>'
       + '<span style="position:relative;display:inline-flex;align-items:center">'
-      + '<button class="contact-menu-btn" onclick="openContactMenu(event,' + urlJson + ',' + nameJson + ')" title="Contact options">…</button>'
+      + '<button class="contact-menu-btn" onclick="openContactMenu(event,' + urlJson + ',' + tagJson + ')" title="Contact options">…</button>'
       + '</span>'
       + '</div>';
   });
   list.innerHTML = allBtn + serverBtns.join("");
 }
 
-function openContactMenu(e, url, name) {
+function openContactMenu(e, url, tag) {
   e.stopPropagation();
   closeAllPostMenus();
   const btn = e.currentTarget;
   const wrap = btn.parentElement;
   const popup = document.createElement('div');
   popup.className = 'post-menu-popup';
-  const uq = JSON.stringify(url), nq = JSON.stringify(name);
+  const uq = JSON.stringify(url), tq = JSON.stringify(tag);
   popup.innerHTML =
-    `<button onclick="closeAllPostMenus();renameContact(${uq},${nq})">Rename</button>`
+    `<button onclick="closeAllPostMenus();setContactTag(${uq},${tq})">Set @tag</button>`
     + `<button class="danger" onclick="closeAllPostMenus();removeContact(${uq})">Remove</button>`;
   wrap.appendChild(popup);
   const dismiss = ev => { if (!popup.contains(ev.target) && ev.target !== btn) { closeAllPostMenus(); document.removeEventListener('click', dismiss, true); } };
   setTimeout(() => document.addEventListener('click', dismiss, true), 0);
 }
 
-async function renameContact(url, currentName) {
-  const newName = prompt("Label for this contact:", currentName);
-  if (!newName || newName === currentName) return;
+async function setContactTag(url, currentTag) {
+  const newTag = prompt("@mention tag for this contact (e.g. Tox):", currentTag);
+  if (newTag === null) return;
   const r = await apiFetch("/api/contacts", {
     method: "PATCH",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({url, name: newName}),
+    body: JSON.stringify({url, tag: newTag.trim()}),
   });
-  if (!r.ok) { alert("Failed to rename contact."); return; }
+  if (!r.ok) { alert("Failed to set tag."); return; }
   const cfg = await (await apiFetch("/api/config")).json();
   _setCFG(cfg);
   renderServerList();
@@ -1723,19 +1724,19 @@ async function submitComment(postId, serverUrl) {
 let _mentionState = null;
 
 function _mentionTag(c) {
-  const label = c.name.trim().split(/\s+/)[0] || c.handle || 'contact';
+  const label = c.tag || c.name.trim().split(/\s+/)[0] || c.handle || 'contact';
   return c.public_key ? `@[${label}|${c.public_key}]` : `@${label}`;
 }
 
 // Render @[label|pubkey] tokens in a post body as styled mention spans.
-// Falls back to the embedded label for contacts not in this client's list.
+// Resolves to the reader's own tag for that pubkey, else display name first word, else the embedded label.
 function _renderMentions(text) {
   return text.split(/(@\[[^\]]+\])/).map(part => {
     const m = part.match(/^@\[([^|]+)\|([^\]]+)\]$/);
     if (!m) return esc(part);
     const contact = (CFG?.contacts || []).find(c => c.public_key === m[2]);
     const label = contact
-      ? (contact.name.trim().split(/\s+/)[0] || contact.handle || m[1])
+      ? (contact.tag || contact.name.trim().split(/\s+/)[0] || contact.handle || m[1])
       : m[1];
     return `<span class="mention-hl">@${esc(label)}</span>`;
   }).join('');
@@ -1753,7 +1754,8 @@ function onComposeInput() {
   const _starts = (s, q) => q === '' || s.toLowerCase().startsWith(q) || _words(s).some(w => w.startsWith(q));
   const contacts = (CFG?.contacts || []).filter(c => {
     const prof = serverProfiles[c.url] || {};
-    return _starts(c.name, query)
+    return _starts(c.tag || '', query)
+        || _starts(c.name, query)
         || _starts(c.handle || '', query)
         || _starts(prof.display_name || '', query)
         || _starts(prof.handle || '', query);
@@ -1764,17 +1766,11 @@ function onComposeInput() {
   dd.innerHTML = '';
   contacts.forEach((c, i) => {
     const prof = serverProfiles[c.url] || {};
-    const tagLabel = c.name.trim().split(/\s+/)[0] || c.handle || 'contact';
-    const displayName = prof.display_name || '';
-    const handle = c.handle || prof.handle || '';
-    // Secondary line: display name (if different from tag) + handle
-    const parts = [];
-    if (displayName && displayName !== c.name) parts.push(esc(displayName));
-    if (handle) parts.push('@' + esc(handle));
-    const secondary = parts.length ? `<span class="mention-item-handle">${parts.join(' · ')}</span>` : '';
+    const displayName = prof.display_name || c.name;
+    const tagLabel = c.tag || c.name.trim().split(/\s+/)[0] || c.handle || 'contact';
     const el = document.createElement('div');
     el.className = 'mention-item' + (i === 0 ? ' focused' : '');
-    el.innerHTML = `<span class="mention-item-name">${esc(c.name)}</span>${secondary}`;
+    el.innerHTML = `<span class="mention-item-name">${esc(displayName)}</span><span class="mention-item-handle">@${esc(tagLabel)}</span>`;
     el.onmousedown = e => { e.preventDefault(); _selectMention(c); };
     dd.appendChild(el);
   });
@@ -1831,7 +1827,7 @@ function _updateComposeHighlight() {
   if (!hl || !ta) return;
   const knownPubkeys = new Set((CFG?.contacts || []).map(c => c.public_key).filter(Boolean));
   const knownLegacy = new Set((CFG?.contacts || []).map(c =>
-    '@' + (c.name.trim().split(/\s+/)[0] || c.handle || 'contact').toLowerCase()));
+    '@' + (c.tag || c.name.trim().split(/\s+/)[0] || c.handle || 'contact').toLowerCase()));
   const escaped = ta.value
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const highlighted = escaped.replace(/@(?:\[[^\]]*\]|\S+)/g, full => {

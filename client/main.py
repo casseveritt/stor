@@ -437,7 +437,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                 {"name": _server_name(url), "url": url, "authenticated": bool(_token(url))}
                 for url in _all_servers()
             ],
-            "contacts": [{"name": c.name, "url": c.url, "handle": c.handle, "public_key": c.public_key} for c in config.contacts],
+            "contacts": [{"name": c.name, "url": c.url, "handle": c.handle, "public_key": c.public_key, "tag": c.tag} for c in config.contacts],
             "cached_photos": [c.url for c in config.contacts if _has_cached_photo(c.url)],
         }
 
@@ -882,26 +882,17 @@ def create_app(config_path: str | Path) -> FastAPI:
                 )
         return {"name": body.name, "url": body.url, "handle": body.handle}
 
-    class ContactRenameBody(BaseModel):
+    class ContactTagBody(BaseModel):
         url: str
-        name: str
+        tag: str
 
     @api.patch("/contacts")
-    async def api_rename_contact(body: ContactRenameBody):
+    async def api_set_contact_tag(body: ContactTagBody):
         contact = next((c for c in config.contacts if c.url == body.url), None)
         if not contact:
             raise HTTPException(status_code=404, detail="Contact not found")
-        contact.name = body.name
+        contact.tag = body.tag or None
         config.save(config_path)
-        if _token(config.own_server):
-            async with httpx.AsyncClient() as hc:
-                await hc.patch(
-                    _server + "/users",
-                    params={"server_url": body.url},
-                    json={"name": body.name},
-                    headers={**_headers(config.own_server), "Content-Type": "application/json"},
-                    timeout=10.0,
-                )
         return {"ok": True}
 
     # ── dev / debug ───────────────────────────────────────────────────────
