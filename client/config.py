@@ -10,7 +10,6 @@ class ContactEntry:
     url: str
     handle: str | None = None
     public_key: str | None = None
-    tag: str | None = None
 
 
 @dataclass
@@ -38,7 +37,9 @@ class ClientConfig:
             cfg.save(p)
             return cfg
         data = json.loads(p.read_text())
-        contacts = [ContactEntry(**c) for c in data.get("contacts", [])]
+        _ce_fields = {f.name for f in dataclasses.fields(ContactEntry)}
+        contacts = [ContactEntry(**{k: v for k, v in c.items() if k in _ce_fields})
+                    for c in data.get("contacts", [])]
         node_key = NodeKey(**data["node_key"]) if "node_key" in data else None
         return cls(
             own_server=data["own_server"],

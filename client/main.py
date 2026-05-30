@@ -38,6 +38,7 @@ from pydantic import BaseModel
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from client.config import ClientConfig, NodeKey, load_tokens, save_tokens
+from client.db import open_client_db, open_client_db_memory, get_all_tags, get_tag, set_tag as db_set_tag
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("contacc")
@@ -62,14 +63,44 @@ def _load_private_key(node_key: NodeKey, passphrase: str):
         return None
 
 
+
+
 def create_app(config_path: str | Path) -> FastAPI:
     config_path = Path(config_path).resolve()
+    raw_config_data = json.loads(config_path.read_text()) if config_path.exists() else {}
     config = ClientConfig.load(config_path)
     tokens: dict[str, str] = load_tokens(config_path)
+
+    # Load private key now so we can derive the client DB encryption key.
+    passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
+    _private_key = _load_private_key(config.node_key, passphrase) if config.node_key and passphrase else None
+    if config.node_key and not _private_key:
+        log.warning("Node key present but passphrase unavailable — client DB will not persist tags")
+
+    # Derive client DB key from private key (same HKDF pattern as the post-cache key).
+    # Falls back to an in-memory DB during the pre-setup phase when no node key exists yet.
+    if _private_key:
+        from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption
+        from cryptography.hazmat.primitives.hashes import SHA256
+        from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+        _priv_bytes = _private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
+        _client_db_key = HKDF(algorithm=SHA256(), length=32, salt=None, info=b"contacc-client-db").derive(_priv_bytes)
+        _client_db = open_client_db(Path("/data"), _client_db_key)
+        log.info("Node private key loaded.")
+    else:
+        _client_db = open_client_db_memory()
+
+    # One-time migration: move any tags from config JSON into client DB
+    for raw_contact in raw_config_data.get("contacts", []):
+        tag = raw_contact.get("tag")
+        url = raw_contact.get("url")
+        if tag and url and not get_tag(_client_db, url):
+            db_set_tag(_client_db, url, tag)
 
     app = FastAPI(title="contacc client")
     app.state.config = config
     app.state.config_path = config_path
+    app.state.private_key = _private_key
 
     @app.on_event("startup")
     async def _warm_caches():
@@ -122,15 +153,6 @@ def create_app(config_path: str | Path) -> FastAPI:
                     log.info("Cached photo for %s", contact.url)
             except Exception:
                 pass
-
-    # Decrypt private key at startup if we have key material and passphrase
-    passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
-    if config.node_key and passphrase:
-        app.state.private_key = _load_private_key(config.node_key, passphrase)
-        if app.state.private_key:
-            log.info("Node private key loaded.")
-    else:
-        app.state.private_key = None
 
     # Internal server URL — use CONTACC_SERVER_URL if set (avoids external loop
     # when Caddy routes everything to the client).  Falls back to own_server so
@@ -427,6 +449,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                     own_handle = p.get("handle")
         except Exception:
             pass
+        tags = get_all_tags(_client_db)
         return {
             "own_server": config.own_server,
             "own_display_name": own_display_name,
@@ -437,7 +460,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                 {"name": _server_name(url), "url": url, "authenticated": bool(_token(url))}
                 for url in _all_servers()
             ],
-            "contacts": [{"name": c.name, "url": c.url, "handle": c.handle, "public_key": c.public_key, "tag": c.tag} for c in config.contacts],
+            "contacts": [{"name": c.name, "url": c.url, "handle": c.handle, "public_key": c.public_key, "tag": tags.get(c.url)} for c in config.contacts],
             "cached_photos": [c.url for c in config.contacts if _has_cached_photo(c.url)],
         }
 
@@ -888,11 +911,9 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     @api.patch("/contacts")
     async def api_set_contact_tag(body: ContactTagBody):
-        contact = next((c for c in config.contacts if c.url == body.url), None)
-        if not contact:
+        if not any(c.url == body.url for c in config.contacts):
             raise HTTPException(status_code=404, detail="Contact not found")
-        contact.tag = body.tag or None
-        config.save(config_path)
+        db_set_tag(_client_db, body.url, body.tag or None)
         return {"ok": True}
 
     # ── dev / debug ───────────────────────────────────────────────────────
