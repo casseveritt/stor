@@ -1093,15 +1093,15 @@ async function loadFeed() {
   fetchServerHandles().then(() => _startBgFetch());
   fetchServerProfiles();
 
-  // Fetch fresh data from all servers immediately; results update cards in place.
-  const servers = activeServer ? [activeServer] : [CFG.own_server, ...(CFG.contacts || []).map(c => c.url)];
-  for (const url of servers) _serverLastFetched[url] = 0;  // mark all due now
-  _runBgFetch();  // fire but don't await — updates arrive and patch the DOM
-
-  // If we had no cache, do a blocking load.
-  if (allPosts.filter(p => !p._is_stale).length === 0) {
+  if (allPosts.length === 0) {
+    // No cache — block until we have something to show.
     const ok = await resetFeed(true);
     if (!ok) { showView("login"); return false; }
+  } else {
+    // Cache is warm — let the UI settle, then refresh from servers in the background.
+    const servers = activeServer ? [activeServer] : [CFG.own_server, ...(CFG.contacts || []).map(c => c.url)];
+    for (const url of servers) _serverLastFetched[url] = 0;
+    setTimeout(_runBgFetch, 3000);
   }
 
   return true;
