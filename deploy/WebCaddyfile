@@ -6,6 +6,10 @@
 :{$CONTACC_WEB_PORT} {
     root * /srv/web
 
+    # Root → index.html (must happen before the file matcher)
+    @root path /
+    rewrite @root /index.html
+
     # Auth callback HTML (no OAuth code) → static page
     @callback_html expression `{path} == "/auth/callback" && {query.code} == ""`
     rewrite @callback_html /callback.html
