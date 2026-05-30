@@ -196,10 +196,11 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def init_guard(request: Request, call_next):
         path = request.url.path
         is_setup_path = path.startswith("/setup")
+        is_public_path = path == "/profile/photo" or path.startswith("/node")
         if not app.state.initialized and not is_setup_path:
             state = "locked" if config_path.exists() else "uninitialized"
             return JSONResponse({"detail": "Server not ready", "state": state}, status_code=503)
-        if app.state.initialized and not is_setup_path:
+        if app.state.initialized and not is_setup_path and not is_public_path:
             internal_token = getattr(app.state, "internal_token", None)
             if internal_token:
                 provided = request.headers.get("x-contacc-internal", "")
