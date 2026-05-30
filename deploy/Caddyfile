@@ -1,46 +1,27 @@
-# TLS termination and port routing. Each slot routes entirely to its web
-# service, which handles static files and proxies API calls to its client.
+# Node ports (8443-8452): direct access to the client API.
+# Web ports  (8543-8552): presentation layer, proxies to its client internally.
+# Convention: web external port = node external port + 100.
 
-{$CONTACC_DOMAIN}:8443 {
-    reverse_proxy web-1:9544
-}
+{$CONTACC_DOMAIN}:8443 { reverse_proxy client-1:9444 }
+{$CONTACC_DOMAIN}:8444 { reverse_proxy client-2:9444 }
+{$CONTACC_DOMAIN}:8445 { reverse_proxy client-3:9444 }
+{$CONTACC_DOMAIN}:8446 { reverse_proxy client-4:9444 }
+{$CONTACC_DOMAIN}:8447 { reverse_proxy client-5:9444 }
+{$CONTACC_DOMAIN}:8448 { reverse_proxy client-6:9444 }
+{$CONTACC_DOMAIN}:8449 { reverse_proxy client-7:9444 }
+{$CONTACC_DOMAIN}:8450 { reverse_proxy client-8:9444 }
+{$CONTACC_DOMAIN}:8451 { reverse_proxy client-9:9444 }
+{$CONTACC_DOMAIN}:8452 { reverse_proxy client-10:9444 }
 
-{$CONTACC_DOMAIN}:8444 {
-    reverse_proxy web-2:9544
-}
+{$CONTACC_DOMAIN}:8543 { reverse_proxy web-1:9544 }
+{$CONTACC_DOMAIN}:8544 { reverse_proxy web-2:9544 }
+{$CONTACC_DOMAIN}:8545 { reverse_proxy web-3:9544 }
+{$CONTACC_DOMAIN}:8546 { reverse_proxy web-4:9544 }
+{$CONTACC_DOMAIN}:8547 { reverse_proxy web-5:9544 }
+{$CONTACC_DOMAIN}:8548 { reverse_proxy web-6:9544 }
+{$CONTACC_DOMAIN}:8549 { reverse_proxy web-7:9544 }
+{$CONTACC_DOMAIN}:8550 { reverse_proxy web-8:9544 }
+{$CONTACC_DOMAIN}:8551 { reverse_proxy web-9:9544 }
+{$CONTACC_DOMAIN}:8552 { reverse_proxy web-10:9544 }
 
-{$CONTACC_DOMAIN}:8445 {
-    reverse_proxy web-3:9544
-}
-
-{$CONTACC_DOMAIN}:8446 {
-    reverse_proxy web-4:9544
-}
-
-{$CONTACC_DOMAIN}:8447 {
-    reverse_proxy web-5:9544
-}
-
-{$CONTACC_DOMAIN}:8448 {
-    reverse_proxy web-6:9544
-}
-
-{$CONTACC_DOMAIN}:8449 {
-    reverse_proxy web-7:9544
-}
-
-{$CONTACC_DOMAIN}:8450 {
-    reverse_proxy web-8:9544
-}
-
-{$CONTACC_DOMAIN}:8451 {
-    reverse_proxy web-9:9544
-}
-
-{$CONTACC_DOMAIN}:8452 {
-    reverse_proxy web-10:9544
-}
-
-{$CONTACC_DOMAIN}:8421 {
-    reverse_proxy registry:9532
-}
+{$CONTACC_DOMAIN}:8421 { reverse_proxy registry:9532 }
