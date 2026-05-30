@@ -141,10 +141,11 @@
     #compose-modal { min-width: min(90vw, 560px); }
     #compose-body-wrap { position: relative; margin-bottom: 0.75rem; background: #222; border: 1px solid #333; border-radius: 4px; }
     #compose-body-wrap:focus-within { border-color: #4285f4; }
-    #compose-highlight { position: absolute; top: 0; left: 0; right: 0; bottom: 0; padding: 0.6rem; font-size: 0.95rem; font-family: inherit; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; overflow: hidden; color: transparent; pointer-events: none; z-index: 0; box-sizing: border-box; }
-    .mention-hl { background: rgba(66,133,244,0.28); border-radius: 3px; }
+    #compose-highlight, #edit-highlight { position: absolute; top: 0; left: 0; right: 0; bottom: 0; padding: 0.6rem; font-size: 0.95rem; font-family: inherit; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; overflow: hidden; color: transparent; pointer-events: none; z-index: 2; box-sizing: border-box; }
+    .mention-tag { color: #60a5fa; font-weight: 500; cursor: default; }
+    .mention-dim { background: rgba(0,0,0,0.45); border-radius: 2px; }
     #compose-body { background: transparent; color: #e0e0e0; border: none; border-radius: 4px; padding: 0.6rem; width: 100%; font-size: 0.95rem; line-height: 1.5; resize: vertical; min-height: 100px; outline: none; font-family: inherit; position: relative; z-index: 1; caret-color: #e0e0e0; box-sizing: border-box; }
-    #mention-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: #252525; border: 1px solid #444; border-radius: 4px; max-height: 180px; overflow-y: auto; z-index: 200; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
+    .mention-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: #252525; border: 1px solid #444; border-radius: 4px; max-height: 180px; overflow-y: auto; z-index: 200; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
     .mention-item { padding: 0.4rem 0.75rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; font-size: 0.88rem; }
     .mention-item:hover, .mention-item.focused { background: #1e2d4a; }
     .mention-item-name { color: #e0e0e0; }
@@ -343,9 +344,9 @@
       <div id="compose-highlight" aria-hidden="true"></div>
       <textarea id="compose-body" placeholder="What's on your mind?"
                 oninput="onComposeInput()" onkeydown="onComposeKeydown(event)"
-                onscroll="_updateComposeHighlight()"
+                onscroll="_updateHighlight()"
                 onblur="setTimeout(hideMentionDropdown,150)"></textarea>
-      <div id="mention-dropdown" hidden></div>
+      <div id="compose-mention-dropdown" class="mention-dropdown" hidden></div>
     </div>
     <div class="drop-zone" id="drop-zone"
          onclick="document.getElementById('file-picker').click()"
@@ -467,7 +468,14 @@
   <div class="modal" id="edit-modal" style="min-width:min(90vw,560px)">
     <button class="modal-close" onclick="closeEdit()">&#x2715;</button>
     <h3>Edit post</h3>
-    <textarea id="edit-body" style="background:#222;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:0.6rem;width:100%;font-size:0.95rem;resize:vertical;min-height:100px;outline:none;font-family:inherit;margin-bottom:0.75rem"></textarea>
+    <div id="edit-body-wrap" style="position:relative;margin-bottom:0.75rem;background:#222;border:1px solid #333;border-radius:4px">
+      <div id="edit-highlight" aria-hidden="true"></div>
+      <textarea id="edit-body" style="background:transparent;color:#e0e0e0;border:none;border-radius:4px;padding:0.6rem;width:100%;font-size:0.95rem;line-height:1.5;resize:vertical;min-height:100px;outline:none;font-family:inherit;position:relative;z-index:1;box-sizing:border-box"
+                oninput="onComposeInput()" onkeydown="onComposeKeydown(event)"
+                onscroll="_updateHighlight()"
+                onblur="setTimeout(hideMentionDropdown,150)"></textarea>
+      <div id="edit-mention-dropdown" class="mention-dropdown" hidden></div>
+    </div>
     <div class="compose-fields">
       <input type="text" id="edit-tags" placeholder="Tags — space-separated">
       <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;font-size:0.85rem;color:#aaa">
@@ -738,10 +746,15 @@ function openContactMenu(e, url, tag) {
   const wrap = btn.parentElement;
   const popup = document.createElement('div');
   popup.className = 'post-menu-popup';
-  const uq = JSON.stringify(url), tq = JSON.stringify(tag);
-  popup.innerHTML =
-    `<button onclick="closeAllPostMenus();setContactTag(${uq},${tq})">Set @tag</button>`
-    + `<button class="danger" onclick="closeAllPostMenus();removeContact(${uq})">Remove</button>`;
+  const tagBtn = document.createElement('button');
+  tagBtn.textContent = 'Set @tag';
+  tagBtn.onclick = () => { closeAllPostMenus(); setContactTag(url, tag); };
+  const removeBtn = document.createElement('button');
+  removeBtn.className = 'danger';
+  removeBtn.textContent = 'Remove';
+  removeBtn.onclick = () => { closeAllPostMenus(); removeContact(url); };
+  popup.appendChild(tagBtn);
+  popup.appendChild(removeBtn);
   wrap.appendChild(popup);
   const dismiss = ev => { if (!popup.contains(ev.target) && ev.target !== btn) { closeAllPostMenus(); document.removeEventListener('click', dismiss, true); } };
   setTimeout(() => document.addEventListener('click', dismiss, true), 0);
@@ -1722,29 +1735,58 @@ async function submitComment(postId, serverUrl) {
 
 // ── @mention autocomplete ──────────────────────────────────────────────────
 let _mentionState = null;
+const COMPOSE_CTX = { taId: 'compose-body', hlId: 'compose-highlight', ddId: 'compose-mention-dropdown' };
+const EDIT_CTX    = { taId: 'edit-body',    hlId: 'edit-highlight',    ddId: 'edit-mention-dropdown' };
+let _mentionCtx = COMPOSE_CTX;
 
-function _mentionTag(c) {
-  const label = c.tag || c.name.trim().split(/\s+/)[0] || c.handle || 'contact';
-  return c.public_key ? `@[${label}|${c.public_key}]` : `@${label}`;
+function _contactTag(c) {
+  const displayName = (serverProfiles[c.url] || {}).display_name || c.name;
+  return c.tag || displayName.trim().split(/\s+/)[0] || c.handle || 'contact';
 }
 
-// Render @[label|pubkey] tokens in a post body as styled mention spans.
-// Resolves to the reader's own tag for that pubkey, else display name first word, else the embedded label.
+function _mentionTag(c) {
+  return '@' + _contactTag(c);
+}
+
+// Expand @tag → [pubkey|tag] for known contacts. Called at submit time.
+function _expandMentions(text) {
+  const tagMap = new Map();
+  for (const c of (CFG?.contacts || [])) {
+    if (!c.public_key) continue;
+    const tag = _contactTag(c);
+    tagMap.set(tag.toLowerCase(), {label: tag, pubkey: c.public_key});
+  }
+  return text.replace(/@(\w+)/g, (full, word) => {
+    const entry = tagMap.get(word.toLowerCase());
+    return entry ? `[${entry.pubkey}|${entry.label}]` : full;
+  });
+}
+
+// Collapse [pubkey|disptext] → @tag (reader's current tag for that pubkey). Called when loading for edit.
+function _collapseMentions(text) {
+  return text.replace(/\[([^|\]]+)\|([^\]]+)\]/g, (full, pubkey, disptext) => {
+    const contact = (CFG?.contacts || []).find(c => c.public_key === pubkey);
+    return `@${contact ? _contactTag(contact) : disptext}`;
+  });
+}
+
+// Render [pubkey|disptext] tokens in a post body as styled mention spans.
+// Uses the stored disptext as the label; tooltip shows the contact's display name.
 function _renderMentions(text) {
-  return text.split(/(@\[[^\]]+\])/).map(part => {
-    const m = part.match(/^@\[([^|]+)\|([^\]]+)\]$/);
+  return text.split(/(\[[^\]]+\])/).map(part => {
+    const m = part.match(/^\[([^|\]]+)\|([^\]]+)\]$/);
     if (!m) return esc(part);
-    const contact = (CFG?.contacts || []).find(c => c.public_key === m[2]);
-    const label = contact
-      ? (contact.tag || contact.name.trim().split(/\s+/)[0] || contact.handle || m[1])
-      : m[1];
-    return `<span class="mention-hl">@${esc(label)}</span>`;
+    const pubkey = m[1], disptext = m[2];
+    const contact = (CFG?.contacts || []).find(c => c.public_key === pubkey);
+    const prof = contact ? (serverProfiles[contact.url] || {}) : {};
+    const tooltip = prof.display_name || (contact ? contact.name : disptext);
+    return `<span class="mention-tag" title="${esc(tooltip)}">${esc(disptext)}</span>`;
   }).join('');
 }
 
 function onComposeInput() {
-  _updateComposeHighlight();
-  const ta = document.getElementById('compose-body');
+  _updateHighlight();
+  const ta = document.getElementById(_mentionCtx.taId);
   const pos = ta.selectionStart;
   const before = ta.value.substring(0, pos);
   const match = before.match(/@(\w*)$/);
@@ -1762,12 +1804,12 @@ function onComposeInput() {
   });
   if (!contacts.length) { hideMentionDropdown(); return; }
   _mentionState = { start: pos - match[0].length, query, focused: 0, contacts };
-  const dd = document.getElementById('mention-dropdown');
+  const dd = document.getElementById(_mentionCtx.ddId);
   dd.innerHTML = '';
   contacts.forEach((c, i) => {
     const prof = serverProfiles[c.url] || {};
     const displayName = prof.display_name || c.name;
-    const tagLabel = c.tag || c.name.trim().split(/\s+/)[0] || c.handle || 'contact';
+    const tagLabel = _contactTag(c);
     const el = document.createElement('div');
     el.className = 'mention-item' + (i === 0 ? ' focused' : '');
     el.innerHTML = `<span class="mention-item-name">${esc(displayName)}</span><span class="mention-item-handle">@${esc(tagLabel)}</span>`;
@@ -1778,31 +1820,33 @@ function onComposeInput() {
 }
 
 function hideMentionDropdown() {
-  document.getElementById('mention-dropdown').hidden = true;
+  document.getElementById(_mentionCtx.ddId).hidden = true;
   _mentionState = null;
 }
 
 function _selectMention(c) {
   const state = _mentionState;
   if (!state) return;
-  const ta = document.getElementById('compose-body');
-  const tag = _mentionTag(c) + ' ';
+  const ta = document.getElementById(_mentionCtx.taId);
+  const label = _contactTag(c);
+  // Replace @query (state.start points to the @) with [pubkey|label] — consuming the @
+  const replacement = c.public_key ? `[${c.public_key}|${label}] ` : `@${label} `;
   const before = ta.value.substring(0, state.start);
   // Use the known end of "@query" from state rather than ta.selectionStart,
   // which can be wrong if focus shifted momentarily during the click.
   const mentionEnd = state.start + 1 + state.query.length;
   const after = ta.value.substring(mentionEnd);
-  ta.value = before + tag + after;
-  const p = before.length + tag.length;
+  ta.value = before + replacement + after;
+  const p = before.length + replacement.length;
   ta.selectionStart = ta.selectionEnd = p;
   hideMentionDropdown();
-  _updateComposeHighlight();
+  _updateHighlight();
   ta.focus();
 }
 
 function onComposeKeydown(e) {
   if (!_mentionState) return;
-  const items = document.getElementById('mention-dropdown').querySelectorAll('.mention-item');
+  const items = document.getElementById(_mentionCtx.ddId).querySelectorAll('.mention-item');
   if (!items.length) return;
   if (e.key === 'ArrowDown') {
     e.preventDefault();
@@ -1821,29 +1865,29 @@ function onComposeKeydown(e) {
   }
 }
 
-function _updateComposeHighlight() {
-  const ta = document.getElementById('compose-body');
-  const hl = document.getElementById('compose-highlight');
+function _updateHighlight() {
+  const ta = document.getElementById(_mentionCtx.taId);
+  const hl = document.getElementById(_mentionCtx.hlId);
   if (!hl || !ta) return;
   const knownPubkeys = new Set((CFG?.contacts || []).map(c => c.public_key).filter(Boolean));
-  const knownLegacy = new Set((CFG?.contacts || []).map(c =>
-    '@' + (c.tag || c.name.trim().split(/\s+/)[0] || c.handle || 'contact').toLowerCase()));
   const escaped = ta.value
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const highlighted = escaped.replace(/@(?:\[[^\]]*\]|\S+)/g, full => {
-    const m = full.match(/^@\[([^|]*)\|([^\]]+)\]$/);
-    if (m) return knownPubkeys.has(m[2]) ? `<mark class="mention-hl">${full}</mark>` : full;
-    return knownLegacy.has(full.toLowerCase()) ? `<mark class="mention-hl">${full}</mark>` : full;
-  });
+  const highlighted = escaped
+    .replace(/\[([^|\]]*)\|([^\]]*)\]/g, (full, pubkey, disptext) => {
+      return knownPubkeys.has(pubkey)
+        ? `<span class="mention-dim">[${pubkey}|</span>${disptext}<span class="mention-dim">]</span>`
+        : full;
+    });
   hl.innerHTML = highlighted + '​';
   hl.scrollTop = ta.scrollTop;
 }
 
 // ── compose ────────────────────────────────────────────────────────────────
 function openCompose() {
+  _mentionCtx = COMPOSE_CTX;
   pendingFiles = [];
   document.getElementById("compose-body").value = "";
-  _updateComposeHighlight();
+  _updateHighlight();
   document.getElementById("compose-tags").value = "";
   document.getElementById("compose-visibility").value = "contacts";
   document.getElementById("compose-comment-access").value = "contacts";
@@ -1874,7 +1918,7 @@ async function submitPost() {
   prog.innerHTML = '<div class="progress-item">Posting…</div>';
 
   const fd = new FormData();
-  fd.append("body", bodyText);
+  fd.append("body", _expandMentions(bodyText));
   fd.append("tags", JSON.stringify(tags));
   fd.append("visibility", document.getElementById("compose-visibility").value);
   fd.append("comment_access", document.getElementById("compose-comment-access").value);
@@ -2026,21 +2070,24 @@ async function deleteComment(postId, serverUrl, commentId) {
 let editingIdx = -1;
 
 function openEdit(idx) {
+  _mentionCtx = EDIT_CTX;
   editingIdx = idx;
   const post = allPosts[idx];
   document.getElementById("edit-body").value = post.body || "";
+  _updateHighlight();
   document.getElementById("edit-tags").value = (post.tags || []).join(" ");
   document.getElementById("edit-visibility").value = post.visibility || "contacts";
   document.getElementById("edit-comment-access").value = post.comment_access || "contacts";
   document.getElementById("edit-status").innerHTML = "";
   document.getElementById("edit-submit").disabled = false;
   document.getElementById("edit-overlay").hidden = false;
+  document.getElementById("edit-body").focus();
 }
 function closeEdit() { document.getElementById("edit-overlay").hidden = true; }
 
 async function submitEdit() {
   const post = allPosts[editingIdx];
-  const body = document.getElementById("edit-body").value;
+  const body = _expandMentions(document.getElementById("edit-body").value);
   const tags = document.getElementById("edit-tags").value.trim().split(/\s+/).filter(Boolean);
   const visibility = document.getElementById("edit-visibility").value;
   const comment_access = document.getElementById("edit-comment-access").value;
