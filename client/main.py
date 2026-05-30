@@ -72,9 +72,41 @@ def create_app(config_path: str | Path) -> FastAPI:
     app.state.config_path = config_path
 
     @app.on_event("startup")
-    async def _warm_photo_cache():
+    async def _warm_caches():
         import asyncio
         asyncio.create_task(_refresh_contact_photos())
+        asyncio.create_task(_backfill_contact_pubkeys())
+
+    async def _backfill_contact_pubkeys():
+        """Fetch public key from /node for any contact that's missing one, then sync to server."""
+        changed = False
+        for contact in config.contacts:
+            if contact.public_key:
+                continue
+            try:
+                async with httpx.AsyncClient() as hc:
+                    r = await hc.get(contact.url.rstrip("/") + "/node", timeout=5)
+                if r.is_success:
+                    pub_key = r.json().get("public_key")
+                    if pub_key:
+                        contact.public_key = pub_key
+                        _contact_url_cache[pub_key] = contact.url
+                        changed = True
+                        log.info("Backfilled public key for contact %s", contact.url)
+                        t = _token(config.own_server)
+                        if t:
+                            async with httpx.AsyncClient() as hc2:
+                                await hc2.post(
+                                    _server + "/users",
+                                    json={"server_url": contact.url, "name": contact.name,
+                                          "handle": contact.handle, "public_key": pub_key},
+                                    headers=_headers(config.own_server),
+                                    timeout=5,
+                                )
+            except Exception:
+                pass
+        if changed:
+            config.save(config_path)
 
     async def _refresh_contact_photos():
         import hashlib
@@ -826,16 +858,25 @@ def create_app(config_path: str | Path) -> FastAPI:
             raise HTTPException(status_code=400, detail="Cannot add yourself as a contact")
         if any(c.url == body.url for c in config.contacts):
             raise HTTPException(status_code=409, detail="Contact with this URL already exists")
-        config.contacts.append(ContactEntry(name=body.name, url=body.url, handle=body.handle, public_key=body.public_key))
-        if body.public_key:
-            _contact_url_cache[body.public_key] = body.url
+        pub_key = body.public_key
+        if not pub_key:
+            try:
+                async with httpx.AsyncClient() as hc:
+                    nr = await hc.get(body.url.rstrip("/") + "/node", timeout=5)
+                if nr.is_success:
+                    pub_key = nr.json().get("public_key") or None
+            except Exception:
+                pass
+        config.contacts.append(ContactEntry(name=body.name, url=body.url, handle=body.handle, public_key=pub_key))
+        if pub_key:
+            _contact_url_cache[pub_key] = body.url
         config.save(config_path)
         # Sync to server so it can authorize inbound comments from this contact
         if _token(config.own_server):
             async with httpx.AsyncClient() as hc:
                 await hc.post(
                     _server + "/users",
-                    json={"server_url": body.url, "name": body.name, "handle": body.handle, "public_key": body.public_key},
+                    json={"server_url": body.url, "name": body.name, "handle": body.handle, "public_key": pub_key},
                     headers=_headers(config.own_server),
                     timeout=10.0,
                 )
