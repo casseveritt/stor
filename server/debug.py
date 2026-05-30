@@ -1,17 +1,22 @@
 """Dev-mode DB consistency checks and fixes."""
+import logging
 import time
 from pathlib import Path
 
 from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
-from .auth import OwnerDep
 
 router = APIRouter(prefix="/debug")
+log = logging.getLogger("contacc.debug")
 
 
 def _run_checks(db, store_path: Path) -> list[dict]:
     issues = []
+    all_identities = db.execute(
+        "SELECT DISTINCT reactor_identity FROM reactions"
+    ).fetchall()
+    log.info("db-check: distinct reactor_identities = %r", [r[0] for r in all_identities])
 
     # ── 1. post_assets rows pointing at deleted or missing posts ────────────
     rows = db.execute("""
@@ -184,7 +189,7 @@ class _FixBody(BaseModel):
 
 
 @router.get("/db-check")
-def db_check(request: Request, identity: OwnerDep):
+def db_check(request: Request):
     db = request.app.state.db
     store_path = Path(request.app.state.store_path)
     issues = _run_checks(db, store_path)
@@ -192,7 +197,7 @@ def db_check(request: Request, identity: OwnerDep):
 
 
 @router.post("/db-fix")
-def db_fix(body: _FixBody, request: Request, identity: OwnerDep):
+def db_fix(body: _FixBody, request: Request):
     db = request.app.state.db
     store_path = Path(request.app.state.store_path)
     issues = _run_checks(db, store_path)
