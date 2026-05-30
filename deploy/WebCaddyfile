@@ -3,7 +3,7 @@
 # client API at CONTACC_CLIENT_URL. Replace this entire service with any
 # HTTP server that speaks on :9080 to swap out the UI.
 
-:9080 {
+:9544 {
     root * /srv/web
 
     # Auth callback HTML (no OAuth code) → static page

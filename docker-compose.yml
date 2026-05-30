@@ -14,7 +14,7 @@ x-web: &web
   image: caddy:2-alpine
   restart: unless-stopped
   command: caddy run --config /etc/caddy/WebCaddyfile
-  expose: ["9080"]
+  expose: ["9544"]
   volumes:
     - ${CONTACC_WEB_CONFIG:-./deploy/WebCaddyfile}:/etc/caddy/WebCaddyfile:ro
     - ./web:/srv/web:ro

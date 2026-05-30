@@ -2,43 +2,43 @@
 # service, which handles static files and proxies API calls to its client.
 
 {$CONTACC_DOMAIN}:8443 {
-    reverse_proxy web-1:9080
+    reverse_proxy web-1:9544
 }
 
 {$CONTACC_DOMAIN}:8444 {
-    reverse_proxy web-2:9080
+    reverse_proxy web-2:9544
 }
 
 {$CONTACC_DOMAIN}:8445 {
-    reverse_proxy web-3:9080
+    reverse_proxy web-3:9544
 }
 
 {$CONTACC_DOMAIN}:8446 {
-    reverse_proxy web-4:9080
+    reverse_proxy web-4:9544
 }
 
 {$CONTACC_DOMAIN}:8447 {
-    reverse_proxy web-5:9080
+    reverse_proxy web-5:9544
 }
 
 {$CONTACC_DOMAIN}:8448 {
-    reverse_proxy web-6:9080
+    reverse_proxy web-6:9544
 }
 
 {$CONTACC_DOMAIN}:8449 {
-    reverse_proxy web-7:9080
+    reverse_proxy web-7:9544
 }
 
 {$CONTACC_DOMAIN}:8450 {
-    reverse_proxy web-8:9080
+    reverse_proxy web-8:9544
 }
 
 {$CONTACC_DOMAIN}:8451 {
-    reverse_proxy web-9:9080
+    reverse_proxy web-9:9544
 }
 
 {$CONTACC_DOMAIN}:8452 {
-    reverse_proxy web-10:9080
+    reverse_proxy web-10:9544
 }
 
 {$CONTACC_DOMAIN}:8421 {
