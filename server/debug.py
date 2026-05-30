@@ -141,41 +141,58 @@ def _run_checks(db, store_path: Path) -> list[dict]:
             "fix": None,  # flag for review; don't auto-delete
         })
 
-    # ── 9. identities in reactions/comments with no users entry ─────────────
-    # Checks both public-key identities (against users.public_key) and legacy
-    # URL identities from old reactions (against users.server_url).
+    # ── 9. URL identities in reactions/comments (invalid — URLs are not stable) ─
+    url_reaction_ids = [
+        r[0] for r in db.execute(
+            "SELECT id FROM reactions WHERE reactor_identity LIKE 'http%'"
+        ).fetchall()
+    ]
+    url_comment_ids = [
+        r[0] for r in db.execute(
+            "SELECT id FROM comments WHERE author_identity LIKE 'http%' AND deleted = 0"
+        ).fetchall()
+    ]
+    if url_reaction_ids or url_comment_ids:
+        items = (
+            [f"reaction id={i}" for i in url_reaction_ids] +
+            [f"comment id={i}" for i in url_comment_ids]
+        )
+        issues.append({
+            "id": "url_identity",
+            "title": "URL-based identities in reactions/comments (not valid; URLs are transient)",
+            "items": items,
+            "fix": (
+                "DELETE FROM reactions WHERE reactor_identity LIKE 'http%'; "
+                "UPDATE comments SET deleted = 1 WHERE author_identity LIKE 'http%' AND deleted = 0"
+            ),
+        })
+
+    # ── 10. public keys in reactions/comments with no users entry ────────────
     known_keys = {r[0] for r in db.execute(
         "SELECT public_key FROM users WHERE public_key IS NOT NULL"
-    ).fetchall()}
-    known_urls = {r[0] for r in db.execute(
-        "SELECT server_url FROM users WHERE server_url IS NOT NULL"
     ).fetchall()}
 
     unregistered = set()
     for (identity,) in db.execute(
         "SELECT DISTINCT reactor_identity FROM reactions "
-        "WHERE reactor_identity NOT IN ('', '<anon>', '__anon__')"
+        "WHERE reactor_identity NOT IN ('', '<anon>', '__anon__') "
+        "AND reactor_identity NOT LIKE 'http%'"
     ).fetchall():
-        if identity.startswith("http"):
-            if identity not in known_urls:
-                unregistered.add(identity)
-        elif identity not in known_keys:
+        if identity not in known_keys:
             unregistered.add(identity)
     for (identity,) in db.execute(
         "SELECT DISTINCT author_identity FROM comments "
         "WHERE author_identity IS NOT NULL "
-        "AND author_identity NOT IN ('', '<anon>', '__anon__')"
+        "AND author_identity NOT IN ('', '<anon>', '__anon__') "
+        "AND author_identity NOT LIKE 'http%'"
     ).fetchall():
-        if identity.startswith("http"):
-            if identity not in known_urls:
-                unregistered.add(identity)
-        elif identity not in known_keys:
+        if identity not in known_keys:
             unregistered.add(identity)
 
     if unregistered:
         issues.append({
-            "id": "identity_no_user",
-            "title": "Identities in reactions/comments with no users entry",
+            "id": "pubkey_no_user",
+            "title": "Public keys in reactions/comments with no users entry",
             "items": sorted(unregistered),
             "fix": None,
         })
@@ -205,7 +222,10 @@ def db_fix(body: _FixBody, request: Request, identity: OwnerDep):
     for fix_id in body.fix_ids:
         sql = fix_map.get(fix_id)
         if sql:
-            db.execute(sql)
+            for stmt in sql.split(";"):
+                stmt = stmt.strip()
+                if stmt:
+                    db.execute(stmt)
             applied.append(fix_id)
     db.commit()
     remaining = _run_checks(db, store_path)
