@@ -130,8 +130,17 @@
     .reaction-btn { display: inline-flex; align-items: center; gap: 0.18rem; background: #2a2a2a; border: 1px solid #3a3a3a; border-radius: 9px; padding: 1px 6px; font-size: 0.58rem; cursor: pointer; color: #aaa; line-height: 1.4; }
     .reaction-btn:hover { background: #333; border-color: #555; }
     .reaction-btn.reacted { background: #1e2d4a; border-color: #4285f4; color: #6aa3f5; }
-    .reaction-add { background: none; border: 1px solid #333; border-radius: 9px; padding: 1px 6px; font-size: 0.58rem; cursor: pointer; color: #555; line-height: 1.4; }
+    .reaction-add { background: none; border: 1px solid #333; border-radius: 9px; padding: 1px 6px; font-size: 0.58rem; cursor: pointer; color: #555; line-height: 1.4; user-select: none; }
     .reaction-add:hover { color: #aaa; border-color: #555; }
+    .reactors-panel { position: fixed; background: #1e1e1e; border: 1px solid #3a3a3a; border-radius: 8px; padding: 0.6rem 0.75rem; z-index: 1000; min-width: 180px; max-width: 280px; max-height: 360px; overflow-y: auto; box-shadow: 0 4px 16px rgba(0,0,0,0.6); }
+    .reactors-panel-header { font-size: 0.72rem; color: #666; display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; }
+    .reactors-panel-close { background: none; border: none; color: #555; cursor: pointer; font-size: 0.9rem; padding: 0; line-height: 1; }
+    .reactors-panel-close:hover { color: #aaa; }
+    .reactors-panel-row { display: flex; align-items: center; gap: 0.4rem; padding: 0.2rem 0; font-size: 0.82rem; }
+    .reactors-panel-avatar { width: 20px; height: 20px; border-radius: 50%; object-fit: cover; flex-shrink: 0; }
+    .reactors-panel-initial { width: 20px; height: 20px; border-radius: 50%; background: #2a4a7a; display: flex; align-items: center; justify-content: center; font-size: 0.62rem; color: #aac8ff; flex-shrink: 0; }
+    .reactors-panel-name { color: #e0e0e0; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .reactors-panel-emojis { font-size: 0.9rem; flex-shrink: 0; }
     .emoji-picker { display: flex; gap: 0.3rem; background: #252525; border: 1px solid #3a3a3a; border-radius: 8px; padding: 0.4rem; margin-top: 0.3rem; flex-wrap: wrap; max-width: 260px; }
     .emoji-pick-btn { background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 3px 5px; border-radius: 4px; line-height: 1; }
     .emoji-pick-btn:hover { background: #3a3a3a; }
@@ -1235,6 +1244,64 @@ function _hideReactorTooltip() {
   if (tip) tip.hidden = true;
 }
 
+// ── reactors panel (long-press on +) ───────────────────────────────────────
+let _longPressTimer = null;
+let _longPressActivated = false;
+
+function showReactorsPanel(btn) {
+  document.querySelectorAll('.reactors-panel').forEach(p => p.remove());
+  const bar = btn.closest('.reaction-bar');
+  if (!bar) return;
+  const serverUrl = bar.dataset.server || CFG?.own_server || '';
+  const map = new Map();
+  bar.querySelectorAll('.reaction-btn').forEach(b => {
+    const emoji = b.childNodes[0]?.textContent?.trim() || '';
+    JSON.parse(b.dataset.reactors || '[]').forEach(id => {
+      if (!map.has(id)) { const r = _resolveIdentity(id, serverUrl); map.set(id, {...r, emojis: []}); }
+      map.get(id).emojis.push(emoji);
+    });
+  });
+  if (!map.size) return;
+  const panel = document.createElement('div');
+  panel.className = 'reactors-panel';
+  panel.innerHTML = `<div class="reactors-panel-header"><span>Reactions</span><button class="reactors-panel-close" onclick="this.closest('.reactors-panel').remove()">✕</button></div>`;
+  map.forEach(({ name, photoUrl, emojis }) => {
+    const row = document.createElement('div');
+    row.className = 'reactors-panel-row';
+    const initial = esc((name[0] || '?').toUpperCase());
+    const avatar = photoUrl
+      ? `<img class="reactors-panel-avatar" src="${esc(photoUrl)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'reactors-panel-initial',textContent:'${initial}'}))">`
+      : `<div class="reactors-panel-initial">${initial}</div>`;
+    row.innerHTML = `${avatar}<span class="reactors-panel-name">${esc(name)}</span><span class="reactors-panel-emojis">${emojis.join(' ')}</span>`;
+    panel.appendChild(row);
+  });
+  document.body.appendChild(panel);
+  const rect = btn.getBoundingClientRect();
+  const pw = panel.offsetWidth, ph = panel.offsetHeight;
+  let top = rect.bottom + 4, left = rect.left;
+  if (left + pw > window.innerWidth - 8) left = window.innerWidth - pw - 8;
+  if (top + ph > window.innerHeight - 8) top = rect.top - ph - 4;
+  panel.style.top = Math.max(4, top) + 'px';
+  panel.style.left = Math.max(4, left) + 'px';
+  setTimeout(() => {
+    const dismiss = e => { if (!panel.contains(e.target)) { panel.remove(); document.removeEventListener('click', dismiss, true); } };
+    document.addEventListener('click', dismiss, true);
+  }, 0);
+}
+
+document.addEventListener('pointerdown', e => {
+  const btn = e.target.closest('.reaction-add');
+  if (!btn) return;
+  _longPressActivated = false;
+  _longPressTimer = setTimeout(() => {
+    _longPressActivated = true;
+    _longPressTimer = null;
+    showReactorsPanel(btn);
+  }, 500);
+});
+document.addEventListener('pointerup',     () => { if (_longPressTimer) { clearTimeout(_longPressTimer); _longPressTimer = null; } });
+document.addEventListener('pointercancel', () => { if (_longPressTimer) { clearTimeout(_longPressTimer); _longPressTimer = null; } });
+
 const _normUrl = u => (u || '').replace(/\/+$/, '').toLowerCase();
 
 function _resolveIdentity(identity, postServerUrl) {
@@ -1296,7 +1363,7 @@ function reactionBarHtml(reactions, postId, serverUrl, commentId) {
     const reactorsJson = esc(JSON.stringify(r.reactors || []));
     return `<button class="${cls}" data-reactors="${reactorsJson}" data-server="${esc(serverUrl)}" onmouseenter="_showReactorTooltip(event,this)" onmouseleave="_hideReactorTooltip()" onclick="event.stopPropagation();toggleReaction('${esc(postId)}','${esc(serverUrl)}','${r.emoji}','${esc(cid)}',this)">${r.emoji} <span>${r.count}</span></button>`;
   }).join('');
-  const add = `<button class="reaction-add" onclick="event.stopPropagation();showEmojiPicker(event,'${esc(postId)}','${esc(serverUrl)}','${esc(cid)}')" title="Add reaction">+</button>`;
+  const add = `<button class="reaction-add" onclick="if(_longPressActivated){_longPressActivated=false;}else{event.stopPropagation();showEmojiPicker(event,'${esc(postId)}','${esc(serverUrl)}','${esc(cid)}')}" title="Add reaction • hold to see all reactions">+</button>`;
   return `<div class="reaction-bar" data-post-id="${esc(postId)}" data-server="${esc(serverUrl)}" data-comment-id="${esc(cid)}">${btns}${add}</div>`;
 }
 
