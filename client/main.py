@@ -654,9 +654,11 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def api_asset_thumb(asset_id: str, server: str = "", hash: str = ""):
         src = server or config.own_server
         is_remote = src != config.own_server
+        path = f"/assets/{asset_id}/thumb"
         try:
+            sign_hdrs = await _sign_federated("GET", path, b"") if is_remote else {}
             async with httpx.AsyncClient() as hc:
-                r = await hc.get(_call_url(src) + f"/assets/{asset_id}/thumb", headers=_headers(src))
+                r = await hc.get(_call_url(src) + path, headers={**_headers(src), **sign_hdrs})
             if r.is_success:
                 if is_remote:
                     _cache_asset(asset_id, r.headers.get("content-type", "image/jpeg"), r.content, thumb=True)
@@ -674,9 +676,11 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def api_asset(asset_id: str, server: str = "", hash: str = ""):
         src = server or config.own_server
         is_remote = src != config.own_server
+        path = f"/assets/{asset_id}"
         try:
+            sign_hdrs = await _sign_federated("GET", path, b"") if is_remote else {}
             async with httpx.AsyncClient() as hc:
-                r = await hc.get(_call_url(src) + f"/assets/{asset_id}", headers=_headers(src))
+                r = await hc.get(_call_url(src) + path, headers={**_headers(src), **sign_hdrs})
             if r.is_success:
                 if is_remote:
                     _cache_asset(asset_id, r.headers.get("content-type", "application/octet-stream"), r.content, thumb=False)
@@ -838,6 +842,15 @@ def create_app(config_path: str | Path) -> FastAPI:
         return {"name": body.name, "url": body.url, "handle": body.handle}
 
     # ── dev / debug ───────────────────────────────────────────────────────
+
+    @api.get("/dev/asset-state/{asset_id}")
+    async def api_dev_asset_state(asset_id: str):
+        async with httpx.AsyncClient() as hc:
+            r = await hc.get(_server + f"/debug/asset-state/{asset_id}",
+                             headers=_internal_headers(), timeout=10)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
 
     @api.get("/dev/db-check")
     async def api_dev_db_check():

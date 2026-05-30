@@ -196,6 +196,24 @@ def db_check(request: Request):
     return {"issues": issues, "checked_at": time.time()}
 
 
+@router.get("/asset-state/{asset_id}")
+def asset_state(asset_id: str, request: Request):
+    db = request.app.state.db
+    asset = db.execute(
+        "SELECT id, deleted, is_public, title FROM assets WHERE id = ?", (asset_id,)
+    ).fetchone()
+    if not asset:
+        return {"error": "asset not found"}
+    links = db.execute(
+        "SELECT pa.post_id, p.deleted, p.visibility FROM post_assets pa "
+        "LEFT JOIN posts p ON p.id = pa.post_id WHERE pa.asset_id = ?", (asset_id,)
+    ).fetchall()
+    return {
+        "asset": {"id": asset[0], "deleted": bool(asset[1]), "is_public": bool(asset[2]), "title": asset[3]},
+        "post_links": [{"post_id": r[0], "post_deleted": bool(r[1]), "visibility": r[2]} for r in links],
+    }
+
+
 @router.post("/db-fix")
 def db_fix(body: _FixBody, request: Request):
     db = request.app.state.db
