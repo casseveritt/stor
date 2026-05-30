@@ -295,10 +295,12 @@ def create_app(config_path: str | Path) -> FastAPI:
         return next((c.name for c in config.contacts if c.url == url), url)
 
     def _all_servers() -> list[str]:
+        seen = {config.own_server.rstrip("/")}
         urls = [config.own_server]
         for c in config.contacts:
             url = (_url_for_pubkey(c.public_key) if c.public_key else None) or c.url
-            if url:
+            if url and url.rstrip("/") not in seen:
+                seen.add(url.rstrip("/"))
                 urls.append(url)
         return urls
 
@@ -586,11 +588,15 @@ def create_app(config_path: str | Path) -> FastAPI:
         import asyncio
         raw_results = await asyncio.gather(*[_fetch_one(url) for url in servers])
         server_status = {url: ("online" if live else "offline") for url, (_, live) in zip(servers, raw_results)}
-        merged = sorted(
-            [p for posts, _ in raw_results for p in posts],
-            key=lambda p: p.get("created_at", 0),
-            reverse=True,
-        )[:limit]
+        seen_ids: set[str] = set()
+        deduped = []
+        for posts, _ in raw_results:
+            for p in posts:
+                key = (p.get("_server_url", ""), p.get("id", ""))
+                if key not in seen_ids:
+                    seen_ids.add(key)
+                    deduped.append(p)
+        merged = sorted(deduped, key=lambda p: p.get("created_at", 0), reverse=True)[:limit]
 
         next_cursor = str(merged[-1]["created_at"]) if len(merged) == limit else None
         return {"posts": merged, "server_status": server_status, "next_cursor": next_cursor}
