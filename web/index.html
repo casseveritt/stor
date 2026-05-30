@@ -1158,7 +1158,14 @@ async function loadFeed() {
     // Cache is warm — let the UI settle, then refresh from servers in the background.
     const servers = activeServer ? [activeServer] : [CFG.own_server, ...(CFG.contacts || []).map(c => c.url)];
     for (const url of servers) _serverLastFetched[url] = 0;
-    setTimeout(_runBgFetch, 3000);
+    setTimeout(async () => {
+      await _runBgFetch();
+      const el = document.getElementById("feed-status");
+      if (el && el.textContent.includes('refreshing')) {
+        const n = allPosts.length;
+        el.textContent = n ? n + " post" + (n !== 1 ? "s" : "") : "";
+      }
+    }, 3000);
   }
 
   return true;
