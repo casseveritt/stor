@@ -9,7 +9,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 
-from .auth import AuthDep, FederatedSigDep, OptionalAuthDep, OwnerDep
+from .auth import AuthDep, FederatedOrTokenDep, FederatedSigDep, OptionalAuthDep, OwnerDep
 from .crypto import encrypt_bytes
 
 router = APIRouter()
@@ -470,7 +470,7 @@ class _CommentBody(BaseModel):
 
 
 @router.post("/posts/{post_id}/comments", status_code=201)
-def post_comment(post_id: str, payload: _CommentBody, request: Request, identity: OptionalAuthDep, _sig: FederatedSigDep = None):
+async def post_comment(post_id: str, payload: _CommentBody, request: Request, identity: FederatedOrTokenDep):
     db = request.app.state.db
     origin_server = request.headers.get("X-Origin-Server")
     _require_post_access(db, post_id, identity, origin_server, request.headers.get("X-Public-Key"))
@@ -491,13 +491,6 @@ def post_comment(post_id: str, payload: _CommentBody, request: Request, identity
         row = db.execute("SELECT identity FROM recipients WHERE id = ?", (author_id,)).fetchone()
         if row:
             author_identity = row[0]
-    elif not identity.is_owner:
-        pub_key_header = request.headers.get("X-Public-Key", "")
-        row = db.execute("SELECT public_key FROM users WHERE public_key = ?", (pub_key_header,)).fetchone() if pub_key_header else None
-        if row and row[0]:
-            author_identity = row[0]
-        elif origin_server or pub_key_header:
-            author_identity = "<anon>"
 
     db.execute(
         """INSERT INTO comments
