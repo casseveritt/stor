@@ -254,9 +254,9 @@ async def get_identity_or_federated(
             node_data = nr.json()
             if node_data.get("public_key") != pub_key_header:
                 return _GUEST  # claimed key doesn't match the server's actual key
-            # Key verified — register this node as a known user.
+            # Key verified — register as 'external' (not a contact; won't pass contact-level ACL).
             db.execute(
-                "INSERT OR IGNORE INTO users (server_url, name, handle, public_key) VALUES (?, ?, ?, ?)",
+                "INSERT OR IGNORE INTO users (server_url, name, handle, public_key, relationship) VALUES (?, ?, ?, ?, 'external')",
                 (origin, node_data.get("handle") or origin, node_data.get("handle") or "", pub_key_header),
             )
             db.commit()

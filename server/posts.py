@@ -426,7 +426,7 @@ def _is_known_contact(db, server_url: str, public_key: str | None = None) -> boo
     if not public_key:
         return False
     row = db.execute(
-        "SELECT id, server_url FROM users WHERE public_key = ?", (public_key,)
+        "SELECT id, server_url FROM users WHERE public_key = ? AND relationship = 'contact'", (public_key,)
     ).fetchone()
     if not row:
         return False
