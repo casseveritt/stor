@@ -37,6 +37,7 @@ services:
     <<: *them
     expose: ["18443"]
     environment:
+      <<: *proxy-env
       CONTACC_THEM_PORT: "18443"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
       CONTACC_SERVER_URL: http://node-0-me:28443
@@ -71,6 +72,7 @@ services:
     <<: *them
     expose: ["18444"]
     environment:
+      <<: *proxy-env
       CONTACC_THEM_PORT: "18444"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8444
       CONTACC_SERVER_URL: http://node-1-me:28444
@@ -106,6 +108,7 @@ services:
     profiles: [node2]
     expose: ["18445"]
     environment:
+      <<: *proxy-env
       CONTACC_THEM_PORT: "18445"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8445
       CONTACC_SERVER_URL: http://node-2-me:28445
@@ -142,6 +145,7 @@ services:
     profiles: [node3]
     expose: ["18446"]
     environment:
+      <<: *proxy-env
       CONTACC_THEM_PORT: "18446"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8446
       CONTACC_SERVER_URL: http://node-3-me:28446
@@ -178,6 +182,7 @@ services:
     profiles: [node4]
     expose: ["18447"]
     environment:
+      <<: *proxy-env
       CONTACC_THEM_PORT: "18447"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8447
       CONTACC_SERVER_URL: http://node-4-me:28447
@@ -214,6 +219,7 @@ services:
     profiles: [node5]
     expose: ["18448"]
     environment:
+      <<: *proxy-env
       CONTACC_THEM_PORT: "18448"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8448
       CONTACC_SERVER_URL: http://node-5-me:28448
@@ -250,6 +256,7 @@ services:
     profiles: [node6]
     expose: ["18449"]
     environment:
+      <<: *proxy-env
       CONTACC_THEM_PORT: "18449"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8449
       CONTACC_SERVER_URL: http://node-6-me:28449
@@ -286,6 +293,7 @@ services:
     profiles: [node7]
     expose: ["18450"]
     environment:
+      <<: *proxy-env
       CONTACC_THEM_PORT: "18450"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8450
       CONTACC_SERVER_URL: http://node-7-me:28450
@@ -322,6 +330,7 @@ services:
     profiles: [node8]
     expose: ["18451"]
     environment:
+      <<: *proxy-env
       CONTACC_THEM_PORT: "18451"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8451
       CONTACC_SERVER_URL: http://node-8-me:28451
@@ -358,6 +367,7 @@ services:
     profiles: [node9]
     expose: ["18452"]
     environment:
+      <<: *proxy-env
       CONTACC_THEM_PORT: "18452"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8452
       CONTACC_SERVER_URL: http://node-9-me:28452
@@ -394,6 +404,7 @@ services:
     profiles: [node10]
     expose: ["18453"]
     environment:
+      <<: *proxy-env
       CONTACC_THEM_PORT: "18453"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8453
       CONTACC_SERVER_URL: http://node-10-me:28453
