@@ -215,6 +215,75 @@ def get_identity_optional(
 OptionalAuthDep = Annotated[TokenIdentity, Depends(get_identity_optional)]
 
 
+async def get_identity_or_federated(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> TokenIdentity:
+    """Like OptionalAuthDep but also recognises federated signatures from known contacts.
+
+    If no Bearer token is present, checks X-Public-Key + signature headers. When
+    the key is in the users table and the signature is valid, finds or creates a
+    recipient record for that server URL so the comment is attributed correctly.
+    """
+    # 1. Try Bearer / query token first.
+    if authorization and authorization.startswith("Bearer "):
+        return _identity_from_token(request, authorization.removeprefix("Bearer "))
+    token = request.query_params.get("token")
+    if token:
+        return _identity_from_token(request, token)
+
+    # 2. Try federated signature.
+    pub_key_header = request.headers.get("X-Public-Key", "")
+    if not pub_key_header:
+        return _GUEST
+
+    db = request.app.state.db
+    row = db.execute(
+        "SELECT public_key, server_url FROM users WHERE public_key = ?", (pub_key_header,)
+    ).fetchone()
+    if not row:
+        return _GUEST  # unknown key — treat as guest
+
+    timestamp_str = request.headers.get("X-Timestamp", "")
+    signature_b64 = request.headers.get("X-Signature", "")
+    if not timestamp_str or not signature_b64:
+        return _GUEST
+
+    try:
+        ts = int(timestamp_str)
+        if abs(time.time() - ts) > FEDERATED_TIMESTAMP_TOLERANCE:
+            return _GUEST
+        body = await request.body()
+        body_hash = hashlib.sha256(body).hexdigest()
+        canonical = f"{request.method}\n{request.url.path}\n{timestamp_str}\n{body_hash}"
+        pub_bytes = base64.b64decode(row[0] + "==")
+        pub_key_obj = Ed25519PublicKey.from_public_bytes(pub_bytes)
+        sig = base64.b64decode(signature_b64 + "==")
+        pub_key_obj.verify(sig, canonical.encode())
+    except Exception:
+        return _GUEST  # invalid signature — treat as guest
+
+    # Signature is valid. Find or create a recipient for this server URL.
+    server_url = row[1] or request.headers.get("X-Origin-Server", "")
+    if not server_url:
+        return _GUEST
+    rec = db.execute("SELECT id FROM recipients WHERE identity = ?", (server_url,)).fetchone()
+    if rec:
+        return TokenIdentity(is_owner=False, recipient_id=rec[0])
+
+    # Auto-create a recipient entry so the comment is attributed properly.
+    recipient_id = str(uuid.uuid4())
+    db.execute(
+        "INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
+        (recipient_id, server_url, server_url),
+    )
+    db.commit()
+    return TokenIdentity(is_owner=False, recipient_id=recipient_id)
+
+
+FederatedOrTokenDep = Annotated[TokenIdentity, Depends(get_identity_or_federated)]
+
+
 def require_owner(identity: AuthDep) -> TokenIdentity:
     if not identity.is_owner:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner access required")

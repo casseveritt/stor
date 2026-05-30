@@ -6,7 +6,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from .auth import AuthDep, OptionalAuthDep, check_acl
+from .auth import AuthDep, FederatedOrTokenDep, OptionalAuthDep, check_acl
 from .access_log import log_access
 
 router = APIRouter()
@@ -67,7 +67,7 @@ class _PostCommentBody(BaseModel):
 
 
 @router.post("/assets/{asset_id}/comments", status_code=201)
-def post_comment(asset_id: str, payload: _PostCommentBody, request: Request, identity: OptionalAuthDep):
+async def post_comment(asset_id: str, payload: _PostCommentBody, request: Request, identity: FederatedOrTokenDep):
     db = request.app.state.db
     _require_asset_acl(db, asset_id, identity)
 
