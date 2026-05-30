@@ -144,7 +144,7 @@ def _run_checks(db, store_path: Path) -> list[dict]:
     # ── 9. public keys in reactions/comments with no contacts entry ─────────
     # Excludes owner (''), anonymous ('<anon>', '__anon__'), and legacy URL identities.
     known_keys = {r[0] for r in db.execute(
-        "SELECT public_key FROM contacts WHERE public_key IS NOT NULL"
+        "SELECT public_key FROM users WHERE public_key IS NOT NULL"
     ).fetchall()}
 
     unregistered = set()
@@ -167,7 +167,7 @@ def _run_checks(db, store_path: Path) -> list[dict]:
     if unregistered:
         issues.append({
             "id": "pubkey_no_contact",
-            "title": "Public keys in reactions/comments with no contacts entry",
+            "title": "Public keys in reactions/comments with no users entry",
             "items": sorted(unregistered),
             "fix": None,  # requires registry lookup to resolve
         })

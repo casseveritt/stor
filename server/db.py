@@ -232,21 +232,35 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         )
     """)
     con.execute("""
-        CREATE TABLE IF NOT EXISTS contacts (
-            id         INTEGER PRIMARY KEY AUTOINCREMENT,
-            server_url TEXT NOT NULL UNIQUE,
-            name       TEXT,
-            handle     TEXT,
-            public_key TEXT
+        CREATE TABLE IF NOT EXISTS users (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            server_url   TEXT NOT NULL UNIQUE,
+            name         TEXT,
+            handle       TEXT,
+            public_key   TEXT,
+            relationship TEXT NOT NULL DEFAULT 'contact'
         )
     """)
     con.execute("INSERT OR IGNORE INTO schema_version VALUES (7)")
-    # migrate: add public_key column to contacts
-    try:
-        con.execute("SELECT public_key FROM contacts LIMIT 1")
-    except Exception:
-        con.execute("ALTER TABLE contacts ADD COLUMN public_key TEXT")
+    # schema version 9: rename contacts → users, add relationship column
+    contacts_exists = con.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='contacts'"
+    ).fetchone()
+    if contacts_exists:
+        # ensure public_key column exists before rename
+        try:
+            con.execute("SELECT public_key FROM contacts LIMIT 1")
+        except Exception:
+            con.execute("ALTER TABLE contacts ADD COLUMN public_key TEXT")
+            con.commit()
+        con.execute("ALTER TABLE contacts RENAME TO users")
         con.commit()
+    try:
+        con.execute("SELECT relationship FROM users LIMIT 1")
+    except Exception:
+        con.execute("ALTER TABLE users ADD COLUMN relationship TEXT NOT NULL DEFAULT 'contact'")
+        con.commit()
+    con.execute("INSERT OR IGNORE INTO schema_version VALUES (9)")
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS reactions (

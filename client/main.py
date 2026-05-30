@@ -830,7 +830,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         if _token(config.own_server):
             async with httpx.AsyncClient() as hc:
                 await hc.post(
-                    _server + "/contacts",
+                    _server + "/users",
                     json={"server_url": body.url, "name": body.name, "handle": body.handle, "public_key": body.public_key},
                     headers=_headers(config.own_server),
                     timeout=10.0,
@@ -894,7 +894,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         if _token(config.own_server):
             async with httpx.AsyncClient() as hc:
                 await hc.delete(
-                    _server + "/contacts",
+                    _server + "/users",
                     params={"server_url": url},
                     headers=_headers(config.own_server),
                     timeout=10.0,

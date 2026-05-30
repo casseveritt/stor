@@ -21,9 +21,9 @@ def _reactor(identity, request: Request) -> str:
         db = request.app.state.db
         row = None
         if pub_key_header:
-            row = db.execute("SELECT public_key FROM contacts WHERE public_key = ?", (pub_key_header,)).fetchone()
+            row = db.execute("SELECT public_key FROM users WHERE public_key = ?", (pub_key_header,)).fetchone()
         if not row and origin:
-            row = db.execute("SELECT public_key FROM contacts WHERE server_url = ?", (origin,)).fetchone()
+            row = db.execute("SELECT public_key FROM users WHERE server_url = ?", (origin,)).fetchone()
         if row and row[0]:
             return row[0]
     return "<anon>"

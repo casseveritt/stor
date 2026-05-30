@@ -242,12 +242,12 @@ async def verify_federated_signature(request: Request) -> None:
     db = request.app.state.db
     row = None
     if pub_key_header:
-        row = db.execute("SELECT public_key, server_url FROM contacts WHERE public_key = ?", (pub_key_header,)).fetchone()
+        row = db.execute("SELECT public_key, server_url FROM users WHERE public_key = ?", (pub_key_header,)).fetchone()
         if row and origin and row[1] != origin:
-            db.execute("UPDATE contacts SET server_url = ? WHERE public_key = ?", (origin, pub_key_header))
+            db.execute("UPDATE users SET server_url = ? WHERE public_key = ?", (origin, pub_key_header))
             db.commit()
     if not row and origin:
-        row = db.execute("SELECT public_key, server_url FROM contacts WHERE server_url = ?", (origin,)).fetchone()
+        row = db.execute("SELECT public_key, server_url FROM users WHERE server_url = ?", (origin,)).fetchone()
     if not row or not row[0]:
         return  # contact has no public key — cannot verify
 

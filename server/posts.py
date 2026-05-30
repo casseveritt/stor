@@ -425,16 +425,16 @@ def _require_post_access(db, post_id: str, identity, origin_server: str | None =
 def _is_known_contact(db, server_url: str, public_key: str | None = None) -> bool:
     if public_key:
         row = db.execute(
-            "SELECT id, server_url FROM contacts WHERE public_key = ?", (public_key,)
+            "SELECT id, server_url FROM users WHERE public_key = ?", (public_key,)
         ).fetchone()
         if row:
             if server_url and row[1] != server_url:
-                db.execute("UPDATE contacts SET server_url = ? WHERE id = ?", (server_url, row[0]))
+                db.execute("UPDATE users SET server_url = ? WHERE id = ?", (server_url, row[0]))
                 db.commit()
             return True
     if server_url:
         return db.execute(
-            "SELECT 1 FROM contacts WHERE server_url = ?", (server_url,)
+            "SELECT 1 FROM users WHERE server_url = ?", (server_url,)
         ).fetchone() is not None
     return False
 
@@ -496,9 +496,9 @@ def post_comment(post_id: str, payload: _CommentBody, request: Request, identity
             author_identity = row[0]
     elif not identity.is_owner:
         pub_key_header = request.headers.get("X-Public-Key", "")
-        row = db.execute("SELECT public_key FROM contacts WHERE public_key = ?", (pub_key_header,)).fetchone() if pub_key_header else None
+        row = db.execute("SELECT public_key FROM users WHERE public_key = ?", (pub_key_header,)).fetchone() if pub_key_header else None
         if not row and origin_server:
-            row = db.execute("SELECT public_key FROM contacts WHERE server_url = ?", (origin_server,)).fetchone()
+            row = db.execute("SELECT public_key FROM users WHERE server_url = ?", (origin_server,)).fetchone()
         if row and row[0]:
             author_identity = row[0]
         elif origin_server or pub_key_header:

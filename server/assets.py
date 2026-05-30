@@ -101,7 +101,7 @@ def _require_acl(db, asset_id: str, identity, request: Request | None = None):
     origin = request.headers.get("X-Origin-Server", "") if request else ""
     if origin:
         is_contact = bool(db.execute(
-            "SELECT 1 FROM contacts WHERE server_url = ?", (origin,)
+            "SELECT 1 FROM users WHERE server_url = ?", (origin,)
         ).fetchone())
         row = db.execute(
             "SELECT p.visibility FROM posts p JOIN post_assets pa ON p.id = pa.post_id "
