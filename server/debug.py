@@ -141,60 +141,39 @@ def _run_checks(db, store_path: Path) -> list[dict]:
             "fix": None,  # flag for review; don't auto-delete
         })
 
-    # ── 9. URL identities in reactions/comments (invalid — URLs are not stable) ─
-    url_reaction_ids = [
-        r[0] for r in db.execute(
-            "SELECT id FROM reactions WHERE reactor_identity LIKE 'http%'"
-        ).fetchall()
-    ]
-    url_comment_ids = [
-        r[0] for r in db.execute(
-            "SELECT id FROM comments WHERE author_identity LIKE 'http%' AND deleted = 0"
-        ).fetchall()
-    ]
-    if url_reaction_ids or url_comment_ids:
+    # ── 9. reactions/comments with unrecognized identities ──────────────────
+    # Valid identities: '' (owner), '<anon>', '__anon__', or a known public key.
+    # Anything else — URLs, unknown keys, legacy formats — is flagged.
+    _valid = "('', '<anon>', '__anon__')"
+    _known_keys_sub = "SELECT public_key FROM users WHERE public_key IS NOT NULL"
+    bad_reactions = db.execute(
+        f"SELECT id, reactor_identity FROM reactions "
+        f"WHERE reactor_identity NOT IN {_valid} "
+        f"AND reactor_identity NOT IN ({_known_keys_sub})"
+    ).fetchall()
+    bad_comments = db.execute(
+        f"SELECT id, author_identity FROM comments "
+        f"WHERE deleted = 0 AND author_identity IS NOT NULL "
+        f"AND author_identity NOT IN {_valid} "
+        f"AND author_identity NOT IN ({_known_keys_sub})"
+    ).fetchall()
+    if bad_reactions or bad_comments:
         items = (
-            [f"reaction id={i}" for i in url_reaction_ids] +
-            [f"comment id={i}" for i in url_comment_ids]
+            [f"reaction id={r[0]} identity={r[1]}" for r in bad_reactions] +
+            [f"comment id={r[0]} identity={r[1]}" for r in bad_comments]
         )
         issues.append({
-            "id": "url_identity",
-            "title": "URL-based identities in reactions/comments (not valid; URLs are transient)",
+            "id": "invalid_identity",
+            "title": "Reactions/comments with unrecognized identities",
             "items": items,
             "fix": (
-                "DELETE FROM reactions WHERE reactor_identity LIKE 'http%'; "
-                "UPDATE comments SET deleted = 1 WHERE author_identity LIKE 'http%' AND deleted = 0"
+                f"DELETE FROM reactions WHERE reactor_identity NOT IN {_valid} "
+                f"AND reactor_identity NOT IN ({_known_keys_sub}); "
+                f"UPDATE comments SET deleted = 1 WHERE deleted = 0 "
+                f"AND author_identity IS NOT NULL "
+                f"AND author_identity NOT IN {_valid} "
+                f"AND author_identity NOT IN ({_known_keys_sub})"
             ),
-        })
-
-    # ── 10. public keys in reactions/comments with no users entry ────────────
-    known_keys = {r[0] for r in db.execute(
-        "SELECT public_key FROM users WHERE public_key IS NOT NULL"
-    ).fetchall()}
-
-    unregistered = set()
-    for (identity,) in db.execute(
-        "SELECT DISTINCT reactor_identity FROM reactions "
-        "WHERE reactor_identity NOT IN ('', '<anon>', '__anon__') "
-        "AND reactor_identity NOT LIKE 'http%'"
-    ).fetchall():
-        if identity not in known_keys:
-            unregistered.add(identity)
-    for (identity,) in db.execute(
-        "SELECT DISTINCT author_identity FROM comments "
-        "WHERE author_identity IS NOT NULL "
-        "AND author_identity NOT IN ('', '<anon>', '__anon__') "
-        "AND author_identity NOT LIKE 'http%'"
-    ).fetchall():
-        if identity not in known_keys:
-            unregistered.add(identity)
-
-    if unregistered:
-        issues.append({
-            "id": "pubkey_no_user",
-            "title": "Public keys in reactions/comments with no users entry",
-            "items": sorted(unregistered),
-            "fix": None,
         })
 
     return issues
