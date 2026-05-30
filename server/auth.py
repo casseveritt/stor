@@ -234,8 +234,6 @@ async def get_identity_or_federated(
 
     # 2. Try federated signature.
     pub_key_header = request.headers.get("X-Public-Key", "")
-    _log = __import__("logging").getLogger("contacc")
-    _log.info("FedOrToken %s %s pubkey=%s", request.method, request.url.path, pub_key_header[:12] if pub_key_header else "none")
     if not pub_key_header:
         return _GUEST
 
@@ -243,7 +241,6 @@ async def get_identity_or_federated(
     row = db.execute(
         "SELECT public_key, server_url FROM users WHERE public_key = ?", (pub_key_header,)
     ).fetchone()
-    _log.info("FedOrToken users lookup: found=%s", bool(row))
     if not row:
         # Unknown key — try to verify it against the origin server on the fly.
         origin = request.headers.get("X-Origin-Server", "")
@@ -283,8 +280,7 @@ async def get_identity_or_federated(
         pub_key_obj = Ed25519PublicKey.from_public_bytes(pub_bytes)
         sig = base64.b64decode(signature_b64 + "==")
         pub_key_obj.verify(sig, canonical.encode())
-    except Exception as _e:
-        _log.info("FedOrToken sig verify failed: %s", _e)
+    except Exception:
         return _GUEST  # invalid signature — treat as guest
 
     # Signature is valid. Find or create a recipient for this server URL.
