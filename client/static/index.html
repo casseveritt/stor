@@ -1749,20 +1749,32 @@ function onComposeInput() {
   const match = before.match(/@(\w*)$/);
   if (!match) { hideMentionDropdown(); return; }
   const query = match[1].toLowerCase();
-  const contacts = (CFG && CFG.contacts || []).filter(c => {
-    const h = (c.handle || '').toLowerCase();
-    const n = c.name.toLowerCase();
-    return h.startsWith(query) || n.startsWith(query) || n.split(' ').some(w => w.startsWith(query));
+  const _words = s => s.toLowerCase().split(/\s+/);
+  const _starts = (s, q) => q === '' || s.toLowerCase().startsWith(q) || _words(s).some(w => w.startsWith(q));
+  const contacts = (CFG?.contacts || []).filter(c => {
+    const prof = serverProfiles[c.url] || {};
+    return _starts(c.name, query)
+        || _starts(c.handle || '', query)
+        || _starts(prof.display_name || '', query)
+        || _starts(prof.handle || '', query);
   });
   if (!contacts.length) { hideMentionDropdown(); return; }
   _mentionState = { start: pos - match[0].length, query, focused: 0, contacts };
   const dd = document.getElementById('mention-dropdown');
   dd.innerHTML = '';
   contacts.forEach((c, i) => {
+    const prof = serverProfiles[c.url] || {};
+    const tagLabel = c.name.trim().split(/\s+/)[0] || c.handle || 'contact';
+    const displayName = prof.display_name || '';
+    const handle = c.handle || prof.handle || '';
+    // Secondary line: display name (if different from tag) + handle
+    const parts = [];
+    if (displayName && displayName !== c.name) parts.push(esc(displayName));
+    if (handle) parts.push('@' + esc(handle));
+    const secondary = parts.length ? `<span class="mention-item-handle">${parts.join(' · ')}</span>` : '';
     const el = document.createElement('div');
     el.className = 'mention-item' + (i === 0 ? ' focused' : '');
-    const shortLabel = c.name.trim().split(/\s+/)[0] || c.handle || 'contact';
-    el.innerHTML = `<span class="mention-item-name">${esc(c.name)}</span><span class="mention-item-handle">@${esc(shortLabel)}</span>`;
+    el.innerHTML = `<span class="mention-item-name">${esc(c.name)}</span>${secondary}`;
     el.onmousedown = e => { e.preventDefault(); _selectMention(c); };
     dd.appendChild(el);
   });
