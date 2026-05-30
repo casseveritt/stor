@@ -799,7 +799,19 @@ def create_app(config_path: str | Path) -> FastAPI:
                               headers=_internal_headers(), timeout=120)
         if not r.is_success:
             raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", r.text))
-        return r.json()
+        data = r.json()
+        # Keep client node_key in sync — it holds the same private key, re-encrypted.
+        if "node_key" in data:
+            nk = data["node_key"]
+            config.node_key = NodeKey(
+                argon2_salt=nk["argon2_salt"],
+                encrypted_private_key=nk["encrypted_private_key"],
+                argon2_time_cost=nk["argon2_time_cost"],
+                argon2_memory_cost=nk["argon2_memory_cost"],
+                argon2_parallelism=nk["argon2_parallelism"],
+            )
+            config.save(config_path)
+        return data
 
     @api.put("/profile")
     async def api_update_profile(request: Request):

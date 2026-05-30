@@ -306,7 +306,16 @@ def change_passphrase(body: ChangePassphraseBody, request: Request):
     # Update running state
     app.state.file_key = new_file_key
 
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "node_key": {
+            "argon2_salt": new_salt.hex(),
+            "encrypted_private_key": base64.b64encode(encrypt_bytes(privkey_bytes, new_master_key)).decode(),
+            "argon2_time_cost": ARGON2_TIME_COST,
+            "argon2_memory_cost": ARGON2_MEMORY_COST,
+            "argon2_parallelism": ARGON2_PARALLELISM,
+        },
+    }
 
 
 def _create_node_config(
