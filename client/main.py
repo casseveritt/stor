@@ -882,6 +882,28 @@ def create_app(config_path: str | Path) -> FastAPI:
                 )
         return {"name": body.name, "url": body.url, "handle": body.handle}
 
+    class ContactRenameBody(BaseModel):
+        url: str
+        name: str
+
+    @api.patch("/contacts")
+    async def api_rename_contact(body: ContactRenameBody):
+        contact = next((c for c in config.contacts if c.url == body.url), None)
+        if not contact:
+            raise HTTPException(status_code=404, detail="Contact not found")
+        contact.name = body.name
+        config.save(config_path)
+        if _token(config.own_server):
+            async with httpx.AsyncClient() as hc:
+                await hc.patch(
+                    _server + "/users",
+                    params={"server_url": body.url},
+                    json={"name": body.name},
+                    headers={**_headers(config.own_server), "Content-Type": "application/json"},
+                    timeout=10.0,
+                )
+        return {"ok": True}
+
     # ── dev / debug ───────────────────────────────────────────────────────
 
     @api.get("/dev/asset-state/{asset_id}")

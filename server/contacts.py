@@ -36,6 +36,15 @@ def add_user(payload: _UserBody, request: Request, _: OwnerDep):
     return {"server_url": payload.server_url}
 
 
+@router.patch("/users", status_code=200)
+def update_user(server_url: str, payload: _UserBody, request: Request, _: OwnerDep):
+    db = request.app.state.db
+    if payload.name is not None:
+        db.execute("UPDATE users SET name = ? WHERE server_url = ?", (payload.name, server_url))
+        db.commit()
+    return {"ok": True}
+
+
 @router.delete("/users", status_code=204)
 def remove_user(server_url: str, request: Request, _: OwnerDep):
     db = request.app.state.db

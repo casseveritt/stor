@@ -43,9 +43,9 @@
     .server-dot.wait { background: #555; }
     .contact-row { display: flex; align-items: center; position: relative; }
     .contact-row .server-btn { flex: 1; }
-    .contact-remove { display: none; background: none; border: none; cursor: pointer; font-size: 0.7rem; color: #666; line-height: 1; padding: 0 4px; flex-shrink: 0; }
-    .contact-row:hover .contact-remove { display: inline; }
-    .contact-remove:hover { color: #e06c6c; }
+    .contact-menu-btn { display: none; background: none; border: none; cursor: pointer; font-size: 0.85rem; color: #666; line-height: 1; padding: 0 4px; flex-shrink: 0; border-radius: 4px; }
+    .contact-row:hover .contact-menu-btn { display: inline; }
+    .contact-menu-btn:hover { background: #333; color: #ccc; }
     #tag-list { display: flex; flex-direction: column; gap: 0.25rem; }
     .tag-btn { background: none; border: none; text-align: left; cursor: pointer; padding: 0.3rem 0.5rem; border-radius: 4px; font-size: 0.82rem; color: #888; display: flex; justify-content: space-between; align-items: center; }
     .tag-btn:hover { background: #222; color: #ccc; }
@@ -714,16 +714,50 @@ function renderServerList() {
     const avatarHtml = prof && prof.photo_url
       ? `<img src="${esc(prof.photo_url)}" class="post-author-avatar" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span class="post-author-initials" hidden>${sInitial}</span>`
       : `<span class="post-author-initials">${sInitial}</span>`;
+    const urlJson = JSON.stringify(s.url).replace(/"/g, '&quot;');
+    const nameJson = JSON.stringify(s.name || '').replace(/"/g, '&quot;');
     return '<div class="contact-row">'
       + '<button class="server-btn' + (activeServer === s.url ? " active" : "") + '" onclick="setActiveServer(' + globalIdx + ')" title="' + esc(s.name) + '">'
       + avatarHtml
       + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + label + '</span>'
       + '<span class="server-dot ' + status + '"></span>'
       + '</button>'
-      + '<button class="contact-remove" onclick="removeContact(' + JSON.stringify(s.url).replace(/"/g, '&quot;') + ')" title="Remove contact">✕</button>'
+      + '<span style="position:relative;display:inline-flex;align-items:center">'
+      + '<button class="contact-menu-btn" onclick="openContactMenu(event,' + urlJson + ',' + nameJson + ')" title="Contact options">…</button>'
+      + '</span>'
       + '</div>';
   });
   list.innerHTML = allBtn + serverBtns.join("");
+}
+
+function openContactMenu(e, url, name) {
+  e.stopPropagation();
+  closeAllPostMenus();
+  const btn = e.currentTarget;
+  const wrap = btn.parentElement;
+  const popup = document.createElement('div');
+  popup.className = 'post-menu-popup';
+  const uq = JSON.stringify(url), nq = JSON.stringify(name);
+  popup.innerHTML =
+    `<button onclick="closeAllPostMenus();renameContact(${uq},${nq})">Rename</button>`
+    + `<button class="danger" onclick="closeAllPostMenus();removeContact(${uq})">Remove</button>`;
+  wrap.appendChild(popup);
+  const dismiss = ev => { if (!popup.contains(ev.target) && ev.target !== btn) { closeAllPostMenus(); document.removeEventListener('click', dismiss, true); } };
+  setTimeout(() => document.addEventListener('click', dismiss, true), 0);
+}
+
+async function renameContact(url, currentName) {
+  const newName = prompt("Label for this contact:", currentName);
+  if (!newName || newName === currentName) return;
+  const r = await apiFetch("/api/contacts", {
+    method: "PATCH",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({url, name: newName}),
+  });
+  if (!r.ok) { alert("Failed to rename contact."); return; }
+  const cfg = await (await apiFetch("/api/config")).json();
+  _setCFG(cfg);
+  renderServerList();
 }
 
 async function removeContact(url) {
