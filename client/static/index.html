@@ -1077,6 +1077,7 @@ async function loadFeed() {
         card.classList.add('post-stale');
         timeline.appendChild(card);
       }
+      _newestKnownAt = cached.posts[0]?.created_at || 0;
       const n = allPosts.length;
       document.getElementById("feed-status").textContent = n + "+ posts (refreshing…)";
       document.getElementById("empty-msg").hidden = true;
@@ -1144,6 +1145,7 @@ async function loadMore(allowLoginRedirect = false) {
   if (!nextCursor && !currentSearch && activeTags.size === 0 && !activeServer) {
     _saveFeedCache(allPosts);
   }
+  if (data.posts.length > 0) _newestKnownAt = Math.max(_newestKnownAt, data.posts[0].created_at || 0);
   nextCursor = data.next_cursor || null;
   document.getElementById("load-more-btn").hidden = !nextCursor;
   const n = allPosts.length;
@@ -1446,6 +1448,7 @@ let _bgFetchTimer     = null;
 let _serverLastFetched  = {};     // url → ms timestamp of last successful fetch
 let _serverPollIntervals = {};    // url → ms (computed from node activity)
 const _openPanels = new Map();    // postId → post
+let _newestKnownAt = 0;           // created_at of newest post we've ever seen; survives allPosts = []
 
 function _computePollInterval(activity7d) {
   if (!activity7d) return MAX_POLL_MS;
@@ -1497,7 +1500,7 @@ async function _pollOpenPanels() {
 
 // Apply a fresh batch of posts from one server to the visible feed.
 function _applyFreshPosts(freshPosts) {
-  const newestTs = allPosts[0]?.created_at || 0;
+  const newestTs = Math.max(_newestKnownAt, allPosts[0]?.created_at || 0);
   let newCount = 0;
   const byId = new Map(freshPosts.map(p => [p.id, p]));
 
@@ -1530,6 +1533,7 @@ function _applyFreshPosts(freshPosts) {
   });
 
   for (const p of freshPosts) { if (p.created_at > newestTs) newCount++; }
+  if (freshPosts.length > 0) _newestKnownAt = Math.max(_newestKnownAt, freshPosts[0].created_at || 0);
   if (newCount > 0) {
     const banner = document.getElementById('new-posts-banner');
     banner.textContent = 'New posts available — click to refresh';
