@@ -5,6 +5,9 @@
 #   me   internal:  28443+N
 #   web  internal:  16443+N
 
+{$CONTACC_DOMAIN}:8443 {
+    reverse_proxy node-0-them:18443
+}
 {$CONTACC_DOMAIN}:8444 {
     reverse_proxy node-1-them:18444
 }
@@ -36,6 +39,9 @@
     reverse_proxy node-10-them:18453
 }
 
+{$CONTACC_DOMAIN}:6443 {
+    reverse_proxy web-0:16443
+}
 {$CONTACC_DOMAIN}:6444 {
     reverse_proxy web-1:16444
 }

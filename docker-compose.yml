@@ -20,6 +20,38 @@ x-env: &proxy-env
   CONTACC_IDENTITY_PROXY_URL: ${CONTACC_IDENTITY_PROXY_URL:-https://starkville.hopto.org:8421}
 
 services:
+  # ── node 0 ────────────────────────────────────────────────────────────────────────
+  node-0-me:
+    <<: *me
+    expose: ["28443"]
+    environment:
+      <<: *proxy-env
+      CONTACC_ME_PORT: "28443"
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE:-}
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
+    volumes:
+      - ${CONTACC_DATA_DIR}/node-0-me:/data
+
+  node-0-them:
+    <<: *them
+    expose: ["18443"]
+    environment:
+      CONTACC_THEM_PORT: "18443"
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
+      CONTACC_SERVER_URL: http://node-0-me:28443
+      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE:-}
+    volumes:
+      - ${CONTACC_DATA_DIR}/node-0-them:/data
+    depends_on: [node-0-me]
+
+  web-0:
+    <<: *web
+    expose: ["16443"]
+    environment:
+      CONTACC_WEB_PORT: "16443"
+      CONTACC_CLIENT_URL: http://node-0-them:18443
+    depends_on: [node-0-them]
+
   # ── node 1 ────────────────────────────────────────────────────────────────────────
   node-1-me:
     <<: *me
@@ -388,6 +420,7 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "6443:6443"
       - "6444:6444"
       - "6445:6445"
       - "6446:6446"
@@ -398,6 +431,7 @@ services:
       - "6451:6451"
       - "6452:6452"
       - "6453:6453"
+      - "8443:8443"
       - "8444:8444"
       - "8445:8445"
       - "8446:8446"
@@ -416,4 +450,5 @@ services:
       - ${CONTACC_DATA_DIR}/caddy:/data
       - ${CONTACC_DATA_DIR}/caddy-config:/config
     depends_on:
+      - web-0
       - web-1

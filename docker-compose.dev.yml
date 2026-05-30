@@ -16,6 +16,24 @@ x-dev: &dev
   read_only: false
 
 services:
+  node-0-me:
+    <<: *dev
+    environment:
+      CONTACC_DEV: "1"
+    volumes:
+      - .:/app
+      - ${CONTACC_DATA_DIR}/node-0-me:/data
+    command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT --reload"
+
+  node-0-them:
+    <<: *dev
+    environment:
+      CONTACC_DEV: "1"
+    volumes:
+      - .:/app
+      - ${CONTACC_DATA_DIR}/node-0-them:/data
+    command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT --reload"
+
   node-1-me:
     <<: *dev
     environment:
