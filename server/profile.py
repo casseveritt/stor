@@ -145,7 +145,12 @@ def get_private_key(body: _PrivateKeyBody, request: Request, identity: OwnerDep)
 
 @router.get("/photo")
 def get_photo(request: Request, identity: OptionalAuthDep):
-    if not (identity and identity.is_owner) and not request.headers.get("X-Public-Key"):
+    # Allow: owner Bearer token, federated X-Public-Key, or own-client proxy (x-contacc-internal).
+    # The middleware already validates x-contacc-internal; its presence here means the request
+    # came through the local client, which is sufficient for "authenticated" visibility.
+    if (not (identity and identity.is_owner)
+            and not request.headers.get("X-Public-Key")
+            and not request.headers.get("x-contacc-internal")):
         raise HTTPException(status_code=403, detail="Profile photo requires authentication")
     db = request.app.state.db
     row = _get_row(db)
