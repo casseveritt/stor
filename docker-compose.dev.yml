@@ -25,7 +25,7 @@ services:
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/node-0-me:/data
-    command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT --reload --reload-dir /app/server"
+    command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT --reload"
 
   node-0-them:
     <<: *dev
@@ -34,7 +34,7 @@ services:
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/node-0-them:/data
-    command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT --reload --reload-dir /app/client"
+    command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT --reload"
 
   node-1-me:
     <<: *dev
@@ -43,7 +43,7 @@ services:
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/node-1-me:/data
-    command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT --reload --reload-dir /app/server"
+    command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT --reload"
 
   node-1-them:
     <<: *dev
@@ -52,7 +52,7 @@ services:
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/node-1-them:/data
-    command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT --reload --reload-dir /app/client"
+    command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT --reload"
 
   node-2-me:
     environment:
@@ -60,7 +60,7 @@ services:
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/node-2-me:/data
-    command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT --reload --reload-dir /app/server"
+    command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT --reload"
 
   node-2-them:
     environment:
@@ -68,7 +68,7 @@ services:
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/node-2-them:/data
-    command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT --reload --reload-dir /app/client"
+    command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT --reload"
 
   node-3-me:
     environment:
@@ -76,7 +76,7 @@ services:
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/node-3-me:/data
-    command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT --reload --reload-dir /app/server"
+    command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT --reload"
 
   node-3-them:
     environment:
@@ -84,7 +84,7 @@ services:
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/node-3-them:/data
-    command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT --reload --reload-dir /app/client"
+    command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT --reload"
 
   node-4-me:
     environment:
@@ -92,7 +92,7 @@ services:
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/node-4-me:/data
-    command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT --reload --reload-dir /app/server"
+    command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT --reload"
 
   node-4-them:
     environment:
@@ -100,7 +100,7 @@ services:
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/node-4-them:/data
-    command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT --reload --reload-dir /app/client"
+    command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT --reload"
 
   node-5-me:
     environment:
@@ -108,7 +108,7 @@ services:
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/node-5-me:/data
-    command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT --reload --reload-dir /app/server"
+    command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT --reload"
 
   node-5-them:
     environment:
@@ -116,7 +116,7 @@ services:
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/node-5-them:/data
-    command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT --reload --reload-dir /app/client"
+    command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT --reload"
 
   node-6-me:
     environment:
@@ -124,7 +124,7 @@ services:
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/node-6-me:/data
-    command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT --reload --reload-dir /app/server"
+    command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT --reload"
 
   node-6-them:
     environment:
@@ -132,4 +132,4 @@ services:
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/node-6-them:/data
-    command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT --reload --reload-dir /app/client"
+    command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT --reload"
