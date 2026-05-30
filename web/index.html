@@ -1248,6 +1248,20 @@ function _hideReactorTooltip() {
 let _longPressTimer = null;
 let _longPressActivated = false;
 
+function _reactorPhotoUrl(id, postServerUrl) {
+  const { photoUrl } = _resolveIdentity(id, postServerUrl);
+  if (photoUrl) return photoUrl;
+  // Derive from server URL: convention is server_url + "/profile/photo"
+  let base = null;
+  if (!id) base = postServerUrl;
+  else if (id.startsWith('http')) base = id;
+  else {
+    const c = (CFG?.contacts || []).find(c => c.public_key === id);
+    base = c?.url || serverPublicKeys[id] || null;
+  }
+  return base ? base.replace(/\/+$/, '') + '/profile/photo' : null;
+}
+
 function showReactorsPanel(btn) {
   document.querySelectorAll('.reactors-panel').forEach(p => p.remove());
   const bar = btn.closest('.reaction-bar');
@@ -1265,14 +1279,33 @@ function showReactorsPanel(btn) {
   const panel = document.createElement('div');
   panel.className = 'reactors-panel';
   panel.innerHTML = `<div class="reactors-panel-header"><span>Reactions</span><button class="reactors-panel-close" onclick="this.closest('.reactors-panel').remove()">✕</button></div>`;
-  map.forEach(({ name, photoUrl, emojis }) => {
+  map.forEach(({ name, emojis }, id) => {
+    const photoUrl = _reactorPhotoUrl(id, serverUrl);
     const row = document.createElement('div');
     row.className = 'reactors-panel-row';
-    const initial = esc((name[0] || '?').toUpperCase());
-    const avatar = photoUrl
-      ? `<img class="reactors-panel-avatar" src="${esc(photoUrl)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'reactors-panel-initial',textContent:'${initial}'}))">`
-      : `<div class="reactors-panel-initial">${initial}</div>`;
-    row.innerHTML = `${avatar}<span class="reactors-panel-name">${esc(name)}</span><span class="reactors-panel-emojis">${emojis.join(' ')}</span>`;
+    const initial = (name[0] || '?').toUpperCase();
+    const avatarEl = document.createElement(photoUrl ? 'img' : 'div');
+    if (photoUrl) {
+      avatarEl.className = 'reactors-panel-avatar';
+      avatarEl.src = photoUrl;
+      avatarEl.alt = '';
+      avatarEl.onerror = () => {
+        const d = document.createElement('div');
+        d.className = 'reactors-panel-initial';
+        d.textContent = initial;
+        avatarEl.replaceWith(d);
+      };
+    } else {
+      avatarEl.className = 'reactors-panel-initial';
+      avatarEl.textContent = initial;
+    }
+    const nameEl = document.createElement('span');
+    nameEl.className = 'reactors-panel-name';
+    nameEl.textContent = name;
+    const emojiEl = document.createElement('span');
+    emojiEl.className = 'reactors-panel-emojis';
+    emojiEl.textContent = emojis.join(' ');
+    row.append(avatarEl, nameEl, emojiEl);
     panel.appendChild(row);
   });
   document.body.appendChild(panel);
