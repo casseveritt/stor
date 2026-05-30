@@ -10,8 +10,7 @@ import httpx
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -166,6 +165,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     app.state.initialized = False
     app.state.config_path = config_path
     app.state.node_address = os.environ.get("CONTACC_NODE_ADDRESS", "")
+    app.state.web_address = os.environ.get("CONTACC_WEB_ADDRESS", "")
 
     if not config_path.exists():
         setup_module.ensure_setup_token(app)
@@ -192,19 +192,10 @@ def create_app(config_path: str | Path) -> FastAPI:
     app.include_router(reactions_module.router)
     app.include_router(debug_module.router)
 
-    static_dir = Path(__file__).parent / "static"
-
-    @app.get("/")
-    def index():
-        return FileResponse(static_dir / "index.html")
-
-    if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
-
     @app.middleware("http")
     async def init_guard(request: Request, call_next):
         path = request.url.path
-        is_setup_path = path.startswith("/setup") or path == "/" or path.startswith("/static")
+        is_setup_path = path.startswith("/setup")
         if not app.state.initialized and not is_setup_path:
             state = "locked" if config_path.exists() else "uninitialized"
             return JSONResponse({"detail": "Server not ready", "state": state}, status_code=503)

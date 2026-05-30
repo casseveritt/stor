@@ -23,6 +23,14 @@ def _callback_uri(request: Request) -> str:
     return str(request.base_url).rstrip("/") + "/auth/callback"
 
 
+def _web_callback_uri(request: Request) -> str:
+    """Return URL the browser should land on after OAuth — points to the web layer."""
+    web_address = getattr(request.app.state, "web_address", None)
+    if web_address:
+        return web_address.rstrip("/") + "/auth/callback"
+    return _callback_uri(request)
+
+
 @router.get("/login")
 def login(request: Request, provider: str = "google", return_to: str = ""):
     proxy_url = getattr(request.app.state, "identity_proxy_url", None)
@@ -80,7 +88,7 @@ def callback(request: Request, code: str = None, state: str = None, proxy_token:
             except UnknownIdentityError as e:
                 raise HTTPException(status_code=403, detail=str(e))
 
-        dest = return_to.rstrip("/") + "#token=" + token if return_to else "/#token=" + token
+        dest = return_to.rstrip("/") + "#token=" + token if return_to else _web_callback_uri(request) + "#token=" + token
         return RedirectResponse(url=dest, status_code=302)
 
     # Direct Google OAuth flow
@@ -117,7 +125,7 @@ def callback(request: Request, code: str = None, state: str = None, proxy_token:
     except SSOError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    dest = return_to.rstrip("/") + "#token=" + token if return_to else "/#token=" + token
+    dest = return_to.rstrip("/") + "#token=" + token if return_to else _web_callback_uri(request) + "#token=" + token
     return RedirectResponse(url=dest, status_code=302)
 
 
