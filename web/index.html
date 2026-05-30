@@ -356,6 +356,8 @@
                 onscroll="_updateHighlight()"
                 onblur="setTimeout(hideMentionDropdown,150)"></textarea>
       <div id="compose-mention-dropdown" class="mention-dropdown" hidden></div>
+<!-- floating mention dropdown for comment inputs -->
+<div id="comment-mention-dropdown" class="mention-dropdown" hidden style="position:fixed;z-index:300"></div>
     </div>
     <div class="drop-zone" id="drop-zone"
          onclick="document.getElementById('file-picker').click()"
@@ -1822,7 +1824,7 @@ function _renderCommentsInto(post, comments, panel) {
 
 async function submitComment(postId, serverUrl) {
   const input = document.querySelector('.comment-input[data-post-id="' + postId + '"]');
-  const body = input ? input.value.trim() : "";
+  const body = input ? _expandMentions(input.value.trim()) : "";
   if (!body) return;
   const params = serverUrl !== CFG.own_server ? "?server=" + encodeURIComponent(serverUrl) : "";
   const r = await apiFetch("/api/posts/" + postId + "/comments" + params, {
@@ -1845,6 +1847,35 @@ async function submitComment(postId, serverUrl) {
 let _mentionState = null;
 const COMPOSE_CTX = { taId: 'compose-body', hlId: 'compose-highlight', ddId: 'compose-mention-dropdown' };
 const EDIT_CTX    = { taId: 'edit-body',    hlId: 'edit-highlight',    ddId: 'edit-mention-dropdown' };
+
+// Event delegation for comment inputs — assign a stable id and switch context on first input.
+document.addEventListener('input', e => {
+  const ta = e.target;
+  if (!ta.classList.contains('comment-input')) return;
+  if (!ta.id) ta.id = 'comment-ta-' + ta.dataset.postId;
+  _mentionCtx = { taId: ta.id, hlId: null, ddId: 'comment-mention-dropdown' };
+  onComposeInput();
+  _repositionCommentDropdown(ta);
+}, true);
+document.addEventListener('keydown', e => {
+  if (!e.target.classList.contains('comment-input')) return;
+  if (!e.target.id) return;
+  _mentionCtx = { taId: e.target.id, hlId: null, ddId: 'comment-mention-dropdown' };
+  onComposeKeydown(e);
+}, true);
+document.addEventListener('blur', e => {
+  if (e.target.classList.contains('comment-input'))
+    setTimeout(hideMentionDropdown, 150);
+}, true);
+
+function _repositionCommentDropdown(ta) {
+  const dd = document.getElementById('comment-mention-dropdown');
+  if (!dd || dd.hidden) return;
+  const r = ta.getBoundingClientRect();
+  const left = Math.min(r.left, window.innerWidth - dd.offsetWidth - 8);
+  dd.style.top  = (r.bottom + 2) + 'px';
+  dd.style.left = Math.max(4, left) + 'px';
+}
 let _mentionCtx = COMPOSE_CTX;
 
 function _contactTag(c) {
@@ -1975,8 +2006,9 @@ function onComposeKeydown(e) {
 
 function _updateHighlight() {
   const ta = document.getElementById(_mentionCtx.taId);
-  const hl = document.getElementById(_mentionCtx.hlId);
-  if (!hl || !ta) return;
+  if (!ta) return;
+  const hl = _mentionCtx.hlId ? document.getElementById(_mentionCtx.hlId) : null;
+  if (_mentionCtx.hlId && !hl) return;
   const knownPubkeys = new Set((CFG?.contacts || []).map(c => c.public_key).filter(Boolean));
   const escaped = ta.value
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -1986,8 +2018,7 @@ function _updateHighlight() {
         ? `<span class="mention-dim">[${pubkey}|</span>${disptext}<span class="mention-dim">]</span>`
         : full;
     });
-  hl.innerHTML = highlighted + '​';
-  hl.scrollTop = ta.scrollTop;
+  if (hl) { hl.innerHTML = highlighted + '​'; hl.scrollTop = ta.scrollTop; }
 }
 
 // ── compose ────────────────────────────────────────────────────────────────
