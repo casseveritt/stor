@@ -73,6 +73,8 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     # Load private key now so we can derive the client DB encryption key.
     passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
+    if not passphrase and os.environ.get("CONTACC_DEV"):
+        passphrase = "foobar"
     _private_key = _load_private_key(config.node_key, passphrase) if config.node_key and passphrase else None
     if config.node_key and not _private_key:
         log.warning("Node key present but passphrase unavailable — client DB will not persist tags")
