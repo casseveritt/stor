@@ -1,10 +1,10 @@
-x-server: &server
+x-me: &me
   image: contacc
   restart: unless-stopped
   command: python -m server.main /data/node_config.json --host 0.0.0.0 --port 9443
   expose: ["9443"]
 
-x-client: &client
+x-them: &them
   image: contacc
   restart: unless-stopped
   command: python -m client.main /data/client_config.json --host 0.0.0.0 --port 9444
@@ -24,292 +24,292 @@ x-env: &proxy-env
 
 services:
   # ── node 1 ────────────────────────────────────────────────────────────────
-  server-1:
-    <<: *server
+  node-1-me:
+    <<: *me
     build: .
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
     volumes:
-      - ${CONTACC_DATA_DIR}/server-1:/data
+      - ${CONTACC_DATA_DIR}/node-1-me:/data
 
-  client-1:
-    <<: *client
+  node-1-them:
+    <<: *them
     environment:
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
-      CONTACC_SERVER_URL: http://server-1:9443
+      CONTACC_SERVER_URL: http://node-1-me:9443
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE:-}
     volumes:
-      - ${CONTACC_DATA_DIR}/client-1:/data
-    depends_on: [server-1]
+      - ${CONTACC_DATA_DIR}/node-1-them:/data
+    depends_on: [node-1-me]
 
   web-1:
     <<: *web
     environment:
-      CONTACC_CLIENT_URL: http://client-1:9444
-    depends_on: [client-1]
+      CONTACC_CLIENT_URL: http://node-1-them:9444
+    depends_on: [node-1-them]
 
   # ── node 2 ────────────────────────────────────────────────────────────────
-  server-2:
-    <<: *server
+  node-2-me:
+    <<: *me
     profiles: [node2]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_2:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8444
     volumes:
-      - ${CONTACC_DATA_DIR}/server-2:/data
+      - ${CONTACC_DATA_DIR}/node-2-me:/data
 
-  client-2:
-    <<: *client
+  node-2-them:
+    <<: *them
     profiles: [node2]
     environment:
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8444
-      CONTACC_SERVER_URL: http://server-2:9443
+      CONTACC_SERVER_URL: http://node-2-me:9443
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_2:-}
     volumes:
-      - ${CONTACC_DATA_DIR}/client-2:/data
-    depends_on: [server-2]
+      - ${CONTACC_DATA_DIR}/node-2-them:/data
+    depends_on: [node-2-me]
 
   web-2:
     <<: *web
     profiles: [node2]
     environment:
-      CONTACC_CLIENT_URL: http://client-2:9444
-    depends_on: [client-2]
+      CONTACC_CLIENT_URL: http://node-2-them:9444
+    depends_on: [node-2-them]
 
   # ── node 3 ────────────────────────────────────────────────────────────────
-  server-3:
-    <<: *server
+  node-3-me:
+    <<: *me
     profiles: [node3]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_3:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8445
     volumes:
-      - ${CONTACC_DATA_DIR}/server-3:/data
+      - ${CONTACC_DATA_DIR}/node-3-me:/data
 
-  client-3:
-    <<: *client
+  node-3-them:
+    <<: *them
     profiles: [node3]
     environment:
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8445
-      CONTACC_SERVER_URL: http://server-3:9443
+      CONTACC_SERVER_URL: http://node-3-me:9443
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_3:-}
     volumes:
-      - ${CONTACC_DATA_DIR}/client-3:/data
-    depends_on: [server-3]
+      - ${CONTACC_DATA_DIR}/node-3-them:/data
+    depends_on: [node-3-me]
 
   web-3:
     <<: *web
     profiles: [node3]
     environment:
-      CONTACC_CLIENT_URL: http://client-3:9444
-    depends_on: [client-3]
+      CONTACC_CLIENT_URL: http://node-3-them:9444
+    depends_on: [node-3-them]
 
   # ── node 4 ────────────────────────────────────────────────────────────────
-  server-4:
-    <<: *server
+  node-4-me:
+    <<: *me
     profiles: [node4]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_4:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8446
     volumes:
-      - ${CONTACC_DATA_DIR}/server-4:/data
+      - ${CONTACC_DATA_DIR}/node-4-me:/data
 
-  client-4:
-    <<: *client
+  node-4-them:
+    <<: *them
     profiles: [node4]
     environment:
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8446
-      CONTACC_SERVER_URL: http://server-4:9443
+      CONTACC_SERVER_URL: http://node-4-me:9443
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_4:-}
     volumes:
-      - ${CONTACC_DATA_DIR}/client-4:/data
-    depends_on: [server-4]
+      - ${CONTACC_DATA_DIR}/node-4-them:/data
+    depends_on: [node-4-me]
 
   web-4:
     <<: *web
     profiles: [node4]
     environment:
-      CONTACC_CLIENT_URL: http://client-4:9444
-    depends_on: [client-4]
+      CONTACC_CLIENT_URL: http://node-4-them:9444
+    depends_on: [node-4-them]
 
   # ── node 5 ────────────────────────────────────────────────────────────────
-  server-5:
-    <<: *server
+  node-5-me:
+    <<: *me
     profiles: [node5]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_5:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8447
     volumes:
-      - ${CONTACC_DATA_DIR}/server-5:/data
+      - ${CONTACC_DATA_DIR}/node-5-me:/data
 
-  client-5:
-    <<: *client
+  node-5-them:
+    <<: *them
     profiles: [node5]
     environment:
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8447
-      CONTACC_SERVER_URL: http://server-5:9443
+      CONTACC_SERVER_URL: http://node-5-me:9443
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_5:-}
     volumes:
-      - ${CONTACC_DATA_DIR}/client-5:/data
-    depends_on: [server-5]
+      - ${CONTACC_DATA_DIR}/node-5-them:/data
+    depends_on: [node-5-me]
 
   web-5:
     <<: *web
     profiles: [node5]
     environment:
-      CONTACC_CLIENT_URL: http://client-5:9444
-    depends_on: [client-5]
+      CONTACC_CLIENT_URL: http://node-5-them:9444
+    depends_on: [node-5-them]
 
   # ── node 6 ────────────────────────────────────────────────────────────────
-  server-6:
-    <<: *server
+  node-6-me:
+    <<: *me
     profiles: [node6]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_6:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8448
     volumes:
-      - ${CONTACC_DATA_DIR}/server-6:/data
+      - ${CONTACC_DATA_DIR}/node-6-me:/data
 
-  client-6:
-    <<: *client
+  node-6-them:
+    <<: *them
     profiles: [node6]
     environment:
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8448
-      CONTACC_SERVER_URL: http://server-6:9443
+      CONTACC_SERVER_URL: http://node-6-me:9443
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_6:-}
     volumes:
-      - ${CONTACC_DATA_DIR}/client-6:/data
-    depends_on: [server-6]
+      - ${CONTACC_DATA_DIR}/node-6-them:/data
+    depends_on: [node-6-me]
 
   web-6:
     <<: *web
     profiles: [node6]
     environment:
-      CONTACC_CLIENT_URL: http://client-6:9444
-    depends_on: [client-6]
+      CONTACC_CLIENT_URL: http://node-6-them:9444
+    depends_on: [node-6-them]
 
   # ── node 7 ────────────────────────────────────────────────────────────────
-  server-7:
-    <<: *server
+  node-7-me:
+    <<: *me
     profiles: [node7]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_7:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8449
     volumes:
-      - ${CONTACC_DATA_DIR}/server-7:/data
+      - ${CONTACC_DATA_DIR}/node-7-me:/data
 
-  client-7:
-    <<: *client
+  node-7-them:
+    <<: *them
     profiles: [node7]
     environment:
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8449
-      CONTACC_SERVER_URL: http://server-7:9443
+      CONTACC_SERVER_URL: http://node-7-me:9443
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_7:-}
     volumes:
-      - ${CONTACC_DATA_DIR}/client-7:/data
-    depends_on: [server-7]
+      - ${CONTACC_DATA_DIR}/node-7-them:/data
+    depends_on: [node-7-me]
 
   web-7:
     <<: *web
     profiles: [node7]
     environment:
-      CONTACC_CLIENT_URL: http://client-7:9444
-    depends_on: [client-7]
+      CONTACC_CLIENT_URL: http://node-7-them:9444
+    depends_on: [node-7-them]
 
   # ── node 8 ────────────────────────────────────────────────────────────────
-  server-8:
-    <<: *server
+  node-8-me:
+    <<: *me
     profiles: [node8]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_8:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8450
     volumes:
-      - ${CONTACC_DATA_DIR}/server-8:/data
+      - ${CONTACC_DATA_DIR}/node-8-me:/data
 
-  client-8:
-    <<: *client
+  node-8-them:
+    <<: *them
     profiles: [node8]
     environment:
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8450
-      CONTACC_SERVER_URL: http://server-8:9443
+      CONTACC_SERVER_URL: http://node-8-me:9443
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_8:-}
     volumes:
-      - ${CONTACC_DATA_DIR}/client-8:/data
-    depends_on: [server-8]
+      - ${CONTACC_DATA_DIR}/node-8-them:/data
+    depends_on: [node-8-me]
 
   web-8:
     <<: *web
     profiles: [node8]
     environment:
-      CONTACC_CLIENT_URL: http://client-8:9444
-    depends_on: [client-8]
+      CONTACC_CLIENT_URL: http://node-8-them:9444
+    depends_on: [node-8-them]
 
   # ── node 9 ────────────────────────────────────────────────────────────────
-  server-9:
-    <<: *server
+  node-9-me:
+    <<: *me
     profiles: [node9]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_9:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8451
     volumes:
-      - ${CONTACC_DATA_DIR}/server-9:/data
+      - ${CONTACC_DATA_DIR}/node-9-me:/data
 
-  client-9:
-    <<: *client
+  node-9-them:
+    <<: *them
     profiles: [node9]
     environment:
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8451
-      CONTACC_SERVER_URL: http://server-9:9443
+      CONTACC_SERVER_URL: http://node-9-me:9443
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_9:-}
     volumes:
-      - ${CONTACC_DATA_DIR}/client-9:/data
-    depends_on: [server-9]
+      - ${CONTACC_DATA_DIR}/node-9-them:/data
+    depends_on: [node-9-me]
 
   web-9:
     <<: *web
     profiles: [node9]
     environment:
-      CONTACC_CLIENT_URL: http://client-9:9444
-    depends_on: [client-9]
+      CONTACC_CLIENT_URL: http://node-9-them:9444
+    depends_on: [node-9-them]
 
   # ── node 10 ───────────────────────────────────────────────────────────────
-  server-10:
-    <<: *server
+  node-10-me:
+    <<: *me
     profiles: [node10]
     environment:
       <<: *proxy-env
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_10:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8452
     volumes:
-      - ${CONTACC_DATA_DIR}/server-10:/data
+      - ${CONTACC_DATA_DIR}/node-10-me:/data
 
-  client-10:
-    <<: *client
+  node-10-them:
+    <<: *them
     profiles: [node10]
     environment:
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8452
-      CONTACC_SERVER_URL: http://server-10:9443
+      CONTACC_SERVER_URL: http://node-10-me:9443
       CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_10:-}
     volumes:
-      - ${CONTACC_DATA_DIR}/client-10:/data
-    depends_on: [server-10]
+      - ${CONTACC_DATA_DIR}/node-10-them:/data
+    depends_on: [node-10-me]
 
   web-10:
     <<: *web
     profiles: [node10]
     environment:
-      CONTACC_CLIENT_URL: http://client-10:9444
-    depends_on: [client-10]
+      CONTACC_CLIENT_URL: http://node-10-them:9444
+    depends_on: [node-10-them]
 
   # ── registry (opt-in) ─────────────────────────────────────────────────────
   registry:

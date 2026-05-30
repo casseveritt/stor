@@ -11,7 +11,7 @@ Personal content-addressed data store and aggregator. Own your data; share inten
 - **A domain name** pointed at your server's public IP. Free options:
   - [DuckDNS](https://www.duckdns.org) — free dynamic DNS, works well on Pi
   - Any registrar if you have a static IP
-- **Ports open** in your router/firewall: **80** (TLS cert issuance), **8443** (server), **8444** (client UI)
+- **Ports open** in your router/firewall: **80** (TLS cert issuance), **8443** (node API), **8543** (web UI)
 - **Google OAuth2 credentials** — see below
 
 ### 1. Get Google OAuth2 credentials
@@ -93,25 +93,32 @@ Only the Ed25519 key that originally registered a handle can update it.
 
 ## Architecture
 
+Each node has two internal processes and an optional web presentation layer:
+
+- **me** (biographer) — owns your identity, posts, and assets. Other nodes talk to this directly.
+- **them** (aggregator) — aggregates content from contacts' nodes. Your API clients talk to this.
+- **web** — presentation layer (browser UI). Independently replaceable; proxies to *them*.
+
 | Component | Directory | Internal port | External port | Description |
 |-----------|-----------|--------------|--------------|-------------|
-| Server node | `server/` | 9443 | 8443 | FastAPI + SQLCipher DB + AES-256-GCM assets. Ed25519 identity. Google SSO. |
-| Client UI | `client/` | 9444 | 8444 | FastAPI + browser UI; aggregates content from one or more server nodes. |
-| Registry | `registry/` | 9532 | 8421 | Shared username → server/client URL directory. Not run by most users. |
-| Caddy | — | — | 80, 8443, 8444 | Reverse proxy with automatic TLS. |
+| me (biographer) | `server/` | 9443 | 8443 | FastAPI + SQLCipher DB + AES-256-GCM assets. Ed25519 identity. Google SSO. |
+| them (aggregator) | `client/` | 9444 | 8443 | FastAPI; aggregates content from contacts, proxies to *me*. |
+| web | `web/` | 9544 | 8543 | Static UI + reverse proxy to *them*. Swap freely. |
+| Registry | `registry/` | 9532 | 8421 | Shared handle → node URL directory. Not run by most users. |
+| Caddy | — | — | 80, 8421, 8443–8452, 8543–8552 | TLS termination and port routing. |
 
 ## Authentication flow
 
-Login uses Google OAuth2 with the server acting as the OAuth client (not the browser-facing UI):
+Login uses Google OAuth2 with the *me* side acting as the OAuth client:
 
-1. You visit the **client** (port 8444) and click "Sign in with Google"
-2. The client redirects your browser to Google with a callback URL pointing at the **server** (`https://your.domain:8443/auth/callback`)
-3. Google authenticates you and redirects back to the server with a short-lived auth code
-4. The server exchanges the code for a Google ID token, verifies your identity against `sso_owner_identity` in `node_config.json`
-5. If it matches, the server issues a 30-day owner JWT and redirects your browser to the client with the token in the URL fragment (`/#token=...`)
-6. The client stores the token in the browser and sends it as a `Bearer` header on all subsequent API calls to the server
+1. You visit the **web UI** (port 8543) and click "Sign in with Google"
+2. The *them* side redirects your browser to Google with a callback URL pointing at **me** (`https://your.domain:8443/auth/callback`)
+3. Google authenticates you and redirects back to *me* with a short-lived auth code
+4. *Me* exchanges the code for a Google ID token, verifies your identity against `sso_owner_identity` in `node_config.json`
+5. If it matches, *me* issues a 30-day owner JWT and redirects your browser to the web UI with the token in the URL fragment
+6. The web UI stores the token and sends it as a `Bearer` header on subsequent API calls
 
-The callback URI must be registered in the Google Cloud Console and must exactly match what the server constructs at runtime. The `CONTACC_NODE_ADDRESS` env var ensures this is always the correct public `https://` URL even though the server internally receives requests over plain `http://` from Caddy.
+The callback URI must be registered in the Google Cloud Console and must exactly match what *me* constructs at runtime. The `CONTACC_NODE_ADDRESS` env var ensures this is always the correct public `https://` URL even though *me* internally receives requests over plain `http://` from Caddy.
 
 ## Data storage
 
@@ -119,8 +126,8 @@ All persistent data uses **bind-mount volumes** — plain host directories, not 
 
 | Host path | Container path | Contents |
 |-----------|---------------|----------|
-| `$CONTACC_DATA_DIR/server/` | `/data` | Encrypted SQLCipher DB, asset files, `node_config.json` |
-| `$CONTACC_DATA_DIR/client/` | `/data` | `client_config.json` |
+| `$CONTACC_DATA_DIR/node-1-me/` | `/data` | Encrypted SQLCipher DB, asset files, `node_config.json` |
+| `$CONTACC_DATA_DIR/node-1-them/` | `/data` | `client_config.json` |
 | `$CONTACC_DATA_DIR/caddy/` | `/data` | TLS certificates (managed by Caddy) |
 
 You can inspect, back up, or restore data directly without any Docker commands.

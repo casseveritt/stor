@@ -1,17 +1,17 @@
-# Node ports (8443-8452): direct access to the client API.
-# Web ports  (8543-8552): presentation layer, proxies to its client internally.
+# Node ports (8443-8452): direct access to the node-N-them API.
+# Web ports  (8543-8552): presentation layer, proxies to node-N-them internally.
 # Convention: web external port = node external port + 100.
 
-{$CONTACC_DOMAIN}:8443 { reverse_proxy client-1:9444 }
-{$CONTACC_DOMAIN}:8444 { reverse_proxy client-2:9444 }
-{$CONTACC_DOMAIN}:8445 { reverse_proxy client-3:9444 }
-{$CONTACC_DOMAIN}:8446 { reverse_proxy client-4:9444 }
-{$CONTACC_DOMAIN}:8447 { reverse_proxy client-5:9444 }
-{$CONTACC_DOMAIN}:8448 { reverse_proxy client-6:9444 }
-{$CONTACC_DOMAIN}:8449 { reverse_proxy client-7:9444 }
-{$CONTACC_DOMAIN}:8450 { reverse_proxy client-8:9444 }
-{$CONTACC_DOMAIN}:8451 { reverse_proxy client-9:9444 }
-{$CONTACC_DOMAIN}:8452 { reverse_proxy client-10:9444 }
+{$CONTACC_DOMAIN}:8443 { reverse_proxy node-1-them:9444 }
+{$CONTACC_DOMAIN}:8444 { reverse_proxy node-2-them:9444 }
+{$CONTACC_DOMAIN}:8445 { reverse_proxy node-3-them:9444 }
+{$CONTACC_DOMAIN}:8446 { reverse_proxy node-4-them:9444 }
+{$CONTACC_DOMAIN}:8447 { reverse_proxy node-5-them:9444 }
+{$CONTACC_DOMAIN}:8448 { reverse_proxy node-6-them:9444 }
+{$CONTACC_DOMAIN}:8449 { reverse_proxy node-7-them:9444 }
+{$CONTACC_DOMAIN}:8450 { reverse_proxy node-8-them:9444 }
+{$CONTACC_DOMAIN}:8451 { reverse_proxy node-9-them:9444 }
+{$CONTACC_DOMAIN}:8452 { reverse_proxy node-10-them:9444 }
 
 {$CONTACC_DOMAIN}:8543 { reverse_proxy web-1:9544 }
 {$CONTACC_DOMAIN}:8544 { reverse_proxy web-2:9544 }
