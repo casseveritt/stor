@@ -44,6 +44,7 @@ def _registry_heartbeat(
     handle: str,
     registry_url: str,
     display_name: str | None = None,
+    web_address: str | None = None,
 ) -> None:
     """Sign and push an update to the registry. Runs in the background; failures are logged and ignored."""
     try:
@@ -55,6 +56,8 @@ def _registry_heartbeat(
                    "timestamp": timestamp, "signature": signature}
         if display_name:
             payload["display_name"] = display_name
+        if web_address:
+            payload["web_url"] = web_address
         r = httpx.put(f"{registry_url.rstrip('/')}/update/{handle}", json=payload, timeout=10.0)
         if r.status_code == 404:
             # Not registered yet — register for the first time
@@ -127,13 +130,13 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
 
             HEARTBEAT_INTERVAL = 3600  # re-register every hour; TTL is 4 hours
 
-            def _make_trigger(pk, addr, hdl, reg_url, db_con):
+            def _make_trigger(pk, addr, hdl, reg_url, db_con, web_addr):
                 def trigger():
                     row = db_con.execute(
                         "SELECT display_name FROM profile WHERE id = 1"
                     ).fetchone()
                     dn = row[0] if row else None
-                    _registry_heartbeat(pk, addr, hdl, reg_url, dn)
+                    _registry_heartbeat(pk, addr, hdl, reg_url, dn, web_addr)
                 return trigger
 
             def _heartbeat_loop(trigger):
@@ -142,7 +145,7 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
                     trigger()
                     _time.sleep(HEARTBEAT_INTERVAL)
 
-            trigger_fn = _make_trigger(private_key, node_address, config.registry_handle, registry_url, db_con)
+            trigger_fn = _make_trigger(private_key, node_address, config.registry_handle, registry_url, db_con, app.state.web_address)
             app.state.trigger_heartbeat = trigger_fn
             threading.Thread(target=_heartbeat_loop, args=(trigger_fn,), daemon=True).start()
 

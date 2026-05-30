@@ -70,7 +70,8 @@ def create_app(db_path: str) -> FastAPI:
             ttl           INTEGER NOT NULL DEFAULT 14400,
             registered_at REAL NOT NULL,
             updated_at    REAL NOT NULL,
-            display_name  TEXT
+            display_name  TEXT,
+            web_url       TEXT
         )
     """)
     # Migrate: drop client_url (was NOT NULL, recreate table to remove it)
@@ -91,7 +92,8 @@ def create_app(db_path: str) -> FastAPI:
                 ttl           INTEGER NOT NULL DEFAULT 14400,
                 registered_at REAL NOT NULL,
                 updated_at    REAL NOT NULL,
-                display_name  TEXT
+                display_name  TEXT,
+                web_url       TEXT
             )
         """)
         con.execute("""
@@ -101,6 +103,12 @@ def create_app(db_path: str) -> FastAPI:
             FROM _handles_v1
         """)
         con.execute("DROP TABLE _handles_v1")
+        con.commit()
+    # Add web_url column if missing (upgrade from earlier schema)
+    try:
+        con.execute("SELECT web_url FROM handles LIMIT 1")
+    except Exception:
+        con.execute("ALTER TABLE handles ADD COLUMN web_url TEXT")
         con.commit()
 
     con.execute("""
@@ -233,11 +241,11 @@ def create_app(db_path: str) -> FastAPI:
     def go(username: str):
         username = username.lower()
         row = con.execute(
-            "SELECT server_url FROM handles WHERE username = ?", (username,)
+            "SELECT server_url, web_url FROM handles WHERE username = ?", (username,)
         ).fetchone()
         if not row:
             return RedirectResponse(f"/?handle={username}", status_code=302)
-        return RedirectResponse(row[0], status_code=302)
+        return RedirectResponse(row[1] or row[0], status_code=302)
 
     @app.get("/health")
     def health():
@@ -304,6 +312,7 @@ def create_app(db_path: str) -> FastAPI:
         timestamp: int
         signature: str
         display_name: str | None = None
+        web_url: str | None = None
 
     @app.post("/register/{username}", status_code=201)
     def register(username: str, body: RegisterBody):
@@ -321,9 +330,9 @@ def create_app(db_path: str) -> FastAPI:
         now = time.time()
         con.execute(
             "INSERT INTO handles "
-            "(username, server_url, public_key, ttl, registered_at, updated_at, display_name) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (username, body.server_url, body.public_key, ttl, now, now, body.display_name),
+            "(username, server_url, public_key, ttl, registered_at, updated_at, display_name, web_url) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (username, body.server_url, body.public_key, ttl, now, now, body.display_name, body.web_url),
         )
         con.commit()
         return {"username": username, "ttl": ttl}
@@ -334,6 +343,7 @@ def create_app(db_path: str) -> FastAPI:
         timestamp: int
         signature: str
         display_name: str | None = None
+        web_url: str | None = None
 
     @app.put("/update/{username}")
     def update(username: str, body: UpdateBody):
@@ -349,9 +359,9 @@ def create_app(db_path: str) -> FastAPI:
         if not _verify_sig(row[0], msg, body.signature):
             raise HTTPException(status_code=401, detail="Invalid signature")
         con.execute(
-            "UPDATE handles SET server_url=?, ttl=?, updated_at=?, display_name=? "
+            "UPDATE handles SET server_url=?, ttl=?, updated_at=?, display_name=?, web_url=? "
             "WHERE username=?",
-            (body.server_url, ttl, time.time(), body.display_name, username),
+            (body.server_url, ttl, time.time(), body.display_name, body.web_url, username),
         )
         con.commit()
         return {"username": username, "ttl": ttl}
