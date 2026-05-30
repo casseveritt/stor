@@ -227,29 +227,25 @@ OwnerDep = Annotated[TokenIdentity, Depends(require_owner)]
 # ── federated request signature verification ─────────────────────────────────
 
 async def verify_federated_signature(request: Request) -> None:
-    """Verify Ed25519 signature on federated requests from contacts with known public keys.
+    """Verify Ed25519 signature on federated requests from known users.
 
-    - No X-Origin-Server and no X-Public-Key → not federated, skip.
-    - Known contact with no stored public key → accept (can't verify).
-    - Known contact with stored public key + valid signature → accept.
-    - Known contact with stored public key but missing/invalid signature → reject 401.
-    Looks up contact by X-Public-Key first (URL-independent), falls back to X-Origin-Server.
+    - No X-Public-Key → not verifiable, skip.
+    - Known user with valid signature → accept.
+    - Known user with missing/invalid signature → reject 401.
+    Lookup is by X-Public-Key only; X-Origin-Server is used only to keep the
+    stored server_url current, never as a fallback identity.
     """
-    origin = request.headers.get("X-Origin-Server", "")
     pub_key_header = request.headers.get("X-Public-Key", "")
-    if not origin and not pub_key_header:
+    if not pub_key_header:
         return
+    origin = request.headers.get("X-Origin-Server", "")
     db = request.app.state.db
-    row = None
-    if pub_key_header:
-        row = db.execute("SELECT public_key, server_url FROM users WHERE public_key = ?", (pub_key_header,)).fetchone()
-        if row and origin and row[1] != origin:
-            db.execute("UPDATE users SET server_url = ? WHERE public_key = ?", (origin, pub_key_header))
-            db.commit()
-    if not row and origin:
-        row = db.execute("SELECT public_key, server_url FROM users WHERE server_url = ?", (origin,)).fetchone()
+    row = db.execute("SELECT public_key, server_url FROM users WHERE public_key = ?", (pub_key_header,)).fetchone()
+    if row and origin and row[1] != origin:
+        db.execute("UPDATE users SET server_url = ? WHERE public_key = ?", (origin, pub_key_header))
+        db.commit()
     if not row or not row[0]:
-        return  # contact has no public key — cannot verify
+        return  # unknown public key — cannot verify
 
     timestamp_str = request.headers.get("X-Timestamp", "")
     signature_b64 = request.headers.get("X-Signature", "")

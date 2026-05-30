@@ -16,14 +16,9 @@ def _reactor(identity, request: Request) -> str:
     if identity.is_owner:
         return ""
     pub_key_header = request.headers.get("X-Public-Key", "")
-    origin = request.headers.get("X-Origin-Server", "")
-    if pub_key_header or origin:
+    if pub_key_header:
         db = request.app.state.db
-        row = None
-        if pub_key_header:
-            row = db.execute("SELECT public_key FROM users WHERE public_key = ?", (pub_key_header,)).fetchone()
-        if not row and origin:
-            row = db.execute("SELECT public_key FROM users WHERE server_url = ?", (origin,)).fetchone()
+        row = db.execute("SELECT public_key FROM users WHERE public_key = ?", (pub_key_header,)).fetchone()
         if row and row[0]:
             return row[0]
     return "<anon>"

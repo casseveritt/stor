@@ -97,11 +97,11 @@ def _read_content(store_path: Path, content_hash: str, file_key: bytes) -> bytes
 def _require_acl(db, asset_id: str, identity, request: Request | None = None):
     if check_acl(db, asset_id, identity):
         return
-    # Federation: check X-Origin-Server against post visibility, same logic as posts.py
-    origin = request.headers.get("X-Origin-Server", "") if request else ""
-    if origin:
+    # Federation: check X-Public-Key against post visibility, same logic as posts.py
+    pub_key = request.headers.get("X-Public-Key", "") if request else ""
+    if pub_key:
         is_contact = bool(db.execute(
-            "SELECT 1 FROM users WHERE server_url = ?", (origin,)
+            "SELECT 1 FROM users WHERE public_key = ?", (pub_key,)
         ).fetchone())
         row = db.execute(
             "SELECT p.visibility FROM posts p JOIN post_assets pa ON p.id = pa.post_id "
