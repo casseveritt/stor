@@ -188,8 +188,9 @@ def create_app(config_path: str | Path) -> FastAPI:
         return {"token": session_token}
 
     @app.get("/client/login-url")
-    async def client_login_url(request: Request):
-        return_to = config.own_server.rstrip("/") + "/auth/callback"
+    async def client_login_url(request: Request, return_to: str = ""):
+        if not return_to:
+            return_to = config.own_server.rstrip("/") + "/auth/callback"
         server_login = (_server + "/auth/login?provider=google&return_to="
                         + return_to)
         async with httpx.AsyncClient() as hc:

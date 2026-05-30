@@ -624,7 +624,8 @@ async function continueInit() {
 
 // ── auth ───────────────────────────────────────────────────────────────────
 async function loginGoogle() {
-  const r = await fetch("/client/login-url");
+  const returnTo = encodeURIComponent(window.location.origin + "/auth/callback");
+  const r = await fetch("/client/login-url?return_to=" + returnTo);
   if (!r.ok) { document.getElementById("login-error").textContent = "Login unavailable."; return; }
   window.location.href = (await r.json()).auth_url;
 }
