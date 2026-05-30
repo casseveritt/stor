@@ -231,23 +231,20 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             photo_media_type  TEXT
         )
     """)
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            server_url   TEXT NOT NULL UNIQUE,
-            name         TEXT,
-            handle       TEXT,
-            public_key   TEXT,
-            relationship TEXT NOT NULL DEFAULT 'contact'
-        )
-    """)
     con.execute("INSERT OR IGNORE INTO schema_version VALUES (7)")
     # schema version 9: rename contacts → users, add relationship column
-    contacts_exists = con.execute(
+    # Check both tables first to handle partial/failed migration on previous run.
+    _contacts_exists = con.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='contacts'"
     ).fetchone()
-    if contacts_exists:
-        # ensure public_key column exists before rename
+    _users_exists = con.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='users'"
+    ).fetchone()
+    if _contacts_exists:
+        # contacts table still exists — need to rename it.
+        # If an empty users shell was created by a failed previous run, drop it first.
+        if _users_exists:
+            con.execute("DROP TABLE users")
         try:
             con.execute("SELECT public_key FROM contacts LIMIT 1")
         except Exception:
@@ -255,6 +252,20 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             con.commit()
         con.execute("ALTER TABLE contacts RENAME TO users")
         con.commit()
+    elif not _users_exists:
+        # Fresh install: create users table directly.
+        con.execute("""
+            CREATE TABLE users (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                server_url   TEXT NOT NULL UNIQUE,
+                name         TEXT,
+                handle       TEXT,
+                public_key   TEXT,
+                relationship TEXT NOT NULL DEFAULT 'contact'
+            )
+        """)
+        con.commit()
+    # Add relationship column if missing (upgrade existing users table).
     try:
         con.execute("SELECT relationship FROM users LIMIT 1")
     except Exception:
