@@ -70,8 +70,7 @@ def create_app(db_path: str) -> FastAPI:
             ttl           INTEGER NOT NULL DEFAULT 14400,
             registered_at REAL NOT NULL,
             updated_at    REAL NOT NULL,
-            display_name  TEXT,
-            photo_url     TEXT
+            display_name  TEXT
         )
     """)
     # Migrate: drop client_url (was NOT NULL, recreate table to remove it)
@@ -92,14 +91,13 @@ def create_app(db_path: str) -> FastAPI:
                 ttl           INTEGER NOT NULL DEFAULT 14400,
                 registered_at REAL NOT NULL,
                 updated_at    REAL NOT NULL,
-                display_name  TEXT,
-                photo_url     TEXT
+                display_name  TEXT
             )
         """)
         con.execute("""
             INSERT INTO handles
-              (username, server_url, public_key, ttl, registered_at, updated_at, display_name, photo_url)
-            SELECT username, server_url, public_key, ttl, registered_at, updated_at, display_name, photo_url
+              (username, server_url, public_key, ttl, registered_at, updated_at, display_name)
+            SELECT username, server_url, public_key, ttl, registered_at, updated_at, display_name
             FROM _handles_v1
         """)
         con.execute("DROP TABLE _handles_v1")
@@ -254,7 +252,7 @@ def create_app(db_path: str) -> FastAPI:
             return {"results": []}
         pattern = "%" + q.lower() + "%"
         rows = con.execute(
-            """SELECT username, server_url, display_name, photo_url, public_key
+            """SELECT username, server_url, display_name, public_key
                FROM handles
                WHERE LOWER(username) LIKE ? OR LOWER(display_name) LIKE ?
                ORDER BY username LIMIT ?""",
@@ -262,32 +260,33 @@ def create_app(db_path: str) -> FastAPI:
         ).fetchall()
         return {"results": [
             {"username": r[0], "server_url": r[1], "display_name": r[2],
-             "photo_url": r[3], "public_key": r[4]}
+             "photo_url": r[1].rstrip("/") + "/profile/photo", "public_key": r[3]}
             for r in rows
         ]}
 
     @app.get("/lookup-by-key")
     def lookup_by_key(public_key: str):
         row = con.execute(
-            "SELECT username, server_url, display_name, photo_url "
+            "SELECT username, server_url, display_name "
             "FROM handles WHERE public_key = ?", (public_key,)
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Key not found")
-        username, server_url, display_name, photo_url = row
+        username, server_url, display_name = row
         return {"username": username, "server_url": server_url,
-                "display_name": display_name, "photo_url": photo_url}
+                "display_name": display_name,
+                "photo_url": server_url.rstrip("/") + "/profile/photo"}
 
     @app.get("/lookup/{username}")
     def lookup(username: str):
         username = username.lower()
         row = con.execute(
-            "SELECT server_url, public_key, ttl, updated_at, display_name, photo_url "
+            "SELECT server_url, public_key, ttl, updated_at, display_name "
             "FROM handles WHERE username = ?", (username,)
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Username not found")
-        server_url, public_key, ttl, updated_at, display_name, photo_url = row
+        server_url, public_key, ttl, updated_at, display_name = row
         return {
             "username": username,
             "server_url": server_url,
@@ -295,7 +294,7 @@ def create_app(db_path: str) -> FastAPI:
             "ttl": ttl,
             "updated_at": updated_at,
             "display_name": display_name,
-            "photo_url": photo_url,
+            "photo_url": server_url.rstrip("/") + "/profile/photo",
         }
 
     class RegisterBody(BaseModel):
@@ -305,7 +304,6 @@ def create_app(db_path: str) -> FastAPI:
         timestamp: int
         signature: str
         display_name: str | None = None
-        photo_url: str | None = None
 
     @app.post("/register/{username}", status_code=201)
     def register(username: str, body: RegisterBody):
@@ -323,10 +321,9 @@ def create_app(db_path: str) -> FastAPI:
         now = time.time()
         con.execute(
             "INSERT INTO handles "
-            "(username, server_url, public_key, ttl, registered_at, updated_at, display_name, photo_url) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (username, body.server_url, body.public_key, ttl, now, now,
-             body.display_name, body.photo_url),
+            "(username, server_url, public_key, ttl, registered_at, updated_at, display_name) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (username, body.server_url, body.public_key, ttl, now, now, body.display_name),
         )
         con.commit()
         return {"username": username, "ttl": ttl}
@@ -337,7 +334,6 @@ def create_app(db_path: str) -> FastAPI:
         timestamp: int
         signature: str
         display_name: str | None = None
-        photo_url: str | None = None
 
     @app.put("/update/{username}")
     def update(username: str, body: UpdateBody):
@@ -353,9 +349,9 @@ def create_app(db_path: str) -> FastAPI:
         if not _verify_sig(row[0], msg, body.signature):
             raise HTTPException(status_code=401, detail="Invalid signature")
         con.execute(
-            "UPDATE handles SET server_url=?, ttl=?, updated_at=?, display_name=?, photo_url=? "
+            "UPDATE handles SET server_url=?, ttl=?, updated_at=?, display_name=? "
             "WHERE username=?",
-            (body.server_url, ttl, time.time(), body.display_name, body.photo_url, username),
+            (body.server_url, ttl, time.time(), body.display_name, username),
         )
         con.commit()
         return {"username": username, "ttl": ttl}

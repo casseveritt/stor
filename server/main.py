@@ -44,7 +44,6 @@ def _registry_heartbeat(
     handle: str,
     registry_url: str,
     display_name: str | None = None,
-    photo_url: str | None = None,
 ) -> None:
     """Sign and push an update to the registry. Runs in the background; failures are logged and ignored."""
     try:
@@ -56,8 +55,6 @@ def _registry_heartbeat(
                    "timestamp": timestamp, "signature": signature}
         if display_name:
             payload["display_name"] = display_name
-        if photo_url:
-            payload["photo_url"] = photo_url
         r = httpx.put(f"{registry_url.rstrip('/')}/update/{handle}", json=payload, timeout=10.0)
         if r.status_code == 404:
             # Not registered yet — register for the first time
@@ -133,11 +130,10 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
             def _make_trigger(pk, addr, hdl, reg_url, db_con):
                 def trigger():
                     row = db_con.execute(
-                        "SELECT display_name, photo_content_hash FROM profile WHERE id = 1"
+                        "SELECT display_name FROM profile WHERE id = 1"
                     ).fetchone()
                     dn = row[0] if row else None
-                    pu = f"{addr}/profile/photo" if (row and row[1]) else None
-                    _registry_heartbeat(pk, addr, hdl, reg_url, dn, pu)
+                    _registry_heartbeat(pk, addr, hdl, reg_url, dn)
                 return trigger
 
             def _heartbeat_loop(trigger):
