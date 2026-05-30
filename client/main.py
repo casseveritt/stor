@@ -31,8 +31,7 @@ from typing import Optional
 import httpx
 import uvicorn
 from fastapi import APIRouter, Depends, FastAPI, File, Form, HTTPException, Query, Request, UploadFile
-from fastapi.responses import FileResponse, JSONResponse, Response, StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -160,8 +159,6 @@ def create_app(config_path: str | Path) -> FastAPI:
     # when Caddy routes everything to the client).  Falls back to own_server so
     # local dev without Docker still works.
     _server = os.environ.get("CONTACC_SERVER_URL", "").rstrip("/") or config.own_server
-
-    static_dir = Path(__file__).parent / "static"
 
     # ── client-level session auth ─────────────────────────────────────────
 
@@ -1092,33 +1089,23 @@ def create_app(config_path: str | Path) -> FastAPI:
                 app.state.private_key = _load_private_key(config.node_key, passphrase_env)
         return JSONResponse(content={"status": resp.get("status")}, status_code=r.status_code)
 
-    # ── auth callback and static (no client auth required) ────────────────
-
-    _NC = {"Cache-Control": "no-cache"}
+    # ── auth callback (no client auth required) ──────────────────────────
 
     @app.get("/auth/callback")
     async def auth_callback(request: Request):
-        if request.query_params:
-            # SSO completion — proxy to server's internal /auth/callback
-            async with httpx.AsyncClient() as hc:
-                r = await hc.get(
-                    _server + "/auth/callback",
-                    params=dict(request.query_params),
-                    headers=_internal_headers(),
-                    follow_redirects=False,
-                )
-            if r.is_redirect:
-                from fastapi.responses import RedirectResponse as _Redir
-                return _Redir(url=r.headers["location"], status_code=r.status_code)
-            return JSONResponse(content=r.json(), status_code=r.status_code)
-        return FileResponse(static_dir / "callback.html", headers=_NC)
-
-    @app.get("/")
-    def index():
-        return FileResponse(static_dir / "index.html", headers=_NC)
-
-    if static_dir.exists():
-        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+        # SSO completion — proxy to server's internal /auth/callback
+        # (no-params case is served as a static file by the web layer)
+        async with httpx.AsyncClient() as hc:
+            r = await hc.get(
+                _server + "/auth/callback",
+                params=dict(request.query_params),
+                headers=_internal_headers(),
+                follow_redirects=False,
+            )
+        if r.is_redirect:
+            from fastapi.responses import RedirectResponse as _Redir
+            return _Redir(url=r.headers["location"], status_code=r.status_code)
+        return JSONResponse(content=r.json(), status_code=r.status_code)
 
     # ── catch-all: proxy everything else to the server ────────────────────
     _STRIP_INBOUND = {"host", "x-contacc-internal", "x-contacc-role", "x-contacc-identity"}

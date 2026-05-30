@@ -1,44 +1,61 @@
-# Each slot routes entirely through the client process, which proxies to the
-# internal server as needed.
+# Presentation layer is served directly from /srv/web (mounted from web/ in the repo).
+# Non-file requests (API, setup, auth) are proxied to the client process.
+# Auth callback without OAuth params is rewritten to serve web/callback.html.
+
+(node) {
+    root * /srv/web
+
+    # Auth callback HTML (no OAuth code) → static page
+    @callback_html expression `{path} == "/auth/callback" && {query.code} == ""`
+    rewrite @callback_html /callback.html
+
+    # API and any other non-file request → client process
+    @api not file
+    reverse_proxy @api {args[0]}:9444
+
+    file_server {
+        hide .*
+    }
+}
 
 {$CONTACC_DOMAIN}:8443 {
-    reverse_proxy client-1:9444
+    import node client-1
 }
 
 {$CONTACC_DOMAIN}:8444 {
-    reverse_proxy client-2:9444
+    import node client-2
 }
 
 {$CONTACC_DOMAIN}:8445 {
-    reverse_proxy client-3:9444
+    import node client-3
 }
 
 {$CONTACC_DOMAIN}:8446 {
-    reverse_proxy client-4:9444
+    import node client-4
 }
 
 {$CONTACC_DOMAIN}:8447 {
-    reverse_proxy client-5:9444
+    import node client-5
 }
 
 {$CONTACC_DOMAIN}:8448 {
-    reverse_proxy client-6:9444
+    import node client-6
 }
 
 {$CONTACC_DOMAIN}:8449 {
-    reverse_proxy client-7:9444
+    import node client-7
 }
 
 {$CONTACC_DOMAIN}:8450 {
-    reverse_proxy client-8:9444
+    import node client-8
 }
 
 {$CONTACC_DOMAIN}:8451 {
-    reverse_proxy client-9:9444
+    import node client-9
 }
 
 {$CONTACC_DOMAIN}:8452 {
-    reverse_proxy client-10:9444
+    import node client-10
 }
 
 {$CONTACC_DOMAIN}:8421 {

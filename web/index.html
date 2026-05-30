@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>contacc</title>
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; background: #111; color: #e0e0e0; min-height: 100vh; }
@@ -219,7 +219,7 @@
 <div id="setup-view" hidden>
   <div class="setup-card">
     <div class="setup-inner">
-      <div class="setup-logo"><img src="/static/favicon.svg"><span>contacc</span></div>
+      <div class="setup-logo"><img src="/favicon.svg"><span>contacc</span></div>
       <div id="setup-token-step" class="setup-form">
         <p style="color:#888;font-size:0.9rem;text-align:center">Enter your setup token to continue.</p>
         <input type="text" id="setup-token-input" placeholder="Setup token" autocomplete="off" onkeydown="if(event.key==='Enter')acceptSetupToken()">
@@ -256,7 +256,7 @@
 <div id="unlock-view" hidden>
   <div class="setup-card">
     <div class="setup-inner">
-      <div class="setup-logo"><img src="/static/favicon.svg"><span>contacc</span></div>
+      <div class="setup-logo"><img src="/favicon.svg"><span>contacc</span></div>
       <div class="setup-form">
         <p style="color:#888;font-size:0.9rem;text-align:center">Enter your passphrase to unlock the server.</p>
         <input type="password" id="unlock-passphrase" placeholder="Passphrase" onkeydown="if(event.key==='Enter')doUnlock()">
@@ -269,7 +269,7 @@
 
 <!-- ── server login ────────────────────────────────────────────────────────── -->
 <div id="login-view" hidden>
-  <div class="setup-logo"><img src="/static/favicon.svg"><span>contacc</span></div>
+  <div class="setup-logo"><img src="/favicon.svg"><span>contacc</span></div>
   <div id="login-server"></div>
   <button class="btn btn-primary" onclick="loginGoogle()">Sign in with Google</button>
   <div id="login-error" style="color:#e06c6c;font-size:0.85rem"></div>
@@ -279,7 +279,7 @@
 <div id="feed-view" hidden>
   <header>
     <div class="header-left">
-      <img src="/static/favicon.svg" height="26" style="display:block;flex-shrink:0" title="build: __BUILD_ID__">
+      <img src="/favicon.svg" height="26" style="display:block;flex-shrink:0" title="build: __BUILD_ID__">
       <div id="profile-avatar-initials" onclick="openProfile()" title="Edit profile" hidden></div>
       <img id="profile-avatar" onclick="openProfile()" title="Edit profile" hidden>
       <span id="handle-display" onclick="filterOwnPosts()" title="Filter to my posts" style="cursor:pointer"></span>
@@ -1339,7 +1339,7 @@ async function toggleReaction(postId, serverUrl, emoji, commentId, _btn) {
 // ── visibility / access icons ──────────────────────────────────────────────
 function _levelIcon(level) {
   if (level === 'public')        return '🌐';
-  if (level === 'authenticated') return '<img src="/static/favicon.svg" style="width:0.85em;height:0.85em;vertical-align:middle">';
+  if (level === 'authenticated') return '<img src="/favicon.svg" style="width:0.85em;height:0.85em;vertical-align:middle">';
   if (level === 'contacts')      return '👥';
   if (level === 'private')       return '<svg width="11" height="11" viewBox="0 0 12 12" fill="currentColor"><path d="M0.5 1.5L11.5 1.5L7.5 6.5L7.5 10.5L4.5 10.5L4.5 6.5Z"/></svg>';
   return '';
