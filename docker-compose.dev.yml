@@ -18,6 +18,8 @@ x-dev: &dev
 services:
   server-1:
     <<: *dev
+    environment:
+      CONTACC_DEV: "1"
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/server-1:/data
@@ -33,6 +35,8 @@ services:
     command: python -m client.main /data/client_config.json --host 0.0.0.0 --port 9444 --reload
 
   server-2:
+    environment:
+      CONTACC_DEV: "1"
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/server-2:/data
@@ -47,6 +51,8 @@ services:
     command: python -m client.main /data/client_config.json --host 0.0.0.0 --port 9444 --reload
 
   server-3:
+    environment:
+      CONTACC_DEV: "1"
     volumes:
       - .:/app
       - ${CONTACC_DATA_DIR}/server-3:/data

@@ -217,7 +217,9 @@ def create_app(config_path: str | Path) -> FastAPI:
         return await call_next(request)
 
     # Try to initialize immediately if we have everything we need
-    passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE")
+    passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
+    if not passphrase and os.environ.get("CONTACC_DEV"):
+        passphrase = "foobar"
     if config_path.exists() and passphrase:
         try:
             _initialize(app, config_path, passphrase)
