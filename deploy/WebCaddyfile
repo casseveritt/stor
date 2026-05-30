@@ -1,0 +1,20 @@
+# Web presentation layer.
+# Serves static files from /srv/web and proxies everything else to the
+# client API at CONTACC_CLIENT_URL. Replace this entire service with any
+# HTTP server that speaks on :9080 to swap out the UI.
+
+:9080 {
+    root * /srv/web
+
+    # Auth callback HTML (no OAuth code) → static page
+    @callback_html expression `{path} == "/auth/callback" && {query.code} == ""`
+    rewrite @callback_html /callback.html
+
+    # Anything not a local file → client API
+    @api not file
+    reverse_proxy @api {$CONTACC_CLIENT_URL}
+
+    file_server {
+        hide .*
+    }
+}

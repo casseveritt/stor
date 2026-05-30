@@ -10,6 +10,15 @@ x-client: &client
   command: python -m client.main /data/client_config.json --host 0.0.0.0 --port 9444
   expose: ["9444"]
 
+x-web: &web
+  image: caddy:2-alpine
+  restart: unless-stopped
+  command: caddy run --config /etc/caddy/WebCaddyfile
+  expose: ["9080"]
+  volumes:
+    - ${CONTACC_WEB_CONFIG:-./deploy/WebCaddyfile}:/etc/caddy/WebCaddyfile:ro
+    - ./web:/srv/web:ro
+
 x-env: &proxy-env
   CONTACC_IDENTITY_PROXY_URL: ${CONTACC_IDENTITY_PROXY_URL:-https://starkville.hopto.org:8421}
 
@@ -35,6 +44,12 @@ services:
       - ${CONTACC_DATA_DIR}/client-1:/data
     depends_on: [server-1]
 
+  web-1:
+    <<: *web
+    environment:
+      CONTACC_CLIENT_URL: http://client-1:9444
+    depends_on: [client-1]
+
   # ── node 2 ────────────────────────────────────────────────────────────────
   server-2:
     <<: *server
@@ -56,6 +71,13 @@ services:
     volumes:
       - ${CONTACC_DATA_DIR}/client-2:/data
     depends_on: [server-2]
+
+  web-2:
+    <<: *web
+    profiles: [node2]
+    environment:
+      CONTACC_CLIENT_URL: http://client-2:9444
+    depends_on: [client-2]
 
   # ── node 3 ────────────────────────────────────────────────────────────────
   server-3:
@@ -79,6 +101,13 @@ services:
       - ${CONTACC_DATA_DIR}/client-3:/data
     depends_on: [server-3]
 
+  web-3:
+    <<: *web
+    profiles: [node3]
+    environment:
+      CONTACC_CLIENT_URL: http://client-3:9444
+    depends_on: [client-3]
+
   # ── node 4 ────────────────────────────────────────────────────────────────
   server-4:
     <<: *server
@@ -100,6 +129,13 @@ services:
     volumes:
       - ${CONTACC_DATA_DIR}/client-4:/data
     depends_on: [server-4]
+
+  web-4:
+    <<: *web
+    profiles: [node4]
+    environment:
+      CONTACC_CLIENT_URL: http://client-4:9444
+    depends_on: [client-4]
 
   # ── node 5 ────────────────────────────────────────────────────────────────
   server-5:
@@ -123,6 +159,13 @@ services:
       - ${CONTACC_DATA_DIR}/client-5:/data
     depends_on: [server-5]
 
+  web-5:
+    <<: *web
+    profiles: [node5]
+    environment:
+      CONTACC_CLIENT_URL: http://client-5:9444
+    depends_on: [client-5]
+
   # ── node 6 ────────────────────────────────────────────────────────────────
   server-6:
     <<: *server
@@ -144,6 +187,13 @@ services:
     volumes:
       - ${CONTACC_DATA_DIR}/client-6:/data
     depends_on: [server-6]
+
+  web-6:
+    <<: *web
+    profiles: [node6]
+    environment:
+      CONTACC_CLIENT_URL: http://client-6:9444
+    depends_on: [client-6]
 
   # ── node 7 ────────────────────────────────────────────────────────────────
   server-7:
@@ -167,6 +217,13 @@ services:
       - ${CONTACC_DATA_DIR}/client-7:/data
     depends_on: [server-7]
 
+  web-7:
+    <<: *web
+    profiles: [node7]
+    environment:
+      CONTACC_CLIENT_URL: http://client-7:9444
+    depends_on: [client-7]
+
   # ── node 8 ────────────────────────────────────────────────────────────────
   server-8:
     <<: *server
@@ -188,6 +245,13 @@ services:
     volumes:
       - ${CONTACC_DATA_DIR}/client-8:/data
     depends_on: [server-8]
+
+  web-8:
+    <<: *web
+    profiles: [node8]
+    environment:
+      CONTACC_CLIENT_URL: http://client-8:9444
+    depends_on: [client-8]
 
   # ── node 9 ────────────────────────────────────────────────────────────────
   server-9:
@@ -211,6 +275,13 @@ services:
       - ${CONTACC_DATA_DIR}/client-9:/data
     depends_on: [server-9]
 
+  web-9:
+    <<: *web
+    profiles: [node9]
+    environment:
+      CONTACC_CLIENT_URL: http://client-9:9444
+    depends_on: [client-9]
+
   # ── node 10 ───────────────────────────────────────────────────────────────
   server-10:
     <<: *server
@@ -232,6 +303,13 @@ services:
     volumes:
       - ${CONTACC_DATA_DIR}/client-10:/data
     depends_on: [server-10]
+
+  web-10:
+    <<: *web
+    profiles: [node10]
+    environment:
+      CONTACC_CLIENT_URL: http://client-10:9444
+    depends_on: [client-10]
 
   # ── registry (opt-in) ─────────────────────────────────────────────────────
   registry:
@@ -268,9 +346,7 @@ services:
       CONTACC_DOMAIN: ${CONTACC_DOMAIN}
     volumes:
       - ${CADDY_CONFIG:-./deploy/Caddyfile}:/etc/caddy/Caddyfile:ro
-      - ./web:/srv/web:ro
       - ${CONTACC_DATA_DIR}/caddy:/data
       - ${CONTACC_DATA_DIR}/caddy-config:/config
     depends_on:
-      - server-1
-      - client-1
+      - web-1
