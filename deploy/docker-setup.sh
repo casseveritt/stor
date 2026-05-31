@@ -193,12 +193,10 @@ printf "  %-8s  %-40s  %s\n" "Node" "Web URL" "Setup Token"
 printf "  %-8s  %-40s  %s\n" "----" "-------" "-----------"
 
 SUDO="$(need_sudo_docker)"
-PROJECT="$(basename "${CONTACC_REPO_DIR}")"
 for i in $(seq 0 $((CONTACC_NODES - 1))); do
     web_port=$((6443 + i))
-    # Container name follows docker compose naming: <project>-<service>-<index>
-    container="${PROJECT}-node-${i}-me-1"
-    token=$(${SUDO} docker logs "${container}" 2>&1 \
+    # Use docker compose logs — reliable regardless of container naming
+    token=$(${SUDO} docker compose logs "node-${i}-me" 2>/dev/null \
             | grep "SETUP TOKEN" | tail -1 | awk '{print $NF}')
     printf "  %-8s  %-40s  %s\n" "node-${i}" "https://${CONTACC_DOMAIN}:${web_port}" "${token:-<starting…>}"
 done
