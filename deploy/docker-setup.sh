@@ -171,10 +171,10 @@ done
 
 echo
 echo -e "${B}Ports to open in your router/firewall:${N}"
-echo "  80               (TLS certificate issuance)"
+echo "  80               (TLS — Let's Encrypt HTTP challenge)"
 for i in $(seq 0 $((CONTACC_NODES - 1))); do
     echo "  $((6443 + i)) / $((8443 + i))    (node ${i} web / API)"
 done
-[ "${PROFILES}" = "registry"* ] && echo "  8421             (registry)"
+[[ "${PROFILES}" == *registry* ]] && echo "  8421             (registry)"
 echo
 info "Done. Logs: sudo docker compose logs -f"
