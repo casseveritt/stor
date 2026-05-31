@@ -45,6 +45,32 @@ data volume. Spinning up a new node is:
 
 No human interaction required after step 4.
 
+## Secret distribution at scale
+
+There are two categories of secret with different lifecycles:
+
+**Shared secrets** (same value on every node):
+- `CONTACC_GOOGLE_CLIENT_ID` / `CONTACC_GOOGLE_CLIENT_SECRET` — the OAuth app
+  credentials. Every node authenticates to the same Google app.
+
+**Node-specific secrets** (unique per node, generated at setup time):
+- The node passphrase and encrypted Ed25519 private key — generated during
+  `POST /setup/new` and stored in the data volume. Never in the image or env.
+
+For shared secrets at scale, the standard pattern is a **secrets manager**:
+AWS Secrets Manager, GCP Secret Manager, HashiCorp Vault, etc. The instance
+startup script fetches them before launching containers and injects them as
+environment variables. Within an orchestrator, Docker Swarm secrets or
+Kubernetes Secrets provide the same capability.
+
+The important property: Google OAuth credentials never need to appear in the
+image, in git, or in any per-instance config file. They are fetched at runtime
+from a trusted store that the instance has IAM/ACL permission to read.
+
+Node-specific secrets are not a distribution problem — they don't exist until
+`/setup/new` is called, and they live only in the attached data volume
+thereafter.
+
 ## TLS at scale
 
 The current approach — Caddy with HTTP-01 ACME on port 80, one cert per
