@@ -48,6 +48,26 @@ if ! docker compose version &>/dev/null && ! sudo docker compose version &>/dev/
     die "Docker Compose v2 not found. Please update Docker."
 fi
 
+# Raspberry Pi OS uses systemd-resolved (127.0.0.53) which Docker containers
+# can't always reach. Ensure Docker uses public DNS so image pulls work.
+DOCKER_DAEMON=/etc/docker/daemon.json
+if [ ! -f "${DOCKER_DAEMON}" ] || ! grep -q '"dns"' "${DOCKER_DAEMON}"; then
+    info "Configuring Docker DNS (8.8.8.8) for reliable image pulls..."
+    if [ -f "${DOCKER_DAEMON}" ]; then
+        # Merge into existing config using Python
+        sudo python3 -c "
+import json, sys
+d = json.load(open('${DOCKER_DAEMON}'))
+d.setdefault('dns', ['8.8.8.8', '8.8.4.4'])
+json.dump(d, open('${DOCKER_DAEMON}', 'w'), indent=2)
+"
+    else
+        echo '{"dns": ["8.8.8.8", "8.8.4.4"]}' | sudo tee "${DOCKER_DAEMON}" > /dev/null
+    fi
+    sudo systemctl restart docker
+    info "Docker restarted with public DNS."
+fi
+
 if ! command -v git &>/dev/null; then
     info "Installing git..."
     sudo apt-get update -qq && sudo apt-get install -y -qq git
