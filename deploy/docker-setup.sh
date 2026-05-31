@@ -53,18 +53,26 @@ if ! command -v git &>/dev/null; then
     sudo apt-get update -qq && sudo apt-get install -y -qq git
 fi
 
-# ── 2. clone / update repo ────────────────────────────────────────────────────
+# ── 2. locate / clone repo ───────────────────────────────────────────────────
 section "Repository"
 
-CONTACC_REPO_DIR="${CONTACC_REPO_DIR:-${HOME}/stor}"
 REPO_URL="${REPO_URL:-https://github.com/casseveritt/stor.git}"
 
-if [ -d "${CONTACC_REPO_DIR}/.git" ]; then
-    info "Updating existing repo at ${CONTACC_REPO_DIR}..."
-    git -C "${CONTACC_REPO_DIR}" pull --ff-only
+# If the script is already inside a git repo, use that — no clone needed.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if git -C "${SCRIPT_DIR}" rev-parse --git-dir &>/dev/null; then
+    CONTACC_REPO_DIR="$(git -C "${SCRIPT_DIR}" rev-parse --show-toplevel)"
+    info "Using existing repo at ${CONTACC_REPO_DIR}"
+    git -C "${CONTACC_REPO_DIR}" pull --ff-only || warn "Could not pull latest — continuing with current version."
 else
-    info "Cloning repo to ${CONTACC_REPO_DIR}..."
-    git clone "${REPO_URL}" "${CONTACC_REPO_DIR}"
+    CONTACC_REPO_DIR="${CONTACC_REPO_DIR:-${HOME}/stor}"
+    if [ -d "${CONTACC_REPO_DIR}/.git" ]; then
+        info "Updating existing repo at ${CONTACC_REPO_DIR}..."
+        git -C "${CONTACC_REPO_DIR}" pull --ff-only
+    else
+        info "Cloning repo to ${CONTACC_REPO_DIR}..."
+        git clone "${REPO_URL}" "${CONTACC_REPO_DIR}"
+    fi
 fi
 
 cd "${CONTACC_REPO_DIR}"
