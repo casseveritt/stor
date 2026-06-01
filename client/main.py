@@ -267,6 +267,12 @@ def create_app(config_path: str | Path) -> FastAPI:
         return _contact_url_cache.get(pub_key)
 
     def _registry_url() -> str:
+        # Prefer explicit registry/proxy URL from environment, then fall back
+        # to deriving from own_server hostname (same host, port 8421).
+        url = (os.environ.get("CONTACC_REGISTRY_URL")
+               or os.environ.get("CONTACC_IDENTITY_PROXY_URL"))
+        if url:
+            return url.rstrip("/")
         from urllib.parse import urlparse
         parsed = urlparse(config.own_server)
         return f"https://{parsed.hostname}:8421"
