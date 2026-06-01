@@ -2,11 +2,15 @@ x-me: &me
   image: contacc
   restart: unless-stopped
   command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT"
+  environment:
+    CONTACC_DEV: "${CONTACC_DEV:-}"
 
 x-them: &them
   image: contacc
   restart: unless-stopped
   command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT"
+  environment:
+    CONTACC_DEV: "${CONTACC_DEV:-}"
 
 x-web: &web
   image: caddy:2-alpine
