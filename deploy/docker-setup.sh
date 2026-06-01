@@ -167,9 +167,13 @@ info "Data directories ready under ${CONTACC_DATA_DIR}."
 # ── 6. build image ────────────────────────────────────────────────────────────
 section "Building image"
 info "Building contacc image (first build may take a few minutes — compiles sqlcipher)..."
-# DOCKER_BUILDKIT=0 + sudo -E: BuildKit's metadata fetch ignores daemon DNS on
-# Raspberry Pi OS; disabling BuildKit and preserving env through sudo fixes it.
-DOCKER_BUILDKIT=0 $(need_sudo_docker) -E docker build -t contacc .
+# DOCKER_BUILDKIT=0: BuildKit's metadata fetch ignores daemon DNS on Pi OS.
+# sudo -E preserves DOCKER_BUILDKIT through the sudo env-stripping.
+if [ "$(need_sudo_docker)" = "sudo" ]; then
+    DOCKER_BUILDKIT=0 sudo -E docker build -t contacc .
+else
+    DOCKER_BUILDKIT=0 docker build -t contacc .
+fi
 
 # ── 7. start services ─────────────────────────────────────────────────────────
 section "Starting services"
