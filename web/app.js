@@ -981,7 +981,7 @@ function makePostCard(post, idx) {
           ? "?server=" + encodeURIComponent(post._server_url) : "";
         const thumbBase = "/api/assets/" + asset.id + "/thumb" + params + clientTokenParam(!!params);
         const hashQ = asset.content_hash ? (thumbBase.includes('?') ? '&' : '?') + 'hash=' + encodeURIComponent(asset.content_hash) : '';
-        img.src = thumbBase + hashQ;
+        img.src = thumbBase + hashQ + (hashQ ? '&' : '?') + 'tq=640';
         const fullBase = "/api/assets/" + asset.id + params + clientTokenParam(!!params);
         const fullSrc = fullBase + (asset.content_hash ? (fullBase.includes('?') ? '&' : '?') + 'hash=' + encodeURIComponent(asset.content_hash) : '');
         img.onclick = () => openLightbox(fullSrc);
