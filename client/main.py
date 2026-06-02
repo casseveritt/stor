@@ -162,7 +162,7 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     # ── client-level session auth ─────────────────────────────────────────
 
-    _sessions: dict[str, float] = {}  # token -> expiry
+    _sessions: dict[str, int] = {}  # token -> expiry (nanoseconds)
     SESSION_TTL = 86400 * 30
 
     class SessionBody(BaseModel):
@@ -184,7 +184,7 @@ def create_app(config_path: str | Path) -> FastAPI:
             tokens[config.own_server] = body.token
             save_tokens(config_path, tokens)
         session_token = secrets.token_urlsafe(32)
-        _sessions[session_token] = time.time() + SESSION_TTL
+        _sessions[session_token] = time.time_ns() + SESSION_TTL * 1_000_000_000
         return {"token": session_token}
 
     @app.get("/client/login-url")
@@ -206,7 +206,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         if not t:
             raise HTTPException(status_code=401, detail="Client authentication required")
         expiry = _sessions.get(t)
-        if not expiry or time.time() > expiry:
+        if not expiry or time.time_ns() > expiry:
             raise HTTPException(status_code=401, detail="Invalid or expired client session")
 
     # api router — all /api/ routes require client auth

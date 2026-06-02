@@ -6,6 +6,7 @@ import time
 from fastapi import APIRouter, Query, Request
 
 from .auth import AuthDep, OptionalAuthDep
+from .db import now_ns
 
 router = APIRouter()
 
@@ -31,8 +32,8 @@ def _encode_cursor(rowid: int) -> str:
 def query_feed(
     request: Request,
     identity: OptionalAuthDep,
-    since: float | None = Query(default=None),
-    until: float | None = Query(default=None),
+    since: int | None = Query(default=None),
+    until: int | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=_PAGE_MAX),
     cursor: str | None = Query(default=None),
     include_superseded: bool = Query(default=False),
@@ -41,7 +42,7 @@ def query_feed(
     q: str | None = Query(default=None),
 ):
     db = request.app.state.db
-    until_ts = until if until is not None else time.time()
+    until_ts = until if until is not None else now_ns()
 
     conditions = ["deleted = 0", "created_at <= ?"]
     params: list = [until_ts]

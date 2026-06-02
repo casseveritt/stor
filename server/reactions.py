@@ -5,6 +5,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from .auth import FederatedSigDep, OptionalAuthDep
+from .db import now_ns
 
 router = APIRouter()
 
@@ -80,7 +81,7 @@ def toggle_reaction(post_id: str, payload: _ReactBody, request: Request, identit
     else:
         db.execute(
             "INSERT INTO reactions (post_id, comment_id, emoji, reactor_identity, created_at) VALUES (?, ?, ?, ?, ?)",
-            (post_id, payload.comment_id, payload.emoji, reactor, time.time()),
+            (post_id, payload.comment_id, payload.emoji, reactor, now_ns()),
         )
         reacted = True
     db.commit()

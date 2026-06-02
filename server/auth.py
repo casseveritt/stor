@@ -21,6 +21,7 @@ from dataclasses import dataclass, field
 from typing import Annotated
 
 from cryptography.exceptions import InvalidSignature
+from .db import NS, now_ns
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 from fastapi import Depends, Header, HTTPException, Request, status
 
@@ -92,7 +93,7 @@ def _verify_owner_token(token: str) -> bool:
 def issue_recipient_token(db, recipient_id: str, ttl_seconds: int = 86400 * 30) -> str:
     raw = os.urandom(ID_LEN)
     token_str = base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
-    expiry = time.time() + ttl_seconds
+    expiry = now_ns() + ttl_seconds * NS
     db.execute(
         "INSERT INTO tokens (id, recipient_id, expiry, revoked) VALUES (?, ?, ?, 0)",
         (token_str, recipient_id, expiry),
@@ -177,7 +178,7 @@ def _identity_from_token(request: Request, token: str) -> TokenIdentity:
     recipient_id, expiry, revoked = row
     if revoked:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
-    if time.time() > expiry:
+    if now_ns() > expiry:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired")
     return TokenIdentity(is_owner=recipient_id is None, recipient_id=recipient_id)
 

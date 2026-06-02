@@ -947,7 +947,7 @@ function makePostCard(post, idx) {
   author.className = "post-author";
   author.dataset.server = post._server_url;
   _renderAuthorInto(author, post._server_url);
-  const dateFmt = post.created_at ? new Date(post.created_at * 1000).toLocaleDateString() : "";
+  const dateFmt = post.created_at ? new Date(post.created_at / 1_000_000).toLocaleDateString() : "";
   const rightGroup = document.createElement("span");
   rightGroup.style.cssText = "display:inline-flex;align-items:center;gap:0.35rem;flex-shrink:0";
   rightGroup.className = "post-author-right";
@@ -1755,7 +1755,7 @@ function mimeIcon(mt) {
   if (mt === "application/pdf") return "📋";
   return "📄";
 }
-function fmtDate(ts) { if (!ts) return ""; return new Date(ts * 1000).toLocaleString(undefined, {dateStyle:"short",timeStyle:"short"}); }
+function fmtDate(ts) { if (!ts) return ""; return new Date(ts / 1000000).toLocaleString(undefined, {dateStyle:"short",timeStyle:"short"}); }
 function fmtSize(b) { if (b < 1024) return b + " B"; if (b < 1048576) return (b/1024).toFixed(1) + " KB"; return (b/1048576).toFixed(1) + " MB"; }
 
 // ── profile ────────────────────────────────────────────────────────────────

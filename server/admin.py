@@ -12,6 +12,7 @@ from pydantic import BaseModel
 
 from .auth import OwnerDep, revoke_token
 from .comments import approve_edit, reject_edit
+from .db import NS, now_ns
 
 router = APIRouter()
 
@@ -130,7 +131,7 @@ def list_tokens(request: Request, identity: OwnerDep):
            LEFT JOIN recipients r ON r.id = t.recipient_id
            WHERE t.revoked = 0 AND t.expiry > ?
            ORDER BY t.expiry DESC""",
-        (time.time(),),
+        (now_ns(),),
     ).fetchall()
     return {
         "tokens": [
@@ -174,8 +175,8 @@ def get_access_log(
     identity: OwnerDep,
     asset_id: str | None = Query(default=None),
     recipient_id: str | None = Query(default=None),
-    since: float | None = Query(default=None),
-    until: float | None = Query(default=None),
+    since: int | None = Query(default=None),
+    until: int | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ):
@@ -227,8 +228,8 @@ def get_asset_access_log(
     asset_id: str,
     request: Request,
     identity: OwnerDep,
-    since: float | None = Query(default=None),
-    until: float | None = Query(default=None),
+    since: int | None = Query(default=None),
+    until: int | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
 ):
@@ -278,7 +279,7 @@ def get_asset_access_log(
 @router.get("/stats")
 def get_stats(request: Request, identity: OwnerDep):
     db = request.app.state.db
-    now = time.time()
+    now = now_ns()
 
     asset_total, asset_deleted, asset_size = db.execute(
         "SELECT COUNT(*), SUM(deleted), COALESCE(SUM(CASE WHEN deleted=0 THEN size ELSE 0 END), 0) FROM assets"
@@ -334,7 +335,7 @@ def get_recipient_stats(recipient_id: str, request: Request, identity: OwnerDep)
 
     active_tokens = db.execute(
         "SELECT COUNT(*) FROM tokens WHERE recipient_id = ? AND revoked = 0 AND expiry > ?",
-        (recipient_id, time.time()),
+        (recipient_id, now_ns()),
     ).fetchone()[0]
 
     access_row = db.execute(
@@ -465,8 +466,8 @@ def get_recipient_feed(
     recipient_id: str,
     request: Request,
     identity: OwnerDep,
-    since: float | None = Query(default=None),
-    until: float | None = Query(default=None),
+    since: int | None = Query(default=None),
+    until: int | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     cursor: str | None = Query(default=None),
     include_superseded: bool = Query(default=False),
@@ -479,7 +480,7 @@ def get_recipient_feed(
         raise HTTPException(status_code=404, detail="Recipient not found")
     _, rec_identity = row
 
-    until_ts = until if until is not None else time.time()
+    until_ts = until if until is not None else now_ns()
     conditions = [
         "deleted = 0", "created_at <= ?",
         "EXISTS (SELECT 1 FROM acl WHERE asset_id = assets.id AND recipient_id = ?)",

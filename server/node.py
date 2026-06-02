@@ -4,6 +4,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from .auth import OwnerDep
+from .db import NS, now_ns
 
 router = APIRouter()
 
@@ -36,7 +37,7 @@ def node_metadata(request: Request):
     profile_row = db.execute(
         "SELECT display_name, photo_content_hash FROM profile WHERE id = 1"
     ).fetchone()
-    week_ago = _time.time() - 7 * 86400
+    week_ago = now_ns() - 7 * 86400 * NS
     posts_7d = db.execute("SELECT COUNT(*) FROM posts WHERE created_at > ? AND deleted = 0", (week_ago,)).fetchone()[0]
     comments_7d = db.execute("SELECT COUNT(*) FROM comments WHERE created_at > ? AND deleted = 0", (week_ago,)).fetchone()[0]
     last_post = db.execute("SELECT MAX(created_at) FROM posts WHERE deleted = 0").fetchone()[0] or 0

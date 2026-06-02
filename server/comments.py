@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from .auth import AuthDep, FederatedOrTokenDep, OptionalAuthDep, check_acl
 from .access_log import log_access
+from .db import now_ns
 
 router = APIRouter()
 
@@ -81,7 +82,7 @@ async def post_comment(asset_id: str, payload: _PostCommentBody, request: Reques
 
     comment_id = str(uuid.uuid4())
     content_hash = _body_hash(payload.body)
-    now = time.time()
+    now = now_ns()
     author_id = identity.recipient_id  # None when owner
 
     db.execute(
@@ -148,7 +149,7 @@ def request_comment_edit(
         """INSERT INTO comment_edit_requests
              (id, comment_id, requester_recipient_id, new_body, created_at, status)
            VALUES (?, ?, ?, ?, ?, 'pending')""",
-        (request_id, comment_id, identity.recipient_id, payload.new_body, time.time()),
+        (request_id, comment_id, identity.recipient_id, payload.new_body, now_ns()),
     )
     db.commit()
 
@@ -186,7 +187,7 @@ def approve_edit(db, request_id: str) -> dict:
                   body, created_at, predecessor, successor, deleted)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, 0)""",
             (new_id, _body_hash(new_body), asset_id, parent_id, author_id,
-             new_body, time.time(), comment_id),
+             new_body, now_ns(), comment_id),
         )
         db.execute("UPDATE comments SET successor = ? WHERE id = ?", (new_id, comment_id))
 

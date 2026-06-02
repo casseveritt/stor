@@ -1,6 +1,7 @@
 """Non-critical access logging for recipient and share-token asset fetches."""
 import time
 import uuid
+from .db import now_ns
 
 
 def log_access(db, asset_id: str, identity, endpoint: str) -> None:
@@ -18,7 +19,7 @@ def log_access(db, asset_id: str, identity, endpoint: str) -> None:
                 identity.recipient_id,
                 identity.share_identity if identity.is_share else None,
                 endpoint,
-                time.time(),
+                now_ns(),
             ),
         )
         db.commit()

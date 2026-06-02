@@ -1,4 +1,13 @@
+import time as _time
+
 import sqlcipher3
+
+NS = 1_000_000_000  # nanoseconds per second
+
+
+def now_ns() -> int:
+    """Current time as Unix nanoseconds (int64). Uses time.time_ns() for exact precision."""
+    return _time.time_ns()
 
 
 class WrongPassphraseError(Exception):
@@ -26,7 +35,7 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             content_hash TEXT NOT NULL,
             media_type   TEXT NOT NULL,
             size         INTEGER NOT NULL,
-            created_at   REAL NOT NULL,
+            created_at   INTEGER NOT NULL,
             title        TEXT,
             tags         TEXT,
             predecessor  TEXT,
@@ -64,7 +73,7 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS tokens (
             id           TEXT PRIMARY KEY,
             recipient_id TEXT,
-            expiry       REAL NOT NULL,
+            expiry       INTEGER NOT NULL,
             revoked      INTEGER NOT NULL DEFAULT 0
         )
     """)
@@ -78,7 +87,7 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS sso_states (
             state     TEXT PRIMARY KEY,
             provider  TEXT NOT NULL,
-            expiry    REAL NOT NULL,
+            expiry    INTEGER NOT NULL,
             return_to TEXT NOT NULL DEFAULT ''
         )
     """)
@@ -91,7 +100,7 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         CREATE TABLE IF NOT EXISTS posts (
             id             TEXT PRIMARY KEY,
             body           TEXT NOT NULL DEFAULT '',
-            created_at     REAL NOT NULL,
+            created_at     INTEGER NOT NULL,
             tags           TEXT,
             is_public      INTEGER NOT NULL DEFAULT 0,
             deleted        INTEGER NOT NULL DEFAULT 0,
@@ -154,7 +163,7 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             parent_id           TEXT,
             author_recipient_id TEXT,
             body                TEXT NOT NULL,
-            created_at          REAL NOT NULL,
+            created_at          INTEGER NOT NULL,
             predecessor         TEXT,
             successor           TEXT,
             deleted             INTEGER NOT NULL DEFAULT 0
@@ -174,7 +183,7 @@ def init_schema(con: sqlcipher3.Connection) -> None:
                 parent_id           TEXT,
                 author_recipient_id TEXT,
                 body                TEXT NOT NULL,
-                created_at          REAL NOT NULL,
+                created_at          INTEGER NOT NULL,
                 predecessor         TEXT,
                 successor           TEXT,
                 deleted             INTEGER NOT NULL DEFAULT 0
@@ -203,7 +212,7 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             comment_id             TEXT NOT NULL,
             requester_recipient_id TEXT,
             new_body               TEXT,
-            created_at             REAL NOT NULL,
+            created_at             INTEGER NOT NULL,
             status                 TEXT NOT NULL DEFAULT 'pending'
         )
     """)
@@ -214,7 +223,7 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             recipient_id   TEXT,
             share_identity TEXT,
             endpoint       TEXT NOT NULL,
-            accessed_at    REAL NOT NULL
+            accessed_at    INTEGER NOT NULL
         )
     """)
     con.execute(
@@ -280,9 +289,33 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             comment_id       TEXT NOT NULL DEFAULT '',
             emoji            TEXT NOT NULL,
             reactor_identity TEXT NOT NULL DEFAULT '',
-            created_at       REAL NOT NULL,
+            created_at       INTEGER NOT NULL,
             UNIQUE(post_id, comment_id, emoji, reactor_identity)
         )
     """)
     con.execute("INSERT OR IGNORE INTO schema_version VALUES (8)")
     con.commit()
+
+    # schema version 10: timestamps → int64 nanoseconds
+    # Existing values are float seconds (~1.7e9); multiply by 1e9 to convert.
+    # The WHERE guard (< 1e12) prevents double-conversion on re-run.
+    if not con.execute("SELECT 1 FROM schema_version WHERE version=10").fetchone():
+        for _tbl, _col in [
+            ("posts",                "created_at"),
+            ("assets",               "created_at"),
+            ("comments",             "created_at"),
+            ("comment_edit_requests","created_at"),
+            ("reactions",            "created_at"),
+            ("access_log",           "accessed_at"),
+            ("tokens",               "expiry"),
+            ("sso_states",           "expiry"),
+        ]:
+            try:
+                con.execute(
+                    f"UPDATE {_tbl} SET {_col} = CAST({_col} * 1000000000 AS INTEGER)"
+                    f" WHERE {_col} < 1000000000000"
+                )
+            except Exception:
+                pass
+        con.execute("INSERT OR IGNORE INTO schema_version VALUES (10)")
+        con.commit()

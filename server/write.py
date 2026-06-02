@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from .auth import OwnerDep, issue_share_token
 from .crypto import encrypt_bytes
+from .db import now_ns
 
 router = APIRouter()
 
@@ -63,7 +64,7 @@ async def publish_asset(
         file_path.write_bytes(encrypt_bytes(content, file_key))
 
     asset_id = str(uuid.uuid4())
-    now = time.time()
+    now = now_ns()
 
     db.execute(
         """INSERT INTO assets (id, content_hash, media_type, size, created_at, title, tags,

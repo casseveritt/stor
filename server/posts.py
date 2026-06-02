@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from .auth import AuthDep, FederatedOrTokenDep, FederatedSigDep, OptionalAuthDep, OwnerDep
 from .crypto import encrypt_bytes
+from .db import now_ns
 
 router = APIRouter()
 
@@ -129,7 +130,7 @@ async def create_post(
     is_public = visibility == "public"
     db = request.app.state.db
     post_id = str(uuid.uuid4())
-    now = time.time()
+    now = now_ns()
 
     # validate any pre-existing asset refs in body
     inline_ids = _asset_ids_in_order(body)
@@ -245,7 +246,7 @@ def get_posts(
 
     if cursor:
         conditions.append("p.created_at < ?")
-        params.append(float(cursor))
+        params.append(int(cursor))
 
     if tags:
         placeholders = ",".join("?" * len(tags))
@@ -483,7 +484,7 @@ async def post_comment(post_id: str, payload: _CommentBody, request: Request, id
 
     comment_id = str(uuid.uuid4())
     content_hash = hashlib.sha256(payload.body.encode()).hexdigest()
-    now = time.time()
+    now = now_ns()
     author_id = identity.recipient_id
 
     author_identity = None

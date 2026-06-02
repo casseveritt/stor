@@ -12,6 +12,7 @@ from urllib.parse import urlencode
 import httpx
 
 from .auth import issue_recipient_token
+from .db import NS, now_ns
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
@@ -32,7 +33,7 @@ def generate_state(db, provider: str, ttl: int = 600, return_to: str = "") -> st
     state = base64.urlsafe_b64encode(os.urandom(24)).rstrip(b"=").decode()
     db.execute(
         "INSERT INTO sso_states (state, provider, expiry, return_to) VALUES (?, ?, ?, ?)",
-        (state, provider, time.time() + ttl, return_to),
+        (state, provider, now_ns() + ttl * NS, return_to),
     )
     db.commit()
     return state
@@ -48,7 +49,7 @@ def consume_state(db, state: str) -> tuple[str, str]:
     provider, expiry, return_to = row
     db.execute("DELETE FROM sso_states WHERE state = ?", (state,))
     db.commit()
-    if time.time() > expiry:
+    if now_ns() > expiry:
         raise SSOError("State has expired")
     return provider, return_to
 

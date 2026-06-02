@@ -18,6 +18,7 @@ import secrets
 import sqlite3
 import sys
 import time
+NS = 1_000_000_000  # nanoseconds per second
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -68,8 +69,8 @@ def create_app(db_path: str) -> FastAPI:
             server_url    TEXT NOT NULL,
             public_key    TEXT NOT NULL,
             ttl           INTEGER NOT NULL DEFAULT 14400,
-            registered_at REAL NOT NULL,
-            updated_at    REAL NOT NULL,
+            registered_at INTEGER NOT NULL,
+            updated_at    INTEGER NOT NULL,
             display_name  TEXT,
             web_url       TEXT
         )
@@ -90,8 +91,8 @@ def create_app(db_path: str) -> FastAPI:
                 server_url    TEXT NOT NULL,
                 public_key    TEXT NOT NULL,
                 ttl           INTEGER NOT NULL DEFAULT 14400,
-                registered_at REAL NOT NULL,
-                updated_at    REAL NOT NULL,
+                registered_at INTEGER NOT NULL,
+                updated_at    INTEGER NOT NULL,
                 display_name  TEXT,
                 web_url       TEXT
             )
@@ -115,7 +116,7 @@ def create_app(db_path: str) -> FastAPI:
         CREATE TABLE IF NOT EXISTS proxy_states (
             state      TEXT PRIMARY KEY,
             return_to  TEXT NOT NULL,
-            created_at REAL NOT NULL
+            created_at INTEGER NOT NULL
         )
     """)
     con.execute("""
@@ -123,9 +124,19 @@ def create_app(db_path: str) -> FastAPI:
             token        TEXT PRIMARY KEY,
             identity     TEXT NOT NULL,
             display_name TEXT,
-            created_at   REAL NOT NULL
+            created_at   INTEGER NOT NULL
         )
     """)
+    # Migrate: convert timestamps from float seconds to integer nanoseconds
+    for _tbl, _col in [("handles", "registered_at"), ("handles", "updated_at"),
+                       ("proxy_states", "created_at"), ("proxy_tokens", "created_at")]:
+        try:
+            con.execute(
+                f"UPDATE {_tbl} SET {_col} = CAST({_col} * 1000000000 AS INTEGER)"
+                f" WHERE {_col} < 1000000000000"
+            )
+        except Exception:
+            pass
     con.commit()
 
     # Identity proxy config — read from environment at startup.
@@ -327,7 +338,7 @@ def create_app(db_path: str) -> FastAPI:
             raise HTTPException(status_code=401, detail="Invalid signature")
         if con.execute("SELECT 1 FROM handles WHERE username = ?", (username,)).fetchone():
             raise HTTPException(status_code=409, detail="Username already registered")
-        now = time.time()
+        now = time.time_ns()
         con.execute(
             "INSERT INTO handles "
             "(username, server_url, public_key, ttl, registered_at, updated_at, display_name, web_url) "
@@ -361,7 +372,7 @@ def create_app(db_path: str) -> FastAPI:
         con.execute(
             "UPDATE handles SET server_url=?, ttl=?, updated_at=?, display_name=?, web_url=? "
             "WHERE username=?",
-            (body.server_url, ttl, time.time(), body.display_name, body.web_url, username),
+            (body.server_url, ttl, time.time_ns(), body.display_name, body.web_url, username),
         )
         con.commit()
         return {"username": username, "ttl": ttl}
@@ -372,15 +383,15 @@ def create_app(db_path: str) -> FastAPI:
         return registry_public_url + "/auth/callback"
 
     def _cleanup_proxy_tables(now: float) -> None:
-        con.execute("DELETE FROM proxy_states WHERE created_at < ?", (now - 600,))
-        con.execute("DELETE FROM proxy_tokens WHERE created_at < ?", (now - 300,))
+        con.execute("DELETE FROM proxy_states WHERE created_at < ?", (now - 600 * NS,))
+        con.execute("DELETE FROM proxy_tokens WHERE created_at < ?", (now - 300 * NS,))
         con.commit()
 
     @app.get("/auth/start")
     def proxy_auth_start(return_to: str):
         if not proxy_enabled:
             raise HTTPException(status_code=503, detail="Identity proxy not configured")
-        now = time.time()
+        now = time.time_ns()
         _cleanup_proxy_tables(now)
         state = secrets.token_urlsafe(24)
         con.execute("INSERT INTO proxy_states VALUES (?, ?, ?)", (state, return_to, now))
@@ -403,7 +414,7 @@ def create_app(db_path: str) -> FastAPI:
         row = con.execute(
             "SELECT return_to, created_at FROM proxy_states WHERE state = ?", (state,)
         ).fetchone()
-        if not row or time.time() - row[1] > 600:
+        if not row or time.time_ns() - row[1] > 600 * NS:
             con.execute("DELETE FROM proxy_states WHERE state = ?", (state,))
             con.commit()
             raise HTTPException(status_code=400, detail="Invalid or expired state")
@@ -434,7 +445,7 @@ def create_app(db_path: str) -> FastAPI:
         display_name = claims.get("name") or email
 
         token = secrets.token_urlsafe(32)
-        now = time.time()
+        now = time.time_ns()
         _cleanup_proxy_tables(now)
         con.execute(
             "INSERT INTO proxy_tokens VALUES (?, ?, ?, ?)",
@@ -453,7 +464,7 @@ def create_app(db_path: str) -> FastAPI:
         ).fetchone()
         con.execute("DELETE FROM proxy_tokens WHERE token = ?", (token,))
         con.commit()
-        if not row or time.time() - row[2] > 300:
+        if not row or time.time_ns() - row[2] > 300 * NS:
             raise HTTPException(status_code=404, detail="Token not found or expired")
         return {"identity": row[0], "display_name": row[1]}
 

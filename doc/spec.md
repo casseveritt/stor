@@ -103,7 +103,7 @@ The following fields are defined for all assets. Metadata is mutable; content (a
 | `content_hash` | Immutable | Node-internal hash of the raw content. Opaque to clients; its meaning and algorithm are an implementation detail of the node. Used as a stable content identifier, not as a client-verifiable checksum. |
 | `media_type` | Immutable | MIME type of the content |
 | `size` | Immutable | Size of the raw content in bytes |
-| `created_at` | Immutable | Timestamp when the asset was first published |
+| `created_at` | Immutable | Timestamp when the asset was first published, as Unix nanoseconds (int64) |
 | `title` | Mutable | Optional human-readable title |
 | `tags` | Mutable | Optional list of string tags |
 | `comment_count` | Derived | Number of top-level comments |

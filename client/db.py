@@ -1,5 +1,6 @@
 import sqlite3
 import logging
+import time
 from pathlib import Path
 
 import sqlcipher3
@@ -77,9 +78,14 @@ def _init_schema(db) -> None:
         CREATE TABLE IF NOT EXISTS users (
             server_url  TEXT PRIMARY KEY,
             tag         TEXT,
-            updated_at  REAL DEFAULT (unixepoch())
+            updated_at  INTEGER DEFAULT 0
         )
     """)
+    # Migrate: convert seconds to nanoseconds
+    try:
+        db.execute("UPDATE users SET updated_at = updated_at * 1000000000 WHERE updated_at < 1000000000000")
+    except Exception:
+        pass
     db.commit()
 
 
@@ -90,9 +96,9 @@ def get_tag(db, server_url: str) -> str | None:
 
 def set_tag(db, server_url: str, tag: str | None) -> None:
     db.execute(
-        "INSERT INTO users (server_url, tag, updated_at) VALUES (?, ?, unixepoch())"
-        " ON CONFLICT(server_url) DO UPDATE SET tag = excluded.tag, updated_at = unixepoch()",
-        (server_url, tag or None),
+        "INSERT INTO users (server_url, tag, updated_at) VALUES (?, ?, ?)"
+        " ON CONFLICT(server_url) DO UPDATE SET tag = excluded.tag, updated_at = excluded.updated_at",
+        (server_url, tag or None, time.time_ns()),
     )
     db.commit()
 
