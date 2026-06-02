@@ -947,11 +947,12 @@ function makePostCard(post, idx) {
   author.className = "post-author";
   author.dataset.server = post._server_url;
   _renderAuthorInto(author, post._server_url);
-  const dateFmt = post.created_at ? new Date(post.created_at / 1_000_000).toLocaleDateString() : "";
+  const dateFmt = fmtDate(post.created_at);
+  const dateFull = fmtDateFull(post.created_at);
   const rightGroup = document.createElement("span");
   rightGroup.style.cssText = "display:inline-flex;align-items:center;gap:0.35rem;flex-shrink:0";
   rightGroup.className = "post-author-right";
-  rightGroup.innerHTML = (dateFmt ? `<span class="post-date">${dateFmt}</span>` : '')
+  rightGroup.innerHTML = (dateFmt ? `<span class="post-date" title="${esc(dateFull)}">${dateFmt}</span>` : '')
     + _levelIconHtml(post.visibility, post.visibility)
     + `<span style="position:relative;display:inline-flex;align-items:center">`
     + `<button class="post-menu-btn" title="More options" onclick="openPostMenu(event,${idx},'${esc(post.id)}','${esc(post._server_url||'')}')">…</button>`
@@ -1271,13 +1272,14 @@ function _renderCommentsInto(post, comments, panel) {
       : `<span class="post-author-initials">${esc((au.name[0]||'?').toUpperCase())}</span>`;
     const identityAttr = c.author_identity ? ` data-identity="${esc(c.author_identity)}" data-server="${esc(post._server_url || '')}"` : '';
     const dateFmt = fmtDate(c.created_at);
+    const dateFull = fmtDateFull(c.created_at);
     const isOwnComment = IS_OWNER && post._server_url === CFG.own_server && (!c.author_identity || c.author_identity === '');
     const menuBtn = `<span style="position:relative;display:inline-flex;align-items:center"><button class="post-menu-btn" title="More options" onclick="openCommentMenu(event,'${esc(post.id)}','${esc(post._server_url)}','${esc(c.id)}',${isOwnComment})">…</button></span>`;
     return '<div class="comment" data-comment-id="' + esc(c.id) + '">'
       + `<div class="comment-author"${identityAttr}>`
       + `<span style="display:inline-flex;align-items:center;gap:0.4rem">` + avatar + `<span class="comment-author-name">${esc(au.name)}</span></span>`
       + `<span style="display:inline-flex;align-items:center;gap:0.35rem;flex-shrink:0">`
-      + (dateFmt ? `<span class="post-date">${dateFmt}</span>` : '')
+      + (dateFmt ? `<span class="post-date" title="${esc(dateFull)}">${dateFmt}</span>` : '')
       + menuBtn + `</span>`
       + `</div>`
       + '<div class="comment-body">' + _renderMentions(c.body || '') + '</div>'
@@ -1755,7 +1757,28 @@ function mimeIcon(mt) {
   if (mt === "application/pdf") return "📋";
   return "📄";
 }
-function fmtDate(ts) { if (!ts) return ""; return new Date(ts / 1000000).toLocaleString(undefined, {dateStyle:"short",timeStyle:"short"}); }
+function fmtDate(ts) {
+  if (!ts) return "";
+  const d = new Date(ts / 1_000_000);
+  const age = Date.now() - d.getTime();
+  const mins  = Math.floor(age / 60_000);
+  const hours = Math.floor(age / 3_600_000);
+  const days  = Math.floor(age / 86_400_000);
+  if (age < 60_000)  return "now";
+  if (mins  < 60)    return mins  === 1 ? "1 min ago"  : `${mins} mins ago`;
+  if (hours < 24)    return hours === 1 ? "1 hour ago" : `${hours} hours ago`;
+  if (days  < 7) {
+    const hhmm = d.toLocaleTimeString(undefined, {hour:"2-digit", minute:"2-digit"});
+    const day  = d.toLocaleDateString(undefined, {weekday:"short"});
+    return `${hhmm} ${day}`;
+  }
+  return d.toLocaleDateString(undefined, {month:"short", day:"numeric"});
+}
+
+function fmtDateFull(ts) {
+  if (!ts) return "";
+  return new Date(ts / 1_000_000).toLocaleString(undefined, {dateStyle:"full", timeStyle:"medium"});
+}
 function fmtSize(b) { if (b < 1024) return b + " B"; if (b < 1048576) return (b/1024).toFixed(1) + " KB"; return (b/1048576).toFixed(1) + " MB"; }
 
 // ── profile ────────────────────────────────────────────────────────────────
