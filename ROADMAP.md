@@ -113,7 +113,13 @@ delivery, read receipts, group key management, and how chat threads relate to th
 post/comment data model. Likely a distinct `messages` table and a separate UI panel rather
 than shoehorning into posts.
 
-**8. Plaintext metadata hardening**
+**9. Profile photo preview on hover/click**
+When clicking or hovering over a contact's profile photo (in post cards, comment authors,
+contact list, reactors panel), show a larger version of the photo in a tooltip or small
+lightbox. The photo URL is `server_url + "/profile/photo"` — the same endpoint already
+used for thumbnails in search results and the reactors panel.
+
+**10. Plaintext metadata hardening**
 Some metadata (post timestamps, asset filenames) is stored or transmitted in plaintext.
 Assess what leaks and whether it matters for the threat model.
 
