@@ -129,6 +129,10 @@
   .tag-chip:hover { background: var(--accent-surface); color: var(--accent-light); }
   .tag-chip.active { background: var(--accent-surface); color: var(--accent-light); }
 
+  /* ── inline compose ── */
+  #inline-compose-body { background: var(--surface-3); color: var(--text-1); border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.92rem; line-height: 1.5; outline: none; font-family: inherit; }
+  #inline-compose-body:focus { border-color: var(--accent); }
+
   /* ── comments ── */
   .comments-toggle { display: flex; align-items: center; gap: 0.35rem; padding: 0.45rem 0 0; margin-top: 0.5rem; border-top: 1px solid var(--surface-2); font-size: 0.8rem; color: var(--text-5); cursor: pointer; user-select: none; justify-content: space-between; }
   .comments-toggle:hover { color: #999; }

@@ -127,7 +127,8 @@ async function loadIdentity() {
   if (!r.ok) return;
   const d = await r.json();
   IS_OWNER = d.role === "owner";
-  document.getElementById("compose-btn").hidden = !IS_OWNER;
+  document.getElementById("compose-btn").hidden = true; // replaced by inline compose
+  document.getElementById("inline-compose").hidden = !IS_OWNER;
   document.getElementById("dev-menu-wrap").style.display = (CFG?.dev && IS_OWNER) ? '' : 'none';
   const identity = d.identity || "";
   const nodeR = await fetch("/node");
@@ -1521,6 +1522,44 @@ function addFiles(files) {
   document.getElementById("file-list").innerHTML = pendingFiles.map(f =>
     '<div class="file-item"><span>' + esc(f.name) + '</span><span>' + fmtSize(f.size) + '</span></div>'
   ).join("");
+}
+
+// ── inline compose ─────────────────────────────────────────────────────────
+const INLINE_CTX = { taId: 'inline-compose-body', hlId: null, ddId: 'comment-mention-dropdown' };
+
+function _inlineComposeMentionInput(e) {
+  const ta = e.target;
+  if (!ta.id) ta.id = 'inline-compose-body';
+  _mentionCtx = INLINE_CTX;
+  onComposeInput();
+  _repositionCommentDropdown(ta);
+}
+
+function _inlineComposeKeydown(e) {
+  _mentionCtx = INLINE_CTX;
+  if (e.key === 'Enter' && !e.shiftKey && !_mentionState) {
+    e.preventDefault();
+    submitInlinePost();
+    return;
+  }
+  onComposeKeydown(e);
+}
+
+async function submitInlinePost() {
+  const ta = document.getElementById("inline-compose-body");
+  const body = _expandMentions(ta.value.trim());
+  if (!body) return;
+  const fd = new FormData();
+  fd.append("body", body);
+  fd.append("tags", "[]");
+  fd.append("visibility", "contacts");
+  fd.append("comment_access", "contacts");
+  const r = await apiFetch("/api/posts", {method: "POST", body: fd});
+  if (r.ok) {
+    ta.value = "";
+    ta.style.height = "auto";
+    await resetFeed(false);
+  }
 }
 
 async function submitPost() {

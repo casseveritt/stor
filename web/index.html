@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>contacc</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/style.css?v=1900464">
+  <link rel="stylesheet" href="/style.css?v=bce6c33">
 </head>
 <body>
 
@@ -82,7 +82,7 @@
       <input type="text" id="search-input" placeholder="Search posts…" oninput="scheduleSearch(this.value)">
     </div>
     <div class="header-right">
-      <button id="compose-btn" class="btn btn-primary btn-sm" onclick="openCompose()" hidden>+ Post</button>
+      <button id="compose-btn" hidden></button><!-- replaced by inline compose -->
       <button class="btn btn-muted btn-sm" onclick="logout()">Sign out</button>
       <span id="dev-menu-wrap" style="position:relative;display:none">
         <button class="btn btn-sm" style="background:#2a1a00;color:#f90;border:1px solid #a60" onclick="_toggleDevMenu()">Dev ▾</button>
@@ -109,6 +109,14 @@
     </nav>
     <div id="main-area">
       <div id="new-posts-banner" hidden onclick="refreshFeed()" style="cursor:pointer;text-align:center;padding:0.4rem;background:#1e2d4a;color:#6aa3f5;font-size:0.85rem;border-radius:6px;margin-bottom:0.5rem;max-width:680px;margin-left:auto;margin-right:auto"></div>
+      <div id="inline-compose" hidden style="max-width:680px;margin:0 auto 0.75rem;display:flex;gap:0.5rem;align-items:flex-end">
+        <textarea id="inline-compose-body" placeholder="Wazzup?" rows="1"
+          oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';_inlineComposeMentionInput(event)"
+          onkeydown="_inlineComposeKeydown(event)"
+          onblur="setTimeout(hideMentionDropdown,150)"
+          style="flex:1;resize:none;overflow:hidden;min-height:2rem;max-height:12rem"></textarea>
+        <button class="btn btn-primary btn-sm" onclick="submitInlinePost()">Post</button>
+      </div>
       <div id="feed-status"></div>
       <div id="timeline"></div>
       <div id="empty-msg" class="empty" hidden>No posts yet.</div>
@@ -307,6 +315,6 @@
   </div>
 </div>
 
-  <script src="/app.js?v=1900464"></script>
+  <script src="/app.js?v=bce6c33"></script>
 </body>
 </html>
