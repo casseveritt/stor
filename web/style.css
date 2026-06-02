@@ -90,7 +90,7 @@
   .post-source { font-size: 0.72rem; color: var(--text-dim); margin-bottom: 0.4rem; }
   .post-body { font-size: 0.92rem; color: var(--text-2); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
   .post-thumbs { display: block; overflow-x: auto; white-space: nowrap; margin-top: 0.6rem; }
-  .post-thumb { display: inline-block; vertical-align: top; max-height: 22rem; width: auto; height: auto; border-radius: 4px; background: var(--surface-3); margin-right: 4px; }
+  .post-thumb { display: inline-block; vertical-align: top; max-height: 22rem; max-width: none; width: auto; height: auto; border-radius: 4px; background: var(--surface-3); margin-right: 4px; }
   .post-thumb:last-child { margin-right: 0; }
   .post-thumb-icon { display: inline-flex; vertical-align: top; width: 6rem; height: 6rem; align-items: center; justify-content: center; font-size: 2rem; background: var(--surface-3); border-radius: 4px; margin-right: 4px; }
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
