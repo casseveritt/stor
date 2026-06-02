@@ -14,7 +14,7 @@ from .access_log import log_access
 
 router = APIRouter(prefix="/assets")
 
-THUMB_SIZE = (256, 256)
+THUMB_SIZE = (640, 640)
 
 
 def _build_history_chain(db, asset_id: str) -> list[dict]:
