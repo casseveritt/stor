@@ -113,8 +113,10 @@
         <textarea id="inline-compose-body" placeholder="Wazzup?" rows="1"
           oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';_inlineComposeMentionInput(event)"
           onkeydown="_inlineComposeKeydown(event)"
-          onblur="setTimeout(hideMentionDropdown,150)"
+          onfocus="document.getElementById('inline-expand-btn').hidden=false"
+          onblur="setTimeout(()=>{hideMentionDropdown();document.getElementById('inline-expand-btn').hidden=true},200)"
           style="flex:1;resize:none;overflow:hidden;min-height:2rem;max-height:12rem"></textarea>
+        <button id="inline-expand-btn" class="btn btn-muted btn-sm" hidden onclick="openCompose()" title="Full compose panel">⊞</button>
         <button class="btn btn-primary btn-sm" onclick="submitInlinePost()">Post</button>
       </div>
       <div id="feed-status"></div>
