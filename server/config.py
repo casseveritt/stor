@@ -21,6 +21,9 @@ class NodeConfig:
     registry_handle: str | None = None
     registry_url: str | None = None
     internal_token: str | None = None
+    user_id: str | None = None
+    identity_public_key: str | None = None          # base64 raw pubkey bytes
+    encrypted_identity_private_key: str | None = None  # base64 AES-GCM encrypted with master key
 
     @classmethod
     def load(cls, path: str | Path) -> "NodeConfig":

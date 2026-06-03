@@ -12,13 +12,13 @@ This service also acts as a shared identity proxy: nodes that don't have
 their own Google OAuth credentials can delegate authentication here.
 """
 import base64
+import json
 import os
 import re
 import secrets
 import sqlite3
 import sys
 import time
-NS = 1_000_000_000  # nanoseconds per second
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -58,6 +58,20 @@ def _check_timestamp(ts: int) -> None:
 
 def _clamp_ttl(ttl: int) -> int:
     return max(MIN_TTL, min(MAX_TTL, ttl))
+
+
+def _verify_delegation(user_id: str, node_pub_b64: str, timestamp: int, identity_pub_b64: str, delegation_sig: str) -> bool:
+    try:
+        from cryptography.exceptions import InvalidSignature
+        if abs(time.time() - timestamp) > TIMESTAMP_TOLERANCE:
+            return False
+        # Pad base64 if needed
+        id_pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(identity_pub_b64 + "=="))
+        del_msg = f"contacc:delegate:{user_id}:{node_pub_b64}:{timestamp}"
+        id_pub.verify(base64.b64decode(delegation_sig + "=="), del_msg.encode())
+        return True
+    except Exception:
+        return False
 
 
 def create_app(db_path: str) -> FastAPI:
@@ -111,6 +125,18 @@ def create_app(db_path: str) -> FastAPI:
     except Exception:
         con.execute("ALTER TABLE handles ADD COLUMN web_url TEXT")
         con.commit()
+    # Add identity/user_id columns if missing
+    for col in ["user_id TEXT", "identity_public_key TEXT", "delegation_sig TEXT", "encrypted_identity_key TEXT"]:
+        try:
+            con.execute(f"ALTER TABLE handles ADD COLUMN {col}")
+            con.commit()
+        except Exception:
+            pass
+    try:
+        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS handles_user_id ON handles (user_id) WHERE user_id IS NOT NULL")
+        con.commit()
+    except Exception:
+        pass
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS proxy_states (
@@ -271,17 +297,24 @@ def create_app(db_path: str) -> FastAPI:
             return {"results": []}
         pattern = "%" + q.lower() + "%"
         rows = con.execute(
-            """SELECT username, server_url, display_name, public_key
+            """SELECT username, server_url, display_name, public_key, user_id, identity_public_key
                FROM handles
                WHERE LOWER(username) LIKE ? OR LOWER(display_name) LIKE ?
                ORDER BY username LIMIT ?""",
             (pattern, pattern, limit),
         ).fetchall()
-        return {"results": [
-            {"username": r[0], "server_url": r[1], "display_name": r[2],
-             "photo_url": r[1].rstrip("/") + "/profile/photo", "public_key": r[3]}
-            for r in rows
-        ]}
+        results = []
+        for r in rows:
+            entry = {
+                "username": r[0], "server_url": r[1], "display_name": r[2],
+                "photo_url": r[1].rstrip("/") + "/profile/photo", "public_key": r[3],
+            }
+            if r[4]:
+                entry["user_id"] = r[4]
+            if r[5]:
+                entry["identity_public_key"] = r[5]
+            results.append(entry)
+        return {"results": results}
 
     @app.get("/lookup-by-key")
     def lookup_by_key(public_key: str):
@@ -300,13 +333,13 @@ def create_app(db_path: str) -> FastAPI:
     def lookup(username: str):
         username = username.lower()
         row = con.execute(
-            "SELECT server_url, public_key, ttl, updated_at, display_name "
+            "SELECT server_url, public_key, ttl, updated_at, display_name, user_id, identity_public_key "
             "FROM handles WHERE username = ?", (username,)
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Username not found")
-        server_url, public_key, ttl, updated_at, display_name = row
-        return {
+        server_url, public_key, ttl, updated_at, display_name, user_id, identity_public_key = row
+        result = {
             "username": username,
             "server_url": server_url,
             "public_key": public_key,
@@ -315,6 +348,20 @@ def create_app(db_path: str) -> FastAPI:
             "display_name": display_name,
             "photo_url": server_url.rstrip("/") + "/profile/photo",
         }
+        if user_id:
+            result["user_id"] = user_id
+        if identity_public_key:
+            result["identity_public_key"] = identity_public_key
+        return result
+
+    @app.get("/id/{user_id}")
+    def go_by_id(user_id: str):
+        row = con.execute(
+            "SELECT server_url, web_url FROM handles WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "User ID not found")
+        return RedirectResponse(row[1] or row[0], status_code=302)
 
     class RegisterBody(BaseModel):
         server_url: str
@@ -324,6 +371,9 @@ def create_app(db_path: str) -> FastAPI:
         signature: str
         display_name: str | None = None
         web_url: str | None = None
+        user_id: str | None = None
+        identity_public_key: str | None = None
+        delegation_sig: str | None = None
 
     @app.post("/register/{username}", status_code=201)
     def register(username: str, body: RegisterBody):
@@ -338,12 +388,26 @@ def create_app(db_path: str) -> FastAPI:
             raise HTTPException(status_code=401, detail="Invalid signature")
         if con.execute("SELECT 1 FROM handles WHERE username = ?", (username,)).fetchone():
             raise HTTPException(status_code=409, detail="Username already registered")
+        # Validate delegation if provided
+        reg_user_id = None
+        reg_identity_public_key = None
+        reg_delegation_sig = None
+        if body.user_id and body.identity_public_key and body.delegation_sig:
+            if not _verify_delegation(body.user_id, body.public_key, body.timestamp, body.identity_public_key, body.delegation_sig):
+                raise HTTPException(400, "Invalid delegation signature")
+            existing = con.execute("SELECT username FROM handles WHERE user_id = ?", (body.user_id,)).fetchone()
+            if existing and existing[0] != username:
+                raise HTTPException(409, f"user_id already registered to {existing[0]}")
+            reg_user_id = body.user_id
+            reg_identity_public_key = body.identity_public_key
+            reg_delegation_sig = body.delegation_sig
         now = time.time_ns()
         con.execute(
             "INSERT INTO handles "
-            "(username, server_url, public_key, ttl, registered_at, updated_at, display_name, web_url) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (username, body.server_url, body.public_key, ttl, now, now, body.display_name, body.web_url),
+            "(username, server_url, public_key, ttl, registered_at, updated_at, display_name, web_url, user_id, identity_public_key, delegation_sig) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (username, body.server_url, body.public_key, ttl, now, now, body.display_name, body.web_url,
+             reg_user_id, reg_identity_public_key, reg_delegation_sig),
         )
         con.commit()
         return {"username": username, "ttl": ttl}
@@ -355,6 +419,9 @@ def create_app(db_path: str) -> FastAPI:
         signature: str
         display_name: str | None = None
         web_url: str | None = None
+        user_id: str | None = None
+        identity_public_key: str | None = None
+        delegation_sig: str | None = None
 
     @app.put("/update/{username}")
     def update(username: str, body: UpdateBody):
@@ -369,13 +436,83 @@ def create_app(db_path: str) -> FastAPI:
         msg = f"contacc:update:{username}:{body.server_url}:{body.timestamp}"
         if not _verify_sig(row[0], msg, body.signature):
             raise HTTPException(status_code=401, detail="Invalid signature")
-        con.execute(
-            "UPDATE handles SET server_url=?, ttl=?, updated_at=?, display_name=?, web_url=? "
-            "WHERE username=?",
-            (body.server_url, ttl, time.time_ns(), body.display_name, body.web_url, username),
-        )
+        # Validate and store delegation if provided
+        upd_user_id = None
+        upd_identity_public_key = None
+        upd_delegation_sig = None
+        if body.user_id and body.identity_public_key and body.delegation_sig:
+            # row[0] is the stored public_key (node key doesn't change on update)
+            if not _verify_delegation(body.user_id, row[0], body.timestamp, body.identity_public_key, body.delegation_sig):
+                raise HTTPException(400, "Invalid delegation signature")
+            existing = con.execute("SELECT username FROM handles WHERE user_id = ?", (body.user_id,)).fetchone()
+            if existing and existing[0] != username:
+                raise HTTPException(409, f"user_id already registered to {existing[0]}")
+            upd_user_id = body.user_id
+            upd_identity_public_key = body.identity_public_key
+            upd_delegation_sig = body.delegation_sig
+        if upd_user_id:
+            con.execute(
+                "UPDATE handles SET server_url=?, ttl=?, updated_at=?, display_name=?, web_url=?, "
+                "user_id=?, identity_public_key=?, delegation_sig=? WHERE username=?",
+                (body.server_url, ttl, time.time_ns(), body.display_name, body.web_url,
+                 upd_user_id, upd_identity_public_key, upd_delegation_sig, username),
+            )
+        else:
+            con.execute(
+                "UPDATE handles SET server_url=?, ttl=?, updated_at=?, display_name=?, web_url=? "
+                "WHERE username=?",
+                (body.server_url, ttl, time.time_ns(), body.display_name, body.web_url, username),
+            )
         con.commit()
         return {"username": username, "ttl": ttl}
+
+    # ── identity escrow ───────────────────────────────────────────────────────
+
+    class EscrowBody(BaseModel):
+        encrypted_identity_key: str  # base64: AES-GCM ciphertext
+        argon2_salt: str             # hex, used with recovery passphrase
+        argon2_time_cost: int = 3
+        argon2_memory_cost: int = 65536
+        argon2_parallelism: int = 4
+        signature: str               # identity_key signs f"contacc:escrow:{user_id}:{timestamp}"
+        timestamp: int
+
+    @app.put("/identity-key/{user_id}", status_code=204)
+    def store_escrow(user_id: str, body: EscrowBody):
+        row = con.execute(
+            "SELECT identity_public_key FROM handles WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if not row or not row[0]:
+            raise HTTPException(404, "User ID not registered or has no identity key")
+        if abs(time.time() - body.timestamp) > TIMESTAMP_TOLERANCE:
+            raise HTTPException(401, "Timestamp too skewed")
+        try:
+            id_pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(row[0] + "=="))
+            msg = f"contacc:escrow:{user_id}:{body.timestamp}"
+            id_pub.verify(base64.b64decode(body.signature + "=="), msg.encode())
+        except Exception:
+            raise HTTPException(401, "Invalid signature")
+        escrow_data = json.dumps({
+            "encrypted_identity_key": body.encrypted_identity_key,
+            "argon2_salt": body.argon2_salt,
+            "argon2_time_cost": body.argon2_time_cost,
+            "argon2_memory_cost": body.argon2_memory_cost,
+            "argon2_parallelism": body.argon2_parallelism,
+        })
+        con.execute(
+            "UPDATE handles SET encrypted_identity_key = ? WHERE user_id = ?",
+            (escrow_data, user_id),
+        )
+        con.commit()
+
+    @app.post("/identity-key/{user_id}/recover")
+    def recover_escrow(user_id: str):
+        row = con.execute(
+            "SELECT encrypted_identity_key FROM handles WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if not row or not row[0]:
+            raise HTTPException(404, "No escrow stored for this user ID")
+        return json.loads(row[0])
 
     # ── identity proxy ────────────────────────────────────────────────────────
 

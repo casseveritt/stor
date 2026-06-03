@@ -328,8 +328,9 @@ def _create_node_config(
 ) -> dict:
     """Generate keys, initialize DB, and write node_config.json."""
     import os as _os
+    import uuid as _uuid
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption
+    from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption, PublicFormat
     from .crypto import (
         derive_master_key as _derive, derive_subkeys, encrypt_bytes,
         ARGON2_TIME_COST, ARGON2_MEMORY_COST, ARGON2_PARALLELISM,
@@ -347,6 +348,12 @@ def _create_node_config(
     private_key = Ed25519PrivateKey.generate()
     privkey_bytes = private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
     encrypted_privkey = encrypt_bytes(privkey_bytes, master_key)
+
+    identity_key = Ed25519PrivateKey.generate()
+    identity_privkey_bytes = identity_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
+    identity_pubkey_bytes = identity_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    user_id = str(_uuid.uuid4())
+    encrypted_identity_privkey = encrypt_bytes(identity_privkey_bytes, master_key)
 
     db_con = open_db(str(store_path / "db"), db_key)
     init_schema(db_con)
@@ -366,6 +373,9 @@ def _create_node_config(
         "identity_proxy_url": identity_proxy_url,
         "registry_handle": handle,
         "internal_token": internal_token,
+        "user_id": user_id,
+        "identity_public_key": base64.b64encode(identity_pubkey_bytes).decode(),
+        "encrypted_identity_private_key": base64.b64encode(encrypted_identity_privkey).decode(),
     }
     config_path.write_text(json.dumps(config, indent=2))
     return {
@@ -376,3 +386,57 @@ def _create_node_config(
         "encrypted_private_key": base64.b64encode(encrypted_privkey).decode(),
         "internal_token": internal_token,
     }
+
+
+class EscrowBody(BaseModel):
+    recovery_passphrase: str
+
+
+@router.post("/escrow-identity-key", status_code=204)
+def escrow_identity_key(body: EscrowBody, request: Request):
+    """Encrypt the identity private key with a recovery passphrase and upload to the registry."""
+    app = request.app
+    if not app.state.initialized:
+        raise HTTPException(400, "Server not initialized")
+
+    config_path = Path(app.state.config_path)
+    config = NodeConfig.load(config_path)
+    if not config.user_id or not config.encrypted_identity_private_key:
+        raise HTTPException(400, "No identity key configured")
+
+    # Recover master key from app state is not directly accessible here; re-derive
+    # Instead, decrypt identity key from app state
+    identity_private_key = getattr(app.state, "identity_private_key", None)
+    if not identity_private_key:
+        raise HTTPException(400, "Identity key not loaded")
+
+    from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption, PublicFormat
+    id_priv_bytes = identity_private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
+
+    recovery_salt = os.urandom(16)
+    recovery_key = derive_master_key(body.recovery_passphrase, recovery_salt)
+    encrypted_for_recovery = encrypt_bytes(id_priv_bytes, recovery_key)
+
+    escrow_payload = {
+        "encrypted_identity_key": base64.b64encode(encrypted_for_recovery).decode(),
+        "argon2_salt": recovery_salt.hex(),
+        "argon2_time_cost": ARGON2_TIME_COST,
+        "argon2_memory_cost": ARGON2_MEMORY_COST,
+        "argon2_parallelism": ARGON2_PARALLELISM,
+    }
+
+    # Sign the escrow request with the identity key to prove ownership
+    import time as _time
+    timestamp = int(_time.time())
+    sign_msg = f"contacc:escrow:{config.user_id}:{timestamp}"
+    sig = base64.b64encode(identity_private_key.sign(sign_msg.encode())).decode()
+
+    registry_url = config.registry_url or config.identity_proxy_url or ""
+    if not registry_url:
+        raise HTTPException(400, "No registry URL configured")
+
+    import httpx as _httpx
+    put_body = {**escrow_payload, "signature": sig, "timestamp": timestamp}
+    r = _httpx.put(f"{registry_url.rstrip('/')}/identity-key/{config.user_id}", json=put_body, timeout=10)
+    if not r.is_success:
+        raise HTTPException(502, f"Registry escrow failed: {r.status_code} {r.text}")
