@@ -2,6 +2,32 @@
 
 ## Pending
 
+**0. Permanent user identity (UUID + identity key)**
+
+A stable, portable user identity that survives server moves and key rotation.
+
+*Design:*
+- **UUID** — randomly generated at setup, the permanent public user ID. Opaque and stable
+  forever. Separate from the handle (human-readable, changeable) and the node key (rotatable).
+  A user on multiple nodes shares one UUID.
+- **Identity key** — a second Ed25519 pair generated at setup alongside the node key. Signs
+  delegation certificates: *"UUID X authorises node key Y."* Kept more securely than the node
+  key (rarely used; suitable for offline/paper backup). Recovery path for a compromised identity
+  key TBD (social attestation from trusted contacts is the likely answer).
+- **Node key** — the current operational key (existing). Rotatable: present a new delegation
+  signed by the identity key.
+
+*What needs building:*
+1. `setup.py` — generate UUID + identity key pair at setup alongside node key; store
+   `user_id` (UUID) and `encrypted_identity_private_key` in `node_config.json`.
+2. Registry schema — add `user_id TEXT`, `identity_public_key TEXT`, `delegation_sig TEXT`
+   columns; `/go/{uuid}` route alongside `/go/{handle}`.
+3. Heartbeat — include UUID + current delegation cert when registering/updating.
+4. Migration — existing nodes generate UUID + identity key on first startup with new code
+   (no backward proof of continuity, but none existed before either).
+5. Key rotation flow — UI + API to generate new node key, sign delegation with identity key,
+   push updated delegation to registry.
+
 **1. Contact description**
 Add a `description TEXT` field to the `contacts` table. Natural language, potentially long.
 User-editable via the UI (contact edit modal); also curated by the agent based on aggregated
