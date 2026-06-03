@@ -112,6 +112,61 @@ How inner monologue entries are displayed, searched, or surfaced to the AI is a 
 
 ---
 
+## Permanent Identity
+
+A user's identity must be **durable** — stable across server changes, node key rotations, and
+other operational transitions. This is a requirement, not an implementation detail.
+
+The intuition is simple: if Alice moves her node from one server to another, or if her signing
+key is compromised and she has to rotate it, she should still be *Alice* to the people who know
+her. Her contacts should not lose the relationship, and she should not lose her history, simply
+because she changed infrastructure.
+
+### What the specification requires
+
+Any conforming implementation must provide:
+
+- **A permanent, public user identifier** that is distinct from the node address (which changes
+  when servers change) and from the operational signing key (which must be rotatable). The
+  identifier must be globally unique and opaque — not derived from any mutable property of the
+  user or their node.
+
+- **A mechanism for proving continuity** — a way for a user to demonstrate that their new
+  node, or their new signing key, is legitimately theirs and not an impostor. This proof must be
+  cryptographically verifiable by third parties, including the registry and other nodes.
+
+- **A mechanism for identity recovery** — if a user loses access to their signing key, there
+  must be a path back to their identity that does not require starting over from scratch.
+  Recovery must not be possible without the user's authorization; it must not be possible for
+  the registry or any other party to perform it unilaterally.
+
+### What is left to implementation
+
+The specification does not prescribe:
+
+- The cryptographic primitives used (key algorithms, encryption schemes, hash functions)
+- The specific format or generation method for the permanent identifier
+- The precise structure of delegation proofs
+- The storage format for escrowed recovery material
+- The UX through which a user initiates or completes recovery
+
+### The security boundary that must be honored
+
+Any recovery mechanism involves a trade-off: something must serve as the "anchor of last resort."
+Whatever that anchor is — a passphrase, a hardware token, a set of trusted contacts, a
+combination — the system must be transparent about what an attacker needs to compromise it.
+
+**If the anchor is a passphrase-encrypted key stored by the registry, then compromising either
+the passphrase or the unencrypted identity key is sufficient to seize the identity permanently.**
+The user must understand this, and the system must make it explicit — not buried in documentation,
+but surfaced at the moment the identity is created and the recovery mechanism is configured.
+
+The principle is: **the user must be the one who decides the risk profile of their own identity.**
+The system's job is to give them the information and tools to make that decision clearly, not to
+make it for them.
+
+---
+
 ## A Note on Accountability
 
 The watermarking system exists precisely because content sharing mediated by fuzzy judgment — whether human or AI — is inherently imperfect. Access may be granted that in hindsight shouldn't have been; content may be shared further than intended. Watermarking ensures that the trail of accountability is embedded in the content itself, independent of whatever logic decided to share it.
