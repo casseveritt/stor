@@ -45,8 +45,7 @@ def _registry_heartbeat(
     registry_url: str,
     display_name: str | None = None,
     web_address: str | None = None,
-    identity_private_key: Ed25519PrivateKey | None = None,
-    user_id: str | None = None,
+    delegation_cert: dict | None = None,
 ) -> None:
     """Sign and push an update to the registry. Runs in the background; failures are logged and ignored."""
     try:
@@ -60,15 +59,8 @@ def _registry_heartbeat(
             payload["display_name"] = display_name
         if web_address:
             payload["web_url"] = web_address
-        if identity_private_key and user_id:
-            node_pub_b64 = base64.b64encode(pub_bytes).decode()
-            id_pub_bytes = identity_private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-            id_pub_b64 = base64.b64encode(id_pub_bytes).decode()
-            del_msg = f"contacc:delegate:{user_id}:{node_pub_b64}:{timestamp}"
-            delegation_sig = base64.b64encode(identity_private_key.sign(del_msg.encode())).decode()
-            payload["user_id"] = user_id
-            payload["identity_public_key"] = id_pub_b64
-            payload["delegation_sig"] = delegation_sig
+        if delegation_cert:
+            payload["delegation_cert"] = delegation_cert
         r = httpx.put(f"{registry_url.rstrip('/')}/update/{handle}", json=payload, timeout=10.0)
         if r.status_code == 404:
             # Not registered yet — register for the first time
@@ -114,28 +106,50 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
         from cryptography.hazmat.primitives.serialization import (
             Encoding as _E, PrivateFormat as _PF, NoEncryption as _NE, PublicFormat as _PuF,
         )
-        from .crypto import encrypt_bytes as _enc
+        from .identity import make_delegation_cert as _mkdel
         new_id_key = _EK.generate()
         new_user_id = str(_uuid.uuid4())
-        id_priv_bytes = new_id_key.private_bytes(_E.Raw, _PF.Raw, _NE())
         id_pub_bytes = new_id_key.public_key().public_bytes(_E.Raw, _PuF.Raw)
+        node_pub_b64 = base64.b64encode(
+            private_key.public_key().public_bytes(_E.Raw, _PuF.Raw)
+        ).decode()
+        delegation_cert = _mkdel(new_id_key, new_user_id, node_pub_b64)
         config_data = _json.loads(config_path.read_text())
         config_data["user_id"] = new_user_id
         config_data["identity_public_key"] = base64.b64encode(id_pub_bytes).decode()
-        config_data["encrypted_identity_private_key"] = base64.b64encode(_enc(id_priv_bytes, master_key)).decode()
+        config_data["identity_delegation"] = _json.dumps(delegation_cert)
+        # Remove legacy encrypted key if present
+        config_data.pop("encrypted_identity_private_key", None)
         config_path.write_text(_json.dumps(config_data, indent=2))
         config = NodeConfig.load(config_path)
-        log.info("Generated permanent user identity: %s", new_user_id)
+        log.info("Generated permanent user identity: %s (identity private key NOT stored — save it from settings)", new_user_id)
 
-    # Load identity private key
-    identity_private_key = None
-    if config.encrypted_identity_private_key and config.user_id:
+    # Migration: if legacy encrypted_identity_private_key exists, convert to delegation cert
+    import json as _json2
+    _raw_config = _json2.loads(config_path.read_text())
+    if "encrypted_identity_private_key" in _raw_config:
         try:
-            from .crypto import decrypt_bytes as _dec
-            id_privkey_bytes = _dec(base64.b64decode(config.encrypted_identity_private_key), master_key)
-            identity_private_key = Ed25519PrivateKey.from_private_bytes(id_privkey_bytes)
-        except Exception as e:
-            log.warning("Could not load identity key: %s", e)
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _EK2
+            from cryptography.hazmat.primitives.serialization import (
+                Encoding as _E2, PrivateFormat as _PF2, NoEncryption as _NE2, PublicFormat as _PuF2,
+            )
+            from .crypto import decrypt_bytes as _dec2
+            from .identity import make_delegation_cert as _mkdel2
+            id_priv = _dec2(base64.b64decode(_raw_config["encrypted_identity_private_key"]), master_key)
+            id_key = _EK2.from_private_bytes(id_priv)
+            node_pub_b64 = base64.b64encode(
+                private_key.public_key().public_bytes(_E2.Raw, _PuF2.Raw)
+            ).decode()
+            delegation_cert = _mkdel2(id_key, config.user_id, node_pub_b64)
+            _raw_config["identity_delegation"] = _json2.dumps(delegation_cert)
+            del _raw_config["encrypted_identity_private_key"]
+            config_path.write_text(_json2.dumps(_raw_config, indent=2))
+            config = NodeConfig.load(config_path)
+            log.warning("Migrated identity key to delegation cert. "
+                        "The identity private key is no longer stored on this node. "
+                        "Save it via settings before the delegation cert expires.")
+        except Exception as _e:
+            log.error("Failed to migrate identity key: %s", _e)
 
     store_path = Path(config.store_path)
     db_con = open_db(str(store_path / "db"), db_key)
@@ -156,7 +170,6 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
         "google_client_secret": config.sso_google_client_secret,
     }
     app.state.sso_exchange_google = sso_module.exchange_google_code
-    app.state.identity_private_key = identity_private_key
     app.state.user_id = config.user_id or ""
 
     node_module.setup(node_address, private_key, config.watermark_enabled, config.registry_handle, user_id=config.user_id)
@@ -174,13 +187,19 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
 
             HEARTBEAT_INTERVAL = 3600  # re-register every hour; TTL is 4 hours
 
-            def _make_trigger(pk, addr, hdl, reg_url, db_con, web_addr, id_pk, uid):
+            def _make_trigger(pk, addr, hdl, reg_url, db_con, web_addr, cfg_path):
                 def trigger():
                     row = db_con.execute(
                         "SELECT display_name FROM profile WHERE id = 1"
                     ).fetchone()
                     dn = row[0] if row else None
-                    _registry_heartbeat(pk, addr, hdl, reg_url, dn, web_addr, id_pk, uid)
+                    import json as _j
+                    try:
+                        _cfg = NodeConfig.load(cfg_path)
+                        _dcert = _j.loads(_cfg.identity_delegation) if _cfg.identity_delegation else None
+                    except Exception:
+                        _dcert = None
+                    _registry_heartbeat(pk, addr, hdl, reg_url, dn, web_addr, _dcert)
                 return trigger
 
             def _heartbeat_loop(trigger):
@@ -189,7 +208,7 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
                     trigger()
                     _time.sleep(HEARTBEAT_INTERVAL)
 
-            trigger_fn = _make_trigger(private_key, node_address, config.registry_handle, registry_url, db_con, app.state.web_address, identity_private_key, config.user_id)
+            trigger_fn = _make_trigger(private_key, node_address, config.registry_handle, registry_url, db_con, app.state.web_address, config_path)
             app.state.trigger_heartbeat = trigger_fn
             threading.Thread(target=_heartbeat_loop, args=(trigger_fn,), daemon=True).start()
 

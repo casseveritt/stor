@@ -349,11 +349,18 @@ def _create_node_config(
     privkey_bytes = private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
     encrypted_privkey = encrypt_bytes(privkey_bytes, master_key)
 
+    from .identity import make_delegation_cert, identity_key_to_hex
+
+    # Generate identity key pair — private key is NEVER stored on the node
     identity_key = Ed25519PrivateKey.generate()
-    identity_privkey_bytes = identity_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
     identity_pubkey_bytes = identity_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
     user_id = str(_uuid.uuid4())
-    encrypted_identity_privkey = encrypt_bytes(identity_privkey_bytes, master_key)
+
+    # Sign delegation cert (1 year validity) — this is what lives on the node
+    node_pub_b64 = base64.b64encode(
+        private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    ).decode()
+    delegation_cert = make_delegation_cert(identity_key, user_id, node_pub_b64)
 
     db_con = open_db(str(store_path / "db"), db_key)
     init_schema(db_con)
@@ -375,7 +382,8 @@ def _create_node_config(
         "internal_token": internal_token,
         "user_id": user_id,
         "identity_public_key": base64.b64encode(identity_pubkey_bytes).decode(),
-        "encrypted_identity_private_key": base64.b64encode(encrypted_identity_privkey).decode(),
+        "identity_delegation": json.dumps(delegation_cert),
+        # identity private key is NOT stored — returned once to caller for safekeeping
     }
     config_path.write_text(json.dumps(config, indent=2))
     return {
@@ -385,32 +393,44 @@ def _create_node_config(
         "argon2_parallelism": ARGON2_PARALLELISM,
         "encrypted_private_key": base64.b64encode(encrypted_privkey).decode(),
         "internal_token": internal_token,
+        "user_id": user_id,
+        "identity_private_key": identity_key_to_hex(identity_key),  # shown once, save offline
     }
 
 
 class EscrowBody(BaseModel):
+    identity_private_key: str   # hex — user provides this; never stored on node
     recovery_passphrase: str
 
 
 @router.post("/escrow-identity-key", status_code=204)
 def escrow_identity_key(body: EscrowBody, request: Request):
-    """Encrypt the identity private key with a recovery passphrase and upload to the registry."""
+    """Encrypt the user-provided identity private key with a recovery passphrase and upload to the registry."""
+    from .identity import identity_key_from_hex
     app = request.app
     if not app.state.initialized:
         raise HTTPException(400, "Server not initialized")
 
     config_path = Path(app.state.config_path)
     config = NodeConfig.load(config_path)
-    if not config.user_id or not config.encrypted_identity_private_key:
-        raise HTTPException(400, "No identity key configured")
+    if not config.user_id or not config.identity_public_key:
+        raise HTTPException(400, "No identity configured on this node")
 
-    # Recover master key from app state is not directly accessible here; re-derive
-    # Instead, decrypt identity key from app state
-    identity_private_key = getattr(app.state, "identity_private_key", None)
-    if not identity_private_key:
-        raise HTTPException(400, "Identity key not loaded")
+    # Verify the provided key matches the stored public key
+    try:
+        identity_private_key = identity_key_from_hex(body.identity_private_key)
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+        provided_pub = base64.b64encode(
+            identity_private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+        ).decode()
+        if provided_pub != config.identity_public_key:
+            raise HTTPException(403, "Identity key does not match this node's identity")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "Invalid identity private key")
 
-    from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption, PublicFormat
+    from cryptography.hazmat.primitives.serialization import PrivateFormat, NoEncryption
     id_priv_bytes = identity_private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
 
     recovery_salt = os.urandom(16)
@@ -425,7 +445,6 @@ def escrow_identity_key(body: EscrowBody, request: Request):
         "argon2_parallelism": ARGON2_PARALLELISM,
     }
 
-    # Sign the escrow request with the identity key to prove ownership
     import time as _time
     timestamp = int(_time.time())
     sign_msg = f"contacc:escrow:{config.user_id}:{timestamp}"
@@ -440,3 +459,55 @@ def escrow_identity_key(body: EscrowBody, request: Request):
     r = _httpx.put(f"{registry_url.rstrip('/')}/identity-key/{config.user_id}", json=put_body, timeout=10)
     if not r.is_success:
         raise HTTPException(502, f"Registry escrow failed: {r.status_code} {r.text}")
+
+
+class RedelegateBody(BaseModel):
+    identity_private_key: str   # hex — user provides this
+
+
+@router.post("/redelegate")
+def redelegate(body: RedelegateBody, request: Request):
+    """Sign a new delegation cert using the user-provided identity private key.
+    Use when the delegation cert has expired or the node key has changed."""
+    from .identity import identity_key_from_hex, make_delegation_cert
+    app = request.app
+    if not app.state.initialized:
+        raise HTTPException(400, "Server not initialized")
+
+    config_path = Path(app.state.config_path)
+    config = NodeConfig.load(config_path)
+    if not config.user_id or not config.identity_public_key:
+        raise HTTPException(400, "No identity configured on this node")
+
+    try:
+        identity_private_key = identity_key_from_hex(body.identity_private_key)
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+        provided_pub = base64.b64encode(
+            identity_private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+        ).decode()
+        if provided_pub != config.identity_public_key:
+            raise HTTPException(403, "Identity key does not match this node's identity")
+    except HTTPException:
+        raise
+    except Exception:
+        raise HTTPException(400, "Invalid identity private key")
+
+    node_pub_b64 = base64.b64encode(
+        app.state.private_key.public_key().public_bytes(
+            __import__('cryptography.hazmat.primitives.serialization', fromlist=['Encoding', 'PublicFormat']).Encoding.Raw,
+            __import__('cryptography.hazmat.primitives.serialization', fromlist=['Encoding', 'PublicFormat']).PublicFormat.Raw,
+        )
+    ).decode()
+    delegation_cert = make_delegation_cert(identity_private_key, config.user_id, node_pub_b64)
+
+    import json as _json
+    config_data = _json.loads(config_path.read_text())
+    config_data["identity_delegation"] = _json.dumps(delegation_cert)
+    config_path.write_text(_json.dumps(config_data, indent=2))
+
+    trigger = getattr(app.state, "trigger_heartbeat", None)
+    if trigger:
+        import threading
+        threading.Thread(target=trigger, daemon=True).start()
+
+    return {"status": "ok", "expires_at": delegation_cert["expires_at"]}

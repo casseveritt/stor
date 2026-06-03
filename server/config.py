@@ -22,8 +22,8 @@ class NodeConfig:
     registry_url: str | None = None
     internal_token: str | None = None
     user_id: str | None = None
-    identity_public_key: str | None = None          # base64 raw pubkey bytes
-    encrypted_identity_private_key: str | None = None  # base64 AES-GCM encrypted with master key
+    identity_public_key: str | None = None   # base64 raw pubkey bytes — not sensitive
+    identity_delegation: str | None = None   # JSON: delegation cert signed by identity key
 
     @classmethod
     def load(cls, path: str | Path) -> "NodeConfig":

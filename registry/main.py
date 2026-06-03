@@ -60,15 +60,18 @@ def _clamp_ttl(ttl: int) -> int:
     return max(MIN_TTL, min(MAX_TTL, ttl))
 
 
-def _verify_delegation(user_id: str, node_pub_b64: str, timestamp: int, identity_pub_b64: str, delegation_sig: str) -> bool:
+def _verify_delegation_cert(cert: dict, node_pub_b64: str) -> bool:
+    """Verify a delegation cert: signature valid, unexpired, authorises node_pub_b64."""
     try:
-        from cryptography.exceptions import InvalidSignature
-        if abs(time.time() - timestamp) > TIMESTAMP_TOLERANCE:
+        if cert.get("node_public_key") != node_pub_b64:
             return False
-        # Pad base64 if needed
-        id_pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(identity_pub_b64 + "=="))
-        del_msg = f"contacc:delegate:{user_id}:{node_pub_b64}:{timestamp}"
-        id_pub.verify(base64.b64decode(delegation_sig + "=="), del_msg.encode())
+        if cert.get("expires_at", 0) < time.time_ns():
+            return False
+        id_pub = Ed25519PublicKey.from_public_bytes(
+            base64.b64decode(cert["identity_public_key"] + "=="))
+        canonical = (f"contacc:delegate:{cert['user_id']}:"
+                     f"{cert['node_public_key']}:{cert['expires_at']}")
+        id_pub.verify(base64.b64decode(cert["signature"] + "=="), canonical.encode())
         return True
     except Exception:
         return False
@@ -371,9 +374,7 @@ def create_app(db_path: str) -> FastAPI:
         signature: str
         display_name: str | None = None
         web_url: str | None = None
-        user_id: str | None = None
-        identity_public_key: str | None = None
-        delegation_sig: str | None = None
+        delegation_cert: dict | None = None  # replaces user_id/identity_public_key/delegation_sig
 
     @app.post("/register/{username}", status_code=201)
     def register(username: str, body: RegisterBody):
@@ -388,26 +389,24 @@ def create_app(db_path: str) -> FastAPI:
             raise HTTPException(status_code=401, detail="Invalid signature")
         if con.execute("SELECT 1 FROM handles WHERE username = ?", (username,)).fetchone():
             raise HTTPException(status_code=409, detail="Username already registered")
-        # Validate delegation if provided
-        reg_user_id = None
-        reg_identity_public_key = None
-        reg_delegation_sig = None
-        if body.user_id and body.identity_public_key and body.delegation_sig:
-            if not _verify_delegation(body.user_id, body.public_key, body.timestamp, body.identity_public_key, body.delegation_sig):
-                raise HTTPException(400, "Invalid delegation signature")
-            existing = con.execute("SELECT username FROM handles WHERE user_id = ?", (body.user_id,)).fetchone()
+        reg_user_id = reg_identity_public_key = reg_delegation_json = None
+        if body.delegation_cert:
+            cert = body.delegation_cert
+            if not _verify_delegation_cert(cert, body.public_key):
+                raise HTTPException(400, "Invalid or expired delegation cert")
+            existing = con.execute("SELECT username FROM handles WHERE user_id = ?", (cert.get("user_id"),)).fetchone()
             if existing and existing[0] != username:
                 raise HTTPException(409, f"user_id already registered to {existing[0]}")
-            reg_user_id = body.user_id
-            reg_identity_public_key = body.identity_public_key
-            reg_delegation_sig = body.delegation_sig
+            reg_user_id = cert.get("user_id")
+            reg_identity_public_key = cert.get("identity_public_key")
+            reg_delegation_json = json.dumps(cert)
         now = time.time_ns()
         con.execute(
             "INSERT INTO handles "
             "(username, server_url, public_key, ttl, registered_at, updated_at, display_name, web_url, user_id, identity_public_key, delegation_sig) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (username, body.server_url, body.public_key, ttl, now, now, body.display_name, body.web_url,
-             reg_user_id, reg_identity_public_key, reg_delegation_sig),
+             reg_user_id, reg_identity_public_key, reg_delegation_json),
         )
         con.commit()
         return {"username": username, "ttl": ttl}
@@ -419,9 +418,7 @@ def create_app(db_path: str) -> FastAPI:
         signature: str
         display_name: str | None = None
         web_url: str | None = None
-        user_id: str | None = None
-        identity_public_key: str | None = None
-        delegation_sig: str | None = None
+        delegation_cert: dict | None = None  # replaces user_id/identity_public_key/delegation_sig
 
     @app.put("/update/{username}")
     def update(username: str, body: UpdateBody):
@@ -436,26 +433,23 @@ def create_app(db_path: str) -> FastAPI:
         msg = f"contacc:update:{username}:{body.server_url}:{body.timestamp}"
         if not _verify_sig(row[0], msg, body.signature):
             raise HTTPException(status_code=401, detail="Invalid signature")
-        # Validate and store delegation if provided
-        upd_user_id = None
-        upd_identity_public_key = None
-        upd_delegation_sig = None
-        if body.user_id and body.identity_public_key and body.delegation_sig:
-            # row[0] is the stored public_key (node key doesn't change on update)
-            if not _verify_delegation(body.user_id, row[0], body.timestamp, body.identity_public_key, body.delegation_sig):
-                raise HTTPException(400, "Invalid delegation signature")
-            existing = con.execute("SELECT username FROM handles WHERE user_id = ?", (body.user_id,)).fetchone()
+        upd_user_id = upd_identity_public_key = upd_delegation_json = None
+        if body.delegation_cert:
+            cert = body.delegation_cert
+            if not _verify_delegation_cert(cert, body.server_url and row[0]):
+                raise HTTPException(400, "Invalid or expired delegation cert")
+            existing = con.execute("SELECT username FROM handles WHERE user_id = ?", (cert.get("user_id"),)).fetchone()
             if existing and existing[0] != username:
                 raise HTTPException(409, f"user_id already registered to {existing[0]}")
-            upd_user_id = body.user_id
-            upd_identity_public_key = body.identity_public_key
+            upd_user_id = cert.get("user_id")
+            upd_identity_public_key = cert.get("identity_public_key")
             upd_delegation_sig = body.delegation_sig
         if upd_user_id:
             con.execute(
                 "UPDATE handles SET server_url=?, ttl=?, updated_at=?, display_name=?, web_url=?, "
                 "user_id=?, identity_public_key=?, delegation_sig=? WHERE username=?",
                 (body.server_url, ttl, time.time_ns(), body.display_name, body.web_url,
-                 upd_user_id, upd_identity_public_key, upd_delegation_sig, username),
+                 upd_user_id, upd_identity_public_key, upd_delegation_json, username),
             )
         else:
             con.execute(
