@@ -188,10 +188,11 @@ async function loadProfileAvatar() {
 
 // ── views ──────────────────────────────────────────────────────────────────
 function showView(name) {
-  document.getElementById("setup-view").hidden  = name !== "setup";
-  document.getElementById("unlock-view").hidden = name !== "unlock";
-  document.getElementById("login-view").hidden  = name !== "login";
-  document.getElementById("feed-view").hidden   = name !== "feed";
+  document.getElementById("setup-view").hidden        = name !== "setup";
+  document.getElementById("identity-key-view").hidden = name !== "identity-key";
+  document.getElementById("unlock-view").hidden       = name !== "unlock";
+  document.getElementById("login-view").hidden        = name !== "login";
+  document.getElementById("feed-view").hidden         = name !== "feed";
 }
 
 // ── server sidebar ─────────────────────────────────────────────────────────
@@ -2008,8 +2009,47 @@ async function doSetupNew() {
     const d = await r.json();
     if (r.status === 403) { _badSetupToken(d.detail); return; }
     if (!r.ok) { err.textContent = d.detail || "Error."; return; }
-    location.reload();
+    if (d.identity_private_key) {
+      showView("identity-key");
+      document.getElementById("identity-key-display").value = d.identity_private_key;
+      // Pre-fill recovery passphrase with the node passphrase as a starting point
+      const recoveryEl = document.getElementById("identity-recovery-passphrase");
+      if (!recoveryEl.value) recoveryEl.value = pass;
+    } else {
+      location.reload();
+    }
   } catch { err.textContent = "Network error."; }
+}
+
+async function uploadIdentityEscrow() {
+  const key = document.getElementById("identity-key-display").value.trim();
+  const passphrase = document.getElementById("identity-recovery-passphrase").value;
+  const status = document.getElementById("identity-escrow-status");
+  const btn = document.getElementById("identity-escrow-btn");
+  if (!passphrase) { status.textContent = "Enter a recovery passphrase."; status.style.color = "var(--error)"; return; }
+  btn.disabled = true;
+  status.textContent = "Uploading…";
+  status.style.color = "var(--text-3)";
+  try {
+    const r = await fetch("/setup/escrow-identity-key", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({identity_private_key: key, recovery_passphrase: passphrase}),
+    });
+    if (r.ok) {
+      status.textContent = "✓ Saved to registry. Now save the key offline and continue.";
+      status.style.color = "var(--ok-text)";
+    } else {
+      const d = await r.json().catch(() => ({}));
+      status.textContent = d.detail || "Upload failed.";
+      status.style.color = "var(--error)";
+      btn.disabled = false;
+    }
+  } catch {
+    status.textContent = "Network error.";
+    status.style.color = "var(--error)";
+    btn.disabled = false;
+  }
 }
 
 async function doSetupRestore() {

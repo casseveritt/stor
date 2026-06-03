@@ -145,9 +145,32 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
             del _raw_config["encrypted_identity_private_key"]
             config_path.write_text(_json2.dumps(_raw_config, indent=2))
             config = NodeConfig.load(config_path)
-            log.warning("Migrated identity key to delegation cert. "
-                        "The identity private key is no longer stored on this node. "
-                        "Save it via settings before the delegation cert expires.")
+            # Auto-upload escrow to registry using "foobar" so recovery is available immediately.
+            # User should change this passphrase in settings.
+            try:
+                from .identity import identity_key_to_hex as _id2hex
+                from .crypto import (derive_master_key as _dmk2, encrypt_bytes as _enc2,
+                                     ARGON2_TIME_COST as _TC, ARGON2_MEMORY_COST as _MC, ARGON2_PARALLELISM as _PA)
+                _reg_url = (_raw_config.get("registry_url") or _raw_config.get("identity_proxy_url") or "").rstrip("/")
+                if _reg_url and config.user_id:
+                    _rec_salt = os.urandom(16)
+                    _rec_key = _dmk2("foobar", _rec_salt)
+                    _enc_id = _enc2(id_priv, _rec_key)
+                    _ts = int(time.time())
+                    _escrow_sig = base64.b64encode(id_key.sign(
+                        f"contacc:escrow:{config.user_id}:{_ts}".encode()
+                    )).decode()
+                    _escrow_body = {
+                        "encrypted_identity_key": base64.b64encode(_enc_id).decode(),
+                        "argon2_salt": _rec_salt.hex(),
+                        "argon2_time_cost": _TC, "argon2_memory_cost": _MC, "argon2_parallelism": _PA,
+                        "signature": _escrow_sig, "timestamp": _ts,
+                    }
+                    httpx.put(f"{_reg_url}/identity-key/{config.user_id}", json=_escrow_body, timeout=10)
+                    log.warning("Identity key migrated. Recovery passphrase is currently 'foobar'. "
+                                "Change it in settings → Identity Security.")
+            except Exception as _e2:
+                log.warning("Could not auto-upload identity escrow: %s", _e2)
         except Exception as _e:
             log.error("Failed to migrate identity key: %s", _e)
 

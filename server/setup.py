@@ -511,3 +511,85 @@ def redelegate(body: RedelegateBody, request: Request):
         threading.Thread(target=trigger, daemon=True).start()
 
     return {"status": "ok", "expires_at": delegation_cert["expires_at"]}
+
+
+class ChangeIdentityPassphraseBody(BaseModel):
+    old_recovery_passphrase: str
+    new_recovery_passphrase: str
+
+
+@router.post("/change-identity-passphrase")
+def change_identity_passphrase(body: ChangeIdentityPassphraseBody, request: Request):
+    """Fetch the identity key from registry escrow, decrypt with old passphrase,
+    re-encrypt with new passphrase, re-upload. Returns identity_private_key hex
+    so the user can confirm they have the latest version saved offline."""
+    from .identity import identity_key_from_hex, identity_key_to_hex
+    app = request.app
+    if not app.state.initialized:
+        raise HTTPException(400, "Server not initialized")
+
+    config_path = Path(app.state.config_path)
+    config = NodeConfig.load(config_path)
+    if not config.user_id:
+        raise HTTPException(400, "No identity configured on this node")
+
+    registry_url = (config.registry_url or config.identity_proxy_url or "").rstrip("/")
+    if not registry_url:
+        raise HTTPException(400, "No registry URL configured")
+
+    # Fetch escrow from registry
+    import httpx as _httpx
+    r = _httpx.post(f"{registry_url}/identity-key/{config.user_id}/recover", timeout=10)
+    if not r.is_success:
+        raise HTTPException(502, "Could not fetch identity key from registry")
+    escrow = r.json()
+
+    # Decrypt with old passphrase
+    try:
+        old_salt = bytes.fromhex(escrow["argon2_salt"])
+        old_key = derive_master_key(
+            body.old_recovery_passphrase, old_salt,
+            escrow.get("argon2_time_cost", ARGON2_TIME_COST),
+            escrow.get("argon2_memory_cost", ARGON2_MEMORY_COST),
+            escrow.get("argon2_parallelism", ARGON2_PARALLELISM),
+        )
+        id_priv_bytes = decrypt_bytes(base64.b64decode(escrow["encrypted_identity_key"]), old_key)
+        identity_private_key = identity_key_from_hex(id_priv_bytes.hex())
+    except Exception:
+        raise HTTPException(403, "Wrong recovery passphrase")
+
+    # Verify key matches stored public key
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    provided_pub = base64.b64encode(
+        identity_private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    ).decode()
+    if provided_pub != config.identity_public_key:
+        raise HTTPException(403, "Recovered key does not match this node's identity")
+
+    # Re-encrypt with new passphrase and re-upload
+    from cryptography.hazmat.primitives.serialization import PrivateFormat, NoEncryption
+    new_salt = os.urandom(16)
+    new_key = derive_master_key(body.new_recovery_passphrase, new_salt)
+    new_encrypted = encrypt_bytes(
+        identity_private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption()), new_key
+    )
+    timestamp = int(__import__("time").time())
+    sign_msg = f"contacc:escrow:{config.user_id}:{timestamp}"
+    sig = base64.b64encode(identity_private_key.sign(sign_msg.encode())).decode()
+    put_body = {
+        "encrypted_identity_key": base64.b64encode(new_encrypted).decode(),
+        "argon2_salt": new_salt.hex(),
+        "argon2_time_cost": ARGON2_TIME_COST,
+        "argon2_memory_cost": ARGON2_MEMORY_COST,
+        "argon2_parallelism": ARGON2_PARALLELISM,
+        "signature": sig,
+        "timestamp": timestamp,
+    }
+    r2 = _httpx.put(f"{registry_url}/identity-key/{config.user_id}", json=put_body, timeout=10)
+    if not r2.is_success:
+        raise HTTPException(502, f"Registry update failed: {r2.status_code}")
+
+    return {
+        "status": "ok",
+        "identity_private_key": identity_key_to_hex(identity_private_key),
+    }
