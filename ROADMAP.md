@@ -12,21 +12,33 @@ A stable, portable user identity that survives server moves and key rotation.
   A user on multiple nodes shares one UUID.
 - **Identity key** — a second Ed25519 pair generated at setup alongside the node key. Signs
   delegation certificates: *"UUID X authorises node key Y."* Kept more securely than the node
-  key (rarely used; suitable for offline/paper backup). Recovery path for a compromised identity
-  key TBD (social attestation from trusted contacts is the likely answer).
+  key (rarely used; suitable for offline/paper backup).
+- **Registry escrow for recovery** — at registration the user uploads a passphrase-encrypted
+  copy of the identity private key to the registry (same Argon2 + AES-GCM scheme used for
+  node keys). Recovery: present passphrase → registry returns encrypted blob → decrypt locally.
+  **Warning: compromising either the recovery passphrase OR the unencrypted identity private
+  key is sufficient to permanently lose the identity — an attacker with both can re-register.
+  The registry escrow passphrase should be distinct from the node passphrase so that a node
+  compromise alone does not enable identity theft.** The registry cannot read the key.
 - **Node key** — the current operational key (existing). Rotatable: present a new delegation
   signed by the identity key.
 
 *What needs building:*
 1. `setup.py` — generate UUID + identity key pair at setup alongside node key; store
    `user_id` (UUID) and `encrypted_identity_private_key` in `node_config.json`.
-2. Registry schema — add `user_id TEXT`, `identity_public_key TEXT`, `delegation_sig TEXT`
-   columns; `/go/{uuid}` route alongside `/go/{handle}`.
-3. Heartbeat — include UUID + current delegation cert when registering/updating.
-4. Migration — existing nodes generate UUID + identity key on first startup with new code
+2. Registry schema — add `user_id TEXT`, `identity_public_key TEXT`, `delegation_sig TEXT`,
+   `encrypted_identity_key TEXT` columns; `/go/{uuid}` route alongside `/go/{handle}`.
+3. Registry escrow endpoints — `PUT /identity-key/{uuid}` (upload Argon2+AES-GCM encrypted
+   identity key at registration, authenticated by identity key signature);
+   `POST /identity-key/{uuid}/recover` (present passphrase → registry returns encrypted blob
+   for local decryption). Rate-limited; requires proof of UUID ownership or passphrase.
+4. Heartbeat — include UUID + current delegation cert when registering/updating.
+5. Migration — existing nodes generate UUID + identity key on first startup with new code
    (no backward proof of continuity, but none existed before either).
-5. Key rotation flow — UI + API to generate new node key, sign delegation with identity key,
+6. Key rotation flow — UI + API to generate new node key, sign delegation with identity key,
    push updated delegation to registry.
+7. Setup UI — prompt for a separate identity recovery passphrase (distinct from node
+   passphrase) with explicit warning about consequences of losing both.
 
 **1. Contact description**
 Add a `description TEXT` field to the `contacts` table. Natural language, potentially long.
