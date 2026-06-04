@@ -62,6 +62,11 @@ The registry exposes all nodes for a UUID so you can choose which to add as cont
 *Contact model is unchanged:* contacts are node endpoints, not people. The distinction
 between a person's professional and personal nodes is preserved exactly as intended.
 
+*Future extension — invite-only nodes:* a node can simply omit itself from the registry
+(or mark itself as unlisted) and remain fully functional for anyone who has the explicit
+URL. Since the registry is a discovery mechanism, not a participation requirement, this
+adds no protocol changes — just a configuration option at setup time.
+
 **1. Contact description**
 Add a `description TEXT` field to the `contacts` table. Natural language, potentially long.
 User-editable via the UI (contact edit modal); also curated by the agent based on aggregated
