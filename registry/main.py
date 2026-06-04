@@ -181,95 +181,181 @@ def create_app(db_path: str) -> FastAPI:
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>contacc</title>
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='114.1085 98.626948 11.98291 9.7358322'%3E%3Cpath style='fill:%234285f4;stroke-width:0.199817' d='m 125.34474,104.96592 0.74667,1.9637 -0.10218,0.12403 c -0.0734,-0.11943 -0.13361,-0.17915 -0.18077,-0.17915 -0.0472,0 -0.17946,0.11024 -0.39691,0.33073 -0.45062,0.45475 -0.8305,0.76252 -1.13965,0.92329 -0.30652,0.15617 -0.67199,0.23426 -1.09641,0.23426 -0.84623,0 -1.54049,-0.3514 -2.08281,-1.0542 -0.31962,-0.40881 -0.50719,-0.82671 -0.69058,-1.43305 -0.19942,-1.14201 -0.14909,-1.18922 -0.15208,-2.72041 -0.003,-1.67715 -0.007,-1.74466 0.33965,-2.63337 0.44703,-1.145722 1.43438,-1.894801 2.58975,-1.894801 0.42442,0 0.78858,0.07809 1.09248,0.234267 0.30391,0.156177 0.68379,0.463939 1.13965,0.923285 0.21745,0.215889 0.34975,0.323839 0.39691,0.323839 0.0472,0 0.10742,-0.0597 0.18077,-0.179145 l 0.10218,0.124025 -0.74667,1.9637 -0.1061,-0.12402 c 0.005,-0.0735 0.008,-0.13551 0.008,-0.18604 0,-0.13321 -0.0327,-0.25723 -0.0983,-0.37207 -0.0655,-0.11943 -0.18208,-0.26182 -0.34975,-0.42719 -0.46372,-0.45935 -0.95495,-0.68902 -1.47368,-0.68902 -0.61305,0 -1.10166,0.26872 -1.46582,0.80615 -0.42966,0.62931 -0.64449,1.45154 -0.64449,2.46669 0,1.01515 0.21483,1.83738 0.64449,2.46669 0.36416,0.53743 0.85277,0.80615 1.46582,0.80615 0.51873,0 1.00996,-0.22967 1.47368,-0.68902 0.16767,-0.16537 0.28426,-0.30547 0.34975,-0.4203 0.0655,-0.11943 0.0983,-0.24575 0.0983,-0.37896 0,-0.0505 -0.003,-0.11025 -0.008,-0.17915 z'/%3E%3Cpath style='fill:%234285f4;stroke-width:0.199817' d='m 114.85517,104.96592 -0.74667,1.9637 0.10218,0.12403 c 0.0734,-0.11943 0.13361,-0.17915 0.18077,-0.17915 0.0472,0 0.17946,0.11024 0.39691,0.33073 0.45062,0.45475 0.8305,0.76252 1.13965,0.92329 0.30652,0.15617 0.67199,0.23426 1.09641,0.23426 0.84623,0 1.54049,-0.3514 2.08281,-1.0542 0.31962,-0.40881 0.50719,-0.82671 0.69058,-1.43305 0.19942,-1.14201 0.14909,-1.18922 0.15208,-2.72041 0.003,-1.67715 0.007,-1.74466 -0.33965,-2.63337 -0.44703,-1.145723 -1.43438,-1.894802 -2.58975,-1.894802 -0.42442,0 -0.78858,0.07809 -1.09248,0.234267 -0.30391,0.156177 -0.68379,0.463939 -1.13965,0.923285 -0.21745,0.21589 -0.34975,0.32384 -0.39691,0.32384 -0.0472,0 -0.10742,-0.0597 -0.18077,-0.179146 l -0.10218,0.124026 0.74667,1.9637 0.1061,-0.12402 c -0.005,-0.0735 -0.008,-0.13551 -0.008,-0.18604 0,-0.13321 0.0327,-0.25723 0.0982,-0.37207 0.0655,-0.11943 0.18208,-0.26182 0.34975,-0.42719 0.46372,-0.45935 0.95495,-0.68902 1.47368,-0.68902 0.61305,0 1.10166,0.26872 1.46582,0.80615 0.42966,0.62931 0.64449,1.45154 0.64449,2.46669 0,1.01515 -0.21483,1.83738 -0.64449,2.46669 -0.36416,0.53743 -0.85277,0.80615 -1.46582,0.80615 -0.51873,0 -1.00996,-0.22967 -1.47368,-0.68902 -0.16767,-0.16537 -0.28426,-0.30547 -0.34975,-0.4203 -0.0655,-0.11943 -0.0982,-0.24575 -0.0982,-0.37896 0,-0.0505 0.003,-0.11025 0.008,-0.17915 z'/%3E%3C/svg%3E">
+  <title>contacc registry</title>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; background: #111; color: #e0e0e0;
-           display: flex; flex-direction: column; align-items: center; justify-content: center;
-           min-height: 100vh; gap: 1.5rem; padding: 2rem; }
-    .logo { display: flex; align-items: center; gap: 0.6rem; }
-    .logo svg { height: 48px; width: auto; }
-    .logo span { font-size: 2rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; }
-    .row { display: flex; gap: 0.5rem; }
-    input { padding: 0.5rem 0.8rem; border-radius: 4px; border: 1px solid #333;
-            background: #222; color: #e0e0e0; font-size: 1rem; outline: none; width: 220px; }
+           min-height: 100vh; padding: 2rem 1rem; }
+    .page { max-width: 540px; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem; }
+    .logo { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; }
+    .logo span { font-size: 1.8rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; }
+    .logo small { font-size: 0.8rem; color: #555; margin-left: 0.25rem; align-self: flex-end; margin-bottom: 0.2rem; }
+    .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px; padding: 1.25rem; }
+    .card h2 { font-size: 0.95rem; font-weight: 500; color: #aaa; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.06em; }
+    .field { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.75rem; }
+    input[type=text], input[type=password] {
+      padding: 0.45rem 0.7rem; border-radius: 4px; border: 1px solid #333;
+      background: #222; color: #e0e0e0; font-size: 0.9rem; outline: none; width: 100%; }
     input:focus { border-color: #4285f4; }
-    button { padding: 0.5rem 1.2rem; border-radius: 4px; border: none; background: #4285f4;
-             color: #fff; font-size: 1rem; cursor: pointer; }
-    button:hover { background: #3a78e0; }
-    #err { color: #e06c6c; font-size: 0.85rem; min-height: 1.2em; }
-    #profile-card { display: none; flex-direction: column; align-items: center; gap: 0.75rem;
-                    background: #1e1e1e; border-radius: 10px; padding: 1.5rem 2rem; min-width: 240px; }
-    #profile-photo { width: 80px; height: 80px; border-radius: 50%; object-fit: cover;
-                     background: #333; border: 2px solid #333; }
-    #profile-photo.hidden { display: none; }
-    #profile-initials { width: 80px; height: 80px; border-radius: 50%; background: #2a4a7a;
-                        display: flex; align-items: center; justify-content: center;
-                        font-size: 2rem; color: #aac8ff; font-weight: 300; }
-    #profile-initials.hidden { display: none; }
-    #profile-name { font-size: 1.1rem; color: #fff; font-weight: 400; }
-    #profile-handle { font-size: 0.85rem; color: #666; }
-    #go-btn { margin-top: 0.25rem; padding: 0.5rem 1.5rem; border-radius: 4px; border: none;
-              background: #4285f4; color: #fff; font-size: 1rem; cursor: pointer; }
-    #go-btn:hover { background: #3a78e0; }
+    .btn { padding: 0.45rem 1rem; border-radius: 4px; border: none; cursor: pointer; font-size: 0.88rem; }
+    .btn-primary { background: #4285f4; color: #fff; }
+    .btn-primary:hover { background: #3a78e0; }
+    .btn-muted { background: #2a2a2a; color: #ccc; }
+    .btn-muted:hover { background: #333; }
+    .msg { font-size: 0.82rem; min-height: 1.1em; margin-top: 0.4rem; }
+    .err { color: #e06c6c; }
+    .ok  { color: #6cbe6c; }
+    .profile-card { display: none; align-items: center; gap: 0.75rem; margin-top: 0.75rem;
+                    background: #222; border-radius: 6px; padding: 0.75rem; }
+    .avatar { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; background: #333; flex-shrink: 0; }
+    .avatar-init { width: 48px; height: 48px; border-radius: 50%; background: #2a4a7a;
+                   display: flex; align-items: center; justify-content: center;
+                   font-size: 1.2rem; color: #aac8ff; flex-shrink: 0; }
+    .profile-info { flex: 1; }
+    .profile-name { font-size: 0.95rem; color: #fff; }
+    .profile-handle { font-size: 0.78rem; color: #666; }
+    .profile-uuid { font-size: 0.7rem; color: #444; margin-top: 0.2rem; font-family: monospace; }
+    .key-box { background: #111; border: 1px solid #333; border-radius: 4px; padding: 0.6rem;
+               font-family: monospace; font-size: 0.72rem; color: #60a5fa;
+               word-break: break-all; margin-top: 0.5rem; display: none; }
+    .warn { color: #e06c6c; font-size: 0.8rem; margin-top: 0.4rem; }
   </style>
 </head>
 <body>
-  <div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="114.1085 98.626948 11.98291 9.7358322"><path style="fill:#4285f4;stroke-width:0.199817" d="m 125.34474,104.96592 0.74667,1.9637 -0.10218,0.12403 c -0.0734,-0.11943 -0.13361,-0.17915 -0.18077,-0.17915 -0.0472,0 -0.17946,0.11024 -0.39691,0.33073 -0.45062,0.45475 -0.8305,0.76252 -1.13965,0.92329 -0.30652,0.15617 -0.67199,0.23426 -1.09641,0.23426 -0.84623,0 -1.54049,-0.3514 -2.08281,-1.0542 -0.31962,-0.40881 -0.50719,-0.82671 -0.69058,-1.43305 -0.19942,-1.14201 -0.14909,-1.18922 -0.15208,-2.72041 -0.003,-1.67715 -0.007,-1.74466 0.33965,-2.63337 0.44703,-1.145722 1.43438,-1.894801 2.58975,-1.894801 0.42442,0 0.78858,0.07809 1.09248,0.234267 0.30391,0.156177 0.68379,0.463939 1.13965,0.923285 0.21745,0.215889 0.34975,0.323839 0.39691,0.323839 0.0472,0 0.10742,-0.0597 0.18077,-0.179145 l 0.10218,0.124025 -0.74667,1.9637 -0.1061,-0.12402 c 0.005,-0.0735 0.008,-0.13551 0.008,-0.18604 0,-0.13321 -0.0327,-0.25723 -0.0983,-0.37207 -0.0655,-0.11943 -0.18208,-0.26182 -0.34975,-0.42719 -0.46372,-0.45935 -0.95495,-0.68902 -1.47368,-0.68902 -0.61305,0 -1.10166,0.26872 -1.46582,0.80615 -0.42966,0.62931 -0.64449,1.45154 -0.64449,2.46669 0,1.01515 0.21483,1.83738 0.64449,2.46669 0.36416,0.53743 0.85277,0.80615 1.46582,0.80615 0.51873,0 1.00996,-0.22967 1.47368,-0.68902 0.16767,-0.16537 0.28426,-0.30547 0.34975,-0.4203 0.0655,-0.11943 0.0983,-0.24575 0.0983,-0.37896 0,-0.0505 -0.003,-0.11025 -0.008,-0.17915 z"/><path style="fill:#4285f4;stroke-width:0.199817" d="m 114.85517,104.96592 -0.74667,1.9637 0.10218,0.12403 c 0.0734,-0.11943 0.13361,-0.17915 0.18077,-0.17915 0.0472,0 0.17946,0.11024 0.39691,0.33073 0.45062,0.45475 0.8305,0.76252 1.13965,0.92329 0.30652,0.15617 0.67199,0.23426 1.09641,0.23426 0.84623,0 1.54049,-0.3514 2.08281,-1.0542 0.31962,-0.40881 0.50719,-0.82671 0.69058,-1.43305 0.19942,-1.14201 0.14909,-1.18922 0.15208,-2.72041 0.003,-1.67715 0.007,-1.74466 -0.33965,-2.63337 -0.44703,-1.145723 -1.43438,-1.894802 -2.58975,-1.894802 -0.42442,0 -0.78858,0.07809 -1.09248,0.234267 -0.30391,0.156177 -0.68379,0.463939 -1.13965,0.923285 -0.21745,0.21589 -0.34975,0.32384 -0.39691,0.32384 -0.0472,0 -0.10742,-0.0597 -0.18077,-0.179146 l -0.10218,0.124026 0.74667,1.9637 0.1061,-0.12402 c -0.005,-0.0735 -0.008,-0.13551 -0.008,-0.18604 0,-0.13321 0.0327,-0.25723 0.0982,-0.37207 0.0655,-0.11943 0.18208,-0.26182 0.34975,-0.42719 0.46372,-0.45935 0.95495,-0.68902 1.47368,-0.68902 0.61305,0 1.10166,0.26872 1.46582,0.80615 0.42966,0.62931 0.64449,1.45154 0.64449,2.46669 0,1.01515 -0.21483,1.83738 -0.64449,2.46669 -0.36416,0.53743 -0.85277,0.80615 -1.46582,0.80615 -0.51873,0 -1.00996,-0.22967 -1.47368,-0.68902 -0.16767,-0.16537 -0.28426,-0.30547 -0.34975,-0.4203 -0.0655,-0.11943 -0.0982,-0.24575 -0.0982,-0.37896 0,-0.0505 0.003,-0.11025 0.008,-0.17915 z"/></svg><span>contacc</span></div>
-  <div class="row">
-    <input id="handle" type="text" placeholder="your handle" autocomplete="off"
-           autocapitalize="none" onkeydown="if(event.key==='Enter')lookup()">
-    <button onclick="lookup()">Look up</button>
+<div class="page">
+  <div class="logo">
+    <span>contacc</span><small>registry</small>
   </div>
-  <div id="err"></div>
-  <div id="profile-card">
-    <img id="profile-photo" alt="">
-    <div id="profile-initials"></div>
-    <div id="profile-name"></div>
-    <div id="profile-handle"></div>
-    <button id="go-btn" onclick="gotoProfile()">Go to profile</button>
+
+  <!-- Find a person -->
+  <div class="card">
+    <h2>Find a person</h2>
+    <div class="field">
+      <input id="lookup-handle" type="text" placeholder="handle" autocomplete="off"
+             autocapitalize="none" onkeydown="if(event.key==='Enter')doLookup()">
+    </div>
+    <button class="btn btn-primary" onclick="doLookup()">Look up</button>
+    <div id="lookup-msg" class="msg err"></div>
+    <div id="profile-card" class="profile-card">
+      <img id="profile-photo" class="avatar" alt="" style="display:none">
+      <div id="profile-init" class="avatar-init" style="display:none"></div>
+      <div class="profile-info">
+        <div id="profile-name" class="profile-name"></div>
+        <div id="profile-handle" class="profile-handle"></div>
+        <div id="profile-uuid" class="profile-uuid"></div>
+      </div>
+      <button class="btn btn-muted" onclick="gotoProfile()">Open ↗</button>
+    </div>
   </div>
-  <script>
-    let _profileUrl = null;
 
-    async function lookup() {
-      const handle = document.getElementById("handle").value.trim().toLowerCase();
-      const err = document.getElementById("err");
-      const card = document.getElementById("profile-card");
-      err.textContent = "";
-      card.style.display = "none";
-      _profileUrl = null;
-      if (!handle) return;
-      const r = await fetch("/lookup/" + encodeURIComponent(handle));
-      if (r.status === 404) { err.textContent = "Handle not found."; return; }
-      if (!r.ok) { err.textContent = "Registry error."; return; }
-      const d = await r.json();
-      _profileUrl = d.server_url || null;
-      const name = d.display_name || ("@" + handle);
-      document.getElementById("profile-name").textContent = name;
-      document.getElementById("profile-handle").textContent = "@" + handle;
-      const photo = document.getElementById("profile-photo");
-      const initials = document.getElementById("profile-initials");
-      if (d.photo_url) {
-        photo.src = d.photo_url;
-        photo.classList.remove("hidden");
-        initials.classList.add("hidden");
-      } else {
-        photo.classList.add("hidden");
-        initials.classList.remove("hidden");
-        initials.textContent = name.trim()[0].toUpperCase();
-      }
-      card.style.display = "flex";
+  <!-- Recover identity key -->
+  <div class="card">
+    <h2>Recover identity key</h2>
+    <p style="font-size:0.82rem;color:#666;margin-bottom:0.75rem">
+      If you've lost access to your node, enter your handle and recovery passphrase
+      to retrieve your identity private key.
+    </p>
+    <div class="field">
+      <input id="rec-handle" type="text" placeholder="handle" autocomplete="off" autocapitalize="none">
+    </div>
+    <div class="field">
+      <input id="rec-pass" type="password" placeholder="Recovery passphrase">
+    </div>
+    <button class="btn btn-primary" onclick="doRecover()">Retrieve key</button>
+    <div id="rec-msg" class="msg"></div>
+    <div id="rec-key" class="key-box"></div>
+    <div id="rec-warn" class="warn" style="display:none">
+      ⚠ Save this key immediately. Close this page when done.
+    </div>
+  </div>
+
+  <!-- Change recovery passphrase -->
+  <div class="card">
+    <h2>Change recovery passphrase</h2>
+    <div class="field">
+      <input id="chg-handle" type="text" placeholder="handle" autocomplete="off" autocapitalize="none">
+    </div>
+    <div class="field">
+      <input id="chg-old" type="password" placeholder="Current recovery passphrase">
+    </div>
+    <div class="field">
+      <input id="chg-new" type="password" placeholder="New recovery passphrase">
+    </div>
+    <button class="btn btn-primary" onclick="doChangePass()">Update</button>
+    <div id="chg-msg" class="msg"></div>
+  </div>
+</div>
+<script>
+  let _webUrl = null;
+
+  async function doLookup() {
+    const handle = document.getElementById("lookup-handle").value.trim().toLowerCase();
+    const msg = document.getElementById("lookup-msg");
+    const card = document.getElementById("profile-card");
+    msg.textContent = ""; card.style.display = "none"; _webUrl = null;
+    if (!handle) return;
+    const r = await fetch("/lookup/" + encodeURIComponent(handle));
+    if (r.status === 404) { msg.textContent = "Handle not found."; return; }
+    if (!r.ok) { msg.textContent = "Registry error."; return; }
+    const d = await r.json();
+    _webUrl = d.web_url || d.server_url || null;
+    const name = d.display_name || ("@" + handle);
+    document.getElementById("profile-name").textContent = name;
+    document.getElementById("profile-handle").textContent = "@" + handle;
+    document.getElementById("profile-uuid").textContent = d.user_id ? "id: " + d.user_id : "";
+    const photo = document.getElementById("profile-photo");
+    const init = document.getElementById("profile-init");
+    if (d.photo_url) {
+      photo.src = d.photo_url; photo.style.display = ""; init.style.display = "none";
+    } else {
+      init.textContent = name.trim()[0].toUpperCase();
+      init.style.display = ""; photo.style.display = "none";
     }
+    card.style.display = "flex";
+  }
 
-    function gotoProfile() {
-      if (_profileUrl) window.location.href = _profileUrl;
-    }
+  function gotoProfile() { if (_webUrl) window.open(_webUrl, "_blank"); }
 
-    const h = new URLSearchParams(location.search).get("handle");
-    if (h) { document.getElementById("handle").value = h; lookup(); }
-  </script>
+  async function doRecover() {
+    const handle = document.getElementById("rec-handle").value.trim().toLowerCase();
+    const pass = document.getElementById("rec-pass").value;
+    const msg = document.getElementById("rec-msg");
+    const keyBox = document.getElementById("rec-key");
+    const warn = document.getElementById("rec-warn");
+    msg.textContent = ""; keyBox.style.display = "none"; warn.style.display = "none";
+    if (!handle || !pass) { msg.className = "msg err"; msg.textContent = "Handle and passphrase required."; return; }
+    msg.className = "msg"; msg.textContent = "Decrypting…";
+    const r = await fetch("/identity/recover", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({handle, recovery_passphrase: pass}),
+    });
+    const d = await r.json();
+    if (!r.ok) { msg.className = "msg err"; msg.textContent = d.detail || "Failed."; return; }
+    msg.textContent = "";
+    keyBox.textContent = d.identity_private_key;
+    keyBox.style.display = "block";
+    warn.style.display = "block";
+  }
+
+  async function doChangePass() {
+    const handle = document.getElementById("chg-handle").value.trim().toLowerCase();
+    const oldPass = document.getElementById("chg-old").value;
+    const newPass = document.getElementById("chg-new").value;
+    const msg = document.getElementById("chg-msg");
+    msg.textContent = "";
+    if (!handle || !oldPass || !newPass) { msg.className = "msg err"; msg.textContent = "All fields required."; return; }
+    msg.className = "msg"; msg.textContent = "Updating…";
+    const r = await fetch("/identity/change-passphrase", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({handle, old_recovery_passphrase: oldPass, new_recovery_passphrase: newPass}),
+    });
+    if (r.ok) { msg.className = "msg ok"; msg.textContent = "✓ Passphrase updated."; }
+    else { const d = await r.json(); msg.className = "msg err"; msg.textContent = d.detail || "Failed."; }
+  }
+
+  const h = new URLSearchParams(location.search).get("handle");
+  if (h) { document.getElementById("lookup-handle").value = h; doLookup(); }
+</script>
 </body>
 </html>"""
 
@@ -507,6 +593,87 @@ def create_app(db_path: str) -> FastAPI:
         if not row or not row[0]:
             raise HTTPException(404, "No escrow stored for this user ID")
         return json.loads(row[0])
+
+    def _escrow_for_handle(handle: str):
+        """Return (user_id, escrow_dict) or raise HTTPException."""
+        handle = handle.lower()
+        row = con.execute(
+            "SELECT user_id, encrypted_identity_key FROM handles WHERE username = ?", (handle,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Handle not found")
+        if not row[0]:
+            raise HTTPException(404, "No permanent identity registered for this handle")
+        if not row[1]:
+            raise HTTPException(404, "No recovery escrow stored for this handle")
+        return row[0], json.loads(row[1])
+
+    def _decrypt_escrow(escrow: dict, passphrase: str) -> bytes:
+        """Decrypt escrow blob with passphrase; raises ValueError on wrong passphrase."""
+        from cryptography.hazmat.primitives.kdf.scrypt import Scrypt as _S
+        # Use argon2 params stored in escrow
+        salt = bytes.fromhex(escrow["argon2_salt"])
+        tc = escrow.get("argon2_time_cost", 3)
+        mc = escrow.get("argon2_memory_cost", 65536)
+        pa = escrow.get("argon2_parallelism", 4)
+        from argon2.low_level import hash_secret_raw, Type
+        key = hash_secret_raw(passphrase.encode(), salt, time_cost=tc,
+                               memory_cost=mc, parallelism=pa,
+                               hash_len=32, type=Type.ID)
+        ciphertext = base64.b64decode(escrow["encrypted_identity_key"])
+        nonce, ct = ciphertext[:12], ciphertext[12:]
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        try:
+            return AESGCM(key).decrypt(nonce, ct, None)
+        except Exception:
+            raise ValueError("Wrong recovery passphrase")
+
+    class RecoverBody(BaseModel):
+        handle: str
+        recovery_passphrase: str
+
+    @app.post("/identity/recover")
+    def recover_identity(body: RecoverBody):
+        """Decrypt and return the identity private key for a handle.
+        Rate-limit in production — caller needs the recovery passphrase."""
+        _, escrow = _escrow_for_handle(body.handle)
+        try:
+            id_priv = _decrypt_escrow(escrow, body.recovery_passphrase)
+        except ValueError as e:
+            raise HTTPException(403, str(e))
+        return {"identity_private_key": id_priv.hex()}
+
+    class ChangePassphraseBody(BaseModel):
+        handle: str
+        old_recovery_passphrase: str
+        new_recovery_passphrase: str
+
+    @app.post("/identity/change-passphrase", status_code=204)
+    def change_identity_passphrase(body: ChangePassphraseBody):
+        """Re-encrypt the identity key escrow under a new passphrase."""
+        user_id, escrow = _escrow_for_handle(body.handle)
+        try:
+            id_priv = _decrypt_escrow(escrow, body.old_recovery_passphrase)
+        except ValueError as e:
+            raise HTTPException(403, str(e))
+        # Re-encrypt under new passphrase
+        new_salt = os.urandom(16)
+        from argon2.low_level import hash_secret_raw, Type
+        tc = escrow.get("argon2_time_cost", 3)
+        mc = escrow.get("argon2_memory_cost", 65536)
+        pa = escrow.get("argon2_parallelism", 4)
+        new_key = hash_secret_raw(body.new_recovery_passphrase.encode(), new_salt,
+                                   time_cost=tc, memory_cost=mc, parallelism=pa,
+                                   hash_len=32, type=Type.ID)
+        from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+        nonce = os.urandom(12)
+        new_ct = AESGCM(new_key).encrypt(nonce, id_priv, None)
+        new_escrow = {**escrow,
+                      "encrypted_identity_key": base64.b64encode(nonce + new_ct).decode(),
+                      "argon2_salt": new_salt.hex()}
+        con.execute("UPDATE handles SET encrypted_identity_key = ? WHERE user_id = ?",
+                    (json.dumps(new_escrow), user_id))
+        con.commit()
 
     # ── identity proxy ────────────────────────────────────────────────────────
 
