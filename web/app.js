@@ -2002,6 +2002,7 @@ function _badSetupToken(msg) {
 
 async function doSetupNew() {
   const email = document.getElementById("setup-owner-email").value.trim();
+  const displayName = document.getElementById("setup-display-name").value.trim();
   const handle = document.getElementById("setup-handle").value.trim().toLowerCase();
   const pass = document.getElementById("setup-passphrase").value;
   const confirm = document.getElementById("setup-passphrase-confirm").value;
@@ -2014,7 +2015,7 @@ async function doSetupNew() {
     const r = await fetch("/setup/new", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({passphrase: pass, confirm_passphrase: confirm, owner_identity: "google:" + email, setup_token: _setupToken, handle, tang_enabled: document.getElementById("setup-tang").checked}),
+      body: JSON.stringify({passphrase: pass, confirm_passphrase: confirm, owner_identity: "google:" + email, setup_token: _setupToken, handle, display_name: displayName, tang_enabled: document.getElementById("setup-tang").checked}),
     });
     const d = await r.json();
     if (r.status === 403) { _badSetupToken(d.detail); return; }

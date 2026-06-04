@@ -105,6 +105,7 @@ class NewBody(BaseModel):
     owner_identity: str
     setup_token: str
     handle: str
+    display_name: str = ""
     tang_enabled: bool = True
 
 
@@ -128,7 +129,7 @@ def setup_new(body: NewBody, request: Request):
     identity_proxy_url = os.environ.get("CONTACC_IDENTITY_PROXY_URL", "https://starkville.hopto.org:8421")
     registry_url = os.environ.get("CONTACC_REGISTRY_URL", identity_proxy_url)
 
-    key_material = _create_node_config(config_path, node_address, identity_proxy_url, body.owner_identity, body.passphrase, body.handle, tang_enabled=body.tang_enabled)
+    key_material = _create_node_config(config_path, node_address, identity_proxy_url, body.owner_identity, body.passphrase, body.handle, display_name=body.display_name, tang_enabled=body.tang_enabled)
 
     try:
         app.state.do_initialize(body.passphrase)
@@ -397,6 +398,7 @@ def _create_node_config(
     owner_identity: str,
     passphrase: str,
     handle: str,
+    display_name: str = "",
     tang_enabled: bool = True,
 ) -> dict:
     """Generate keys, initialize DB, and write node_config.json."""
@@ -443,6 +445,9 @@ def _create_node_config(
 
     db_con = open_db(str(store_path / "db"), db_key)
     init_schema(db_con)
+    if display_name:
+        db_con.execute("INSERT OR REPLACE INTO profile (id, display_name) VALUES (1, ?)", (display_name,))
+        db_con.commit()
     db_con.close()
 
     internal_token = secrets.token_urlsafe(32)
