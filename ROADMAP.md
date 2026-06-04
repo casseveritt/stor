@@ -40,6 +40,36 @@ A stable, portable user identity that survives server moves and key rotation.
 7. Setup UI — prompt for a separate identity recovery passphrase (distinct from node
    passphrase) with explicit warning about consequences of losing both.
 
+**0a. Node identity (node_id) — separate from person identity (user_id)**
+
+Each node deployment needs its own stable identifier (`node_id`, a UUID) distinct from the
+person's `user_id`. This is required for key rotation and server moves to work cleanly.
+
+*Three-level hierarchy:*
+- `user_id` — identifies the **person**. Permanent. Shared across all their nodes.
+- `node_id` — identifies a **specific node deployment**. Permanent. Survives key rotation
+  and server moves. Generated at setup alongside `user_id`.
+- `public_key` — the **current signing key** for this node. Rotatable.
+
+*Delegation cert binds `user_id + node_id → public_key`:*
+The cert does NOT include the server URL. The chain of proof is:
+  identity key → node_key (via delegation cert) → server_url (via heartbeat signature).
+Only the location (heartbeat) changes on server moves. The identity key stays offline.
+This mirrors how TLS works: the CA certifies the server key; the server key proves it
+controls the domain. The CA is not involved when the domain's IP changes.
+
+*Registry schema change:*
+- `node_id TEXT PRIMARY KEY` — stable node identifier (replaces `user_id` as PK)
+- `user_id TEXT` — person identifier, non-unique (multiple rows per person)
+- `public_key TEXT` — current node key (changes on rotation)
+
+*What needs building:*
+1. Generate `node_id` UUID at setup (separate from `user_id`); store in `node_config.json`.
+2. Registry: change PK from `user_id` to `node_id`; `user_id` becomes a repeatable field.
+3. Delegation cert: include `node_id` alongside `user_id` and `public_key`.
+4. "Link to existing identity" setup path: user provides `user_id` + identity private key →
+   system generates new node_id, signs delegation for new node key, registers separately.
+
 **0b. Multiple nodes per identity (1:n)**
 
 A person can have more than one node under a single UUID — e.g. a personal node and a
