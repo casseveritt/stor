@@ -256,6 +256,8 @@ def create_app(config_path: str | Path) -> FastAPI:
     app.state.config_path = config_path
     app.state.node_address = os.environ.get("CONTACC_NODE_ADDRESS", "")
     app.state.web_address = os.environ.get("CONTACC_WEB_ADDRESS", "")
+    app.state.tang_nonce = None
+    app.state.tang_nonce_expires = 0.0
 
     if not config_path.exists():
         setup_module.ensure_setup_token(app)
@@ -282,10 +284,74 @@ def create_app(config_path: str | Path) -> FastAPI:
     app.include_router(reactions_module.router)
     app.include_router(debug_module.router)
 
+    @app.post("/tang/deliver")
+    async def tang_deliver(request: Request):
+        """Receive Tang S value from registry; derive passphrase and unlock."""
+        body = await request.json()
+        nonce = body.get("nonce", "")
+        S_b64 = body.get("S", "")
+        if not nonce or nonce != app.state.tang_nonce:
+            return JSONResponse({"detail": "Invalid nonce"}, status_code=403)
+        if time.time() > app.state.tang_nonce_expires:
+            return JSONResponse({"detail": "Nonce expired"}, status_code=403)
+        app.state.tang_nonce = None  # one-use
+        if app.state.initialized:
+            return {"status": "already initialized"}
+        try:
+            from cryptography.hazmat.primitives.kdf.hkdf import HKDF as _HKDF
+            from cryptography.hazmat.primitives.hashes import SHA256 as _SHA256
+            from .crypto import decrypt_bytes as _dec
+            from .config import NodeConfig as _NC
+            _cfg = _NC.load(config_path)
+            S_bytes = base64.b64decode(S_b64 + "==")
+            K = _HKDF(_SHA256(), 32, None, b"contacc-tang-unlock").derive(S_bytes)
+            passphrase = _dec(base64.b64decode(_cfg.tang_E + "=="), K).decode()
+            app.state.do_initialize(passphrase)
+            log.info("Node unlocked via Tang (network-bound unlock)")
+            return {"status": "ok"}
+        except Exception as e:
+            log.error("Tang delivery failed: %s", e)
+            return JSONResponse({"detail": "Tang delivery failed"}, status_code=500)
+
+    @app.on_event("startup")
+    async def _tang_autounlock():
+        """Attempt Tang-based auto-unlock if configured and not yet initialized."""
+        if app.state.initialized or not config_path.exists():
+            return
+        try:
+            from .config import NodeConfig as _NC
+            _cfg = _NC.load(config_path)
+        except Exception:
+            return
+        if not _cfg.tang_enabled or not _cfg.tang_C or not _cfg.tang_E:
+            return
+        registry_url = (_cfg.tang_url or _cfg.identity_proxy_url or "").rstrip("/")
+        node_address = (os.environ.get("CONTACC_NODE_ADDRESS") or _cfg.node_address or "").rstrip("/")
+        if not registry_url or not node_address:
+            return
+        import secrets as _sec
+        nonce = _sec.token_urlsafe(32)
+        app.state.tang_nonce = nonce
+        app.state.tang_nonce_expires = time.time() + 30
+        try:
+            import httpx as _hx
+            async with _hx.AsyncClient() as hc:
+                r = await hc.post(f"{registry_url}/tang/exchange", json={
+                    "node_id": _cfg.user_id,
+                    "C": _cfg.tang_C,
+                    "nonce": nonce,
+                    "callback_url": f"{node_address}/tang/deliver",
+                }, timeout=15)
+            if not r.is_success:
+                log.warning("Tang exchange failed: %s", r.status_code)
+        except Exception as e:
+            log.warning("Tang auto-unlock error: %s", e)
+            app.state.tang_nonce = None
+
     @app.middleware("http")
     async def init_guard(request: Request, call_next):
         path = request.url.path
-        is_setup_path = path.startswith("/setup")
+        is_setup_path = path.startswith("/setup") or path == "/tang/deliver"
         is_public_path = path == "/profile/photo" or path.startswith("/node")
         if not app.state.initialized and not is_setup_path:
             state = "locked" if config_path.exists() else "uninitialized"

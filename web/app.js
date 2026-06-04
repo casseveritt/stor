@@ -1970,7 +1970,7 @@ async function doSetupNew() {
     const r = await fetch("/setup/new", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({passphrase: pass, confirm_passphrase: confirm, owner_identity: "google:" + email, setup_token: _setupToken, handle}),
+      body: JSON.stringify({passphrase: pass, confirm_passphrase: confirm, owner_identity: "google:" + email, setup_token: _setupToken, handle, tang_enabled: document.getElementById("setup-tang").checked}),
     });
     const d = await r.json();
     if (r.status === 403) { _badSetupToken(d.detail); return; }

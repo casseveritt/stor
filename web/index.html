@@ -31,6 +31,11 @@
           <div style="font-size:0.78rem;color:#555;margin-top:-0.3rem;padding-left:0.1rem">Not required to be unique. Just use your first name or a nickname.</div>
           <input type="password" id="setup-passphrase" placeholder="Choose a passphrase">
           <input type="password" id="setup-passphrase-confirm" placeholder="Confirm passphrase">
+          <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:#aaa;cursor:pointer">
+            <input type="checkbox" id="setup-tang" checked>
+            Allow registry to unlock this node automatically
+          </label>
+          <div style="font-size:0.75rem;color:#555;margin-top:-0.25rem">The registry can unlock your node on startup without requiring you to enter the passphrase manually.</div>
           <button class="btn btn-primary" onclick="doSetupNew()">Create Identity</button>
           <div class="setup-error" id="setup-new-error"></div>
         </div>
@@ -345,6 +350,6 @@
   </div>
 </div>
 
-  <script src="/app.js?v=6111356"></script>
+  <script src="/app.js?v=dbca8eb"></script>
 </body>
 </html>

@@ -85,6 +85,7 @@ class NewBody(BaseModel):
     owner_identity: str
     setup_token: str
     handle: str
+    tang_enabled: bool = True
 
 
 @router.post("/new")
@@ -107,7 +108,7 @@ def setup_new(body: NewBody, request: Request):
     identity_proxy_url = os.environ.get("CONTACC_IDENTITY_PROXY_URL", "https://starkville.hopto.org:8421")
     registry_url = os.environ.get("CONTACC_REGISTRY_URL", identity_proxy_url)
 
-    key_material = _create_node_config(config_path, node_address, identity_proxy_url, body.owner_identity, body.passphrase, body.handle)
+    key_material = _create_node_config(config_path, node_address, identity_proxy_url, body.owner_identity, body.passphrase, body.handle, tang_enabled=body.tang_enabled)
 
     try:
         app.state.do_initialize(body.passphrase)
@@ -299,6 +300,7 @@ def _create_node_config(
     owner_identity: str,
     passphrase: str,
     handle: str,
+    tang_enabled: bool = True,
 ) -> dict:
     """Generate keys, initialize DB, and write node_config.json."""
     import os as _os
@@ -358,7 +360,50 @@ def _create_node_config(
         "identity_public_key": base64.b64encode(identity_pubkey_bytes).decode(),
         "identity_delegation": json.dumps(delegation_cert),
         # identity private key is NOT stored — returned once to caller for safekeeping
+        "tang_enabled": tang_enabled,
     }
+
+    # Tang network-bound unlock (opt-in, default True)
+    tang_C = tang_E = tang_url_stored = None
+    if tang_enabled and registry_url:
+        try:
+            import time as _time
+            from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
+            from cryptography.hazmat.primitives.serialization import Encoding as _E2, PublicFormat as _PF2, PrivateFormat as _PrF, NoEncryption as _NE2
+            from cryptography.hazmat.primitives.kdf.hkdf import HKDF as _HKDF
+            from cryptography.hazmat.primitives.hashes import SHA256 as _SHA256
+            # Register with Tang — authenticate with identity key
+            ts = int(_time.time())
+            tang_msg = f"contacc:tang:register:{user_id}:{ts}"
+            tang_sig = base64.b64encode(identity_key.sign(tang_msg.encode())).decode()
+            id_pub_b64 = base64.b64encode(identity_pubkey_bytes).decode()
+            import httpx as _httpx
+            r = _httpx.post(f"{registry_url.rstrip('/')}/tang/register", json={
+                "node_id": user_id, "identity_public_key": id_pub_b64,
+                "timestamp": ts, "signature": tang_sig,
+            }, timeout=10)
+            if r.is_success:
+                T_pub_b64 = r.json()["T_pub"]
+                T_pub_bytes = base64.b64decode(T_pub_b64 + "==")
+                from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
+                T_pub = X25519PublicKey.from_public_bytes(T_pub_bytes)
+                # McCallum-Relyea: generate ephemeral key, derive S, encrypt passphrase
+                c_priv = X25519PrivateKey.generate()
+                C_pub_bytes = c_priv.public_key().public_bytes(_E2.Raw, _PF2.Raw)
+                S_bytes = c_priv.exchange(T_pub)
+                K = _HKDF(_SHA256(), 32, None, b"contacc-tang-unlock").derive(S_bytes)
+                tang_C = base64.b64encode(C_pub_bytes).decode()
+                tang_E = base64.b64encode(encrypt_bytes(passphrase.encode(), K)).decode()
+                tang_url_stored = registry_url.rstrip("/")
+                # Discard c_priv, S_bytes, K — only C and E are stored
+        except Exception as _te:
+            log.warning("Tang setup failed (node will require manual unlock): %s", _te)
+
+    if tang_C:
+        config["tang_C"] = tang_C
+        config["tang_E"] = tang_E
+        config["tang_url"] = tang_url_stored
+
     config_path.write_text(json.dumps(config, indent=2))
     return {
         "argon2_salt": salt.hex(),

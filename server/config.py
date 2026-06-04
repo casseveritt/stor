@@ -24,6 +24,10 @@ class NodeConfig:
     user_id: str | None = None
     identity_public_key: str | None = None   # base64 raw pubkey bytes — not sensitive
     identity_delegation: str | None = None   # JSON: delegation cert signed by identity key
+    tang_enabled: bool = True                # allow registry to unlock via Tang protocol
+    tang_url: str | None = None              # registry Tang endpoint base URL
+    tang_C: str | None = None               # base64 ephemeral X25519 public key
+    tang_E: str | None = None               # base64 AES-GCM encrypted passphrase
 
     @classmethod
     def load(cls, path: str | Path) -> "NodeConfig":
