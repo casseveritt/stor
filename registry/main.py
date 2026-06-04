@@ -397,7 +397,13 @@ def create_app(db_path: str) -> FastAPI:
     const d = await r.json();
     if (!r.ok) { msg.className = "msg err"; msg.textContent = d.detail || "Failed."; return; }
     msg.textContent = "";
-    keyBox.textContent = d.identity_private_key;
+    keyBox.innerHTML =
+      '<div style="color:#666;font-size:0.7rem;margin-bottom:0.2rem">User ID</div>' +
+      '<div style="margin-bottom:0.6rem">' + d.user_id + '</div>' +
+      '<div style="color:#666;font-size:0.7rem;margin-bottom:0.2rem">Identity Public Key</div>' +
+      '<div style="margin-bottom:0.6rem;word-break:break-all">' + d.identity_public_key + '</div>' +
+      '<div style="color:#666;font-size:0.7rem;margin-bottom:0.2rem">Identity Private Key</div>' +
+      '<div style="word-break:break-all">' + d.identity_private_key + '</div>';
     keyBox.style.display = "block";
     warn.style.display = "block";
   }
@@ -720,7 +726,11 @@ def create_app(db_path: str) -> FastAPI:
             id_priv = _decrypt_escrow(escrow, body.recovery_passphrase)
         except ValueError as e:
             raise HTTPException(403, str(e))
-        return {"identity_private_key": id_priv.hex()}
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _EPK
+        from cryptography.hazmat.primitives.serialization import Encoding as _E, PublicFormat as _PF
+        _key = _EPK.from_private_bytes(id_priv)
+        id_pub_hex = _key.public_key().public_bytes(_E.Raw, _PF.Raw).hex()
+        return {"user_id": user_id, "identity_public_key": id_pub_hex, "identity_private_key": id_priv.hex()}
 
     class ChangePassphraseBody(BaseModel):
         old_recovery_passphrase: str
