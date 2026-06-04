@@ -2022,24 +2022,36 @@ async function doSetupNew() {
     if (d.identity_private_key) {
       showView("identity-key");
       document.getElementById("identity-key-display").value = d.identity_private_key;
-      // Pre-fill recovery passphrase with the node passphrase as a starting point
-      const recoveryEl = document.getElementById("identity-recovery-passphrase");
-      if (!recoveryEl.value) recoveryEl.value = pass;
+      // Pre-fill recovery passphrase fields with the node passphrase
+      document.getElementById("identity-recovery-passphrase").value = pass;
+      document.getElementById("identity-recovery-passphrase-confirm").value = pass;
     } else {
       location.reload();
     }
   } catch { err.textContent = "Network error."; }
 }
 
-async function uploadIdentityEscrow() {
+function showIdentityManualPath() {
+  document.getElementById("identity-escrow-section").hidden = true;
+  document.getElementById("identity-manual-section").hidden = false;
+}
+
+function showIdentityEscrowPath() {
+  document.getElementById("identity-manual-section").hidden = true;
+  document.getElementById("identity-escrow-section").hidden = false;
+}
+
+async function uploadIdentityEscrowAndContinue() {
   const key = document.getElementById("identity-key-display").value.trim();
   const passphrase = document.getElementById("identity-recovery-passphrase").value;
+  const confirm = document.getElementById("identity-recovery-passphrase-confirm").value;
   const status = document.getElementById("identity-escrow-status");
   const btn = document.getElementById("identity-escrow-btn");
-  if (!passphrase) { status.textContent = "Enter a recovery passphrase."; status.style.color = "var(--error)"; return; }
+  if (!passphrase) { status.textContent = "Enter a recovery passphrase."; return; }
+  if (passphrase !== confirm) { status.textContent = "Passphrases don't match."; return; }
   btn.disabled = true;
   status.textContent = "Uploading…";
-  status.style.color = "var(--text-3)";
+  status.style.color = "#888";
   try {
     const r = await fetch("/setup/escrow-identity-key", {
       method: "POST",
@@ -2047,17 +2059,16 @@ async function uploadIdentityEscrow() {
       body: JSON.stringify({identity_private_key: key, recovery_passphrase: passphrase}),
     });
     if (r.ok) {
-      status.textContent = "✓ Saved to registry. Now save the key offline and continue.";
-      status.style.color = "var(--ok-text)";
+      location.reload();
     } else {
       const d = await r.json().catch(() => ({}));
       status.textContent = d.detail || "Upload failed.";
-      status.style.color = "var(--error)";
+      status.style.color = "#e06c6c";
       btn.disabled = false;
     }
   } catch {
     status.textContent = "Network error.";
-    status.style.color = "var(--error)";
+    status.style.color = "#e06c6c";
     btn.disabled = false;
   }
 }
