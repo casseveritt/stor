@@ -286,7 +286,7 @@ def create_app(db_path: str) -> FastAPI:
   </div>
 
   <!-- Find a person -->
-  <div class="card">
+  <div id="lookup-card" class="card" style="display:none">
     <h2>Find a person</h2>
     <div class="field">
       <input id="lookup-handle" type="text" placeholder="handle" autocomplete="off"
@@ -364,11 +364,11 @@ def create_app(db_path: str) -> FastAPI:
   let _authed = false;
 
   async function checkAuth() {
-    // Exchange proxy_token from URL fragment if present
-    const hash = location.hash;
-    if (hash.startsWith("#token=")) {
-      const token = decodeURIComponent(hash.slice(7));
-      history.replaceState(null, "", location.pathname + location.search);
+    // Exchange proxy_token from query param if present (registry proxy pattern)
+    const params = new URLSearchParams(location.search);
+    const token = params.get("proxy_token");
+    if (token) {
+      history.replaceState(null, "", location.pathname);
       const r = await fetch("/auth/session", {
         method: "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({proxy_token: token}),
@@ -387,6 +387,7 @@ def create_app(db_path: str) -> FastAPI:
   function showAuth(authed, identity) {
     _authed = authed;
     document.getElementById("auth-gate").style.display = authed ? "none" : "";
+    document.getElementById("lookup-card").style.display = authed ? "" : "none";
     document.getElementById("recover-card").style.display = authed ? "" : "none";
     document.getElementById("chgpass-card").style.display = authed ? "" : "none";
     document.getElementById("auth-footer").style.display = authed ? "" : "none";
@@ -403,6 +404,7 @@ def create_app(db_path: str) -> FastAPI:
   }
 
   async function doLookup() {
+    if (!_authed) { document.getElementById("lookup-msg").textContent = "Sign in first."; document.getElementById("lookup-msg").className = "msg err"; return; }
     const handle = document.getElementById("lookup-handle").value.trim().toLowerCase();
     const msg = document.getElementById("lookup-msg");
     const card = document.getElementById("profile-card");
