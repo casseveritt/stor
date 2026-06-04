@@ -462,6 +462,7 @@ def _create_node_config(
 
     # Tang network-bound unlock (opt-in, default True)
     tang_C = tang_E = tang_url_stored = None
+    registry_url = identity_proxy_url.rstrip("/") if identity_proxy_url else ""
     if tang_enabled and registry_url:
         try:
             import time as _time
