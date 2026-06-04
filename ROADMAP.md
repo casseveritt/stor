@@ -40,6 +40,28 @@ A stable, portable user identity that survives server moves and key rotation.
 7. Setup UI — prompt for a separate identity recovery passphrase (distinct from node
    passphrase) with explicit warning about consequences of losing both.
 
+**0b. Multiple nodes per identity (1:n)**
+
+A person can have more than one node under a single UUID — e.g. a personal node and a
+professional node. The contact model remains node-centric: a contact is a specific node
+endpoint, chosen deliberately. If you follow both of someone's nodes you have two separate
+contacts with separate feeds, ACLs, and relationship contexts.
+
+The UUID is informational: it tells you "these two contacts belong to the same person."
+The registry exposes all nodes for a UUID so you can choose which to add as contacts.
+
+*What needs building:*
+1. Registry: composite primary key `(user_id, public_key)` so multiple nodes can share a UUID.
+   Registry search by UUID returns the list of nodes for that person.
+2. Setup wizard: "Link to existing identity" path — user provides UUID + identity private key
+   hex; system generates new node key, signs a new delegation cert under the existing UUID,
+   registers as an additional node entry.
+3. Contact picker: when searching by UUID or handle, show all nodes for that person so the
+   user can select which to add.
+
+*Contact model is unchanged:* contacts are node endpoints, not people. The distinction
+between a person's professional and personal nodes is preserved exactly as intended.
+
 **1. Contact description**
 Add a `description TEXT` field to the `contacts` table. Natural language, potentially long.
 User-editable via the UI (contact edit modal); also curated by the agent based on aggregated
