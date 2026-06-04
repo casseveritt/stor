@@ -537,15 +537,16 @@ def create_app(db_path: str) -> FastAPI:
     def lookup(username: str):
         username = username.lower()
         row = con.execute(
-            "SELECT server_url, public_key, ttl, updated_at, display_name, user_id, identity_public_key "
+            "SELECT server_url, web_url, public_key, ttl, updated_at, display_name, user_id, identity_public_key "
             "FROM handles WHERE username = ?", (username,)
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Username not found")
-        server_url, public_key, ttl, updated_at, display_name, user_id, identity_public_key = row
+        server_url, web_url, public_key, ttl, updated_at, display_name, user_id, identity_public_key = row
         result = {
             "username": username,
             "server_url": server_url,
+            "web_url": web_url,
             "public_key": public_key,
             "ttl": ttl,
             "updated_at": updated_at,
