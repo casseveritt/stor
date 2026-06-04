@@ -232,15 +232,92 @@ def create_app(db_path: str) -> FastAPI:
         if not identity:
             raise HTTPException(401, "Not authenticated")
         rows = con.execute(
-            "SELECT username, display_name, server_url, web_url, user_id "
+            "SELECT username, display_name, server_url, web_url, user_id, "
+            "public_key, delegation_sig, identity_public_key "
             "FROM handles WHERE google_identity = ? ORDER BY updated_at DESC",
             (identity,)
         ).fetchall()
-        return {"nodes": [
-            {"handle": r[0], "display_name": r[1], "server_url": r[2],
-             "web_url": r[3], "user_id": r[4]}
-            for r in rows
-        ]}
+        nodes = []
+        for r in rows:
+            node = {"handle": r[0], "display_name": r[1], "server_url": r[2],
+                    "web_url": r[3], "user_id": r[4], "public_key": r[5],
+                    "identity_public_key": r[7]}
+            if r[6]:
+                try:
+                    node["delegation_cert"] = json.loads(r[6])
+                except Exception:
+                    pass
+            nodes.append(node)
+        return {"nodes": nodes}
+
+    def _require_node_ownership(request, user_id: str) -> str:
+        """Verify session owns this node; return google_identity."""
+        identity = _get_session(request)
+        if not identity:
+            raise HTTPException(401, "Not authenticated")
+        row = con.execute(
+            "SELECT google_identity FROM handles WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Node not found")
+        if row[0] != identity:
+            raise HTTPException(403, "Not your node")
+        return identity
+
+    class UpdateNodeBody(BaseModel):
+        handle: str | None = None
+        display_name: str | None = None
+
+    @app.patch("/nodes/{user_id}", status_code=204)
+    def update_node(user_id: str, body: UpdateNodeBody, request: Request):
+        _require_node_ownership(request, user_id)
+        updates, params = [], []
+        if body.handle is not None:
+            updates.append("username = ?"); params.append(body.handle.lower())
+        if body.display_name is not None:
+            updates.append("display_name = ?"); params.append(body.display_name)
+        if not updates:
+            raise HTTPException(422, "Nothing to update")
+        params.extend([time.time_ns(), user_id])
+        con.execute(f"UPDATE handles SET {', '.join(updates)}, updated_at = ? WHERE user_id = ?", params)
+        con.commit()
+
+    @app.delete("/nodes/{user_id}", status_code=204)
+    def remove_node(user_id: str, request: Request):
+        _require_node_ownership(request, user_id)
+        con.execute("DELETE FROM handles WHERE user_id = ?", (user_id,))
+        con.commit()
+
+    class RedelegateBody(BaseModel):
+        identity_private_key: str  # hex
+
+    @app.post("/nodes/{user_id}/redelegate", status_code=204)
+    def redelegate_node(user_id: str, body: RedelegateBody, request: Request):
+        _require_node_ownership(request, user_id)
+        row = con.execute(
+            "SELECT public_key, identity_public_key FROM handles WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Node not found")
+        node_pub_b64, stored_id_pub = row
+        # Verify identity key matches
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _EPK
+        from cryptography.hazmat.primitives.serialization import Encoding as _E, PublicFormat as _PF
+        try:
+            id_key = _EPK.from_private_bytes(bytes.fromhex(body.identity_private_key))
+            provided_pub = base64.b64encode(id_key.public_key().public_bytes(_E.Raw, _PF.Raw)).decode()
+            if provided_pub != stored_id_pub:
+                raise HTTPException(403, "Identity key does not match this node's identity")
+        except HTTPException:
+            raise
+        except Exception:
+            raise HTTPException(400, "Invalid identity private key")
+        # Sign new delegation cert
+        from server.identity import make_delegation_cert as _mkdel
+        cert = _mkdel(id_key, user_id, node_pub_b64)
+        con.execute("UPDATE handles SET delegation_sig = ?, updated_at = ? WHERE user_id = ?",
+                    (json.dumps(cert), time.time_ns(), user_id))
+        con.commit()
 
     @app.post("/auth/logout", status_code=204)
     def auth_logout(request: Request):
@@ -402,26 +479,113 @@ def create_app(db_path: str) -> FastAPI:
     if (authed) loadNodes();
   }
 
+  function esc(s) {
+    return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  let _nodes = [];
+
   async function loadNodes() {
     const r = await fetch("/auth/nodes");
     if (!r.ok) return;
     const { nodes } = await r.json();
+    _nodes = nodes;
     document.getElementById("nodes-heading").textContent = nodes.length === 1 ? "Node" : "Nodes";
-    document.getElementById("nodes-list").innerHTML = nodes.map(n => {
+    document.getElementById("nodes-list").innerHTML = nodes.map((n, i) => {
       const name = n.display_name || n.handle;
       const link = n.web_url || n.server_url;
-      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 0;border-bottom:1px solid #2a2a2a">
-        <div>
-          <div style="font-size:0.92rem;color:#e0e0e0">${esc(name)}</div>
-          <div style="font-size:0.75rem;color:#555">@${esc(n.handle)} &nbsp;·&nbsp; ${esc(n.server_url)}</div>
+      const cert = n.delegation_cert || {};
+      const expiry = cert.expires_at ? new Date(cert.expires_at / 1_000_000).toLocaleDateString() : "unknown";
+      const pubShort = n.public_key ? n.public_key.slice(0,16)+"…" : "—";
+      return `<div style="border-bottom:1px solid #2a2a2a;padding:0.5rem 0">
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <div style="font-size:0.92rem;color:#e0e0e0">${esc(name)}</div>
+            <div style="font-size:0.75rem;color:#555">@${esc(n.handle)} &nbsp;·&nbsp; ${esc(n.server_url)}</div>
+          </div>
+          <div style="display:flex;gap:0.4rem;align-items:center">
+            ${link ? `<a href="${esc(link)}" target="_blank" class="btn btn-muted" style="font-size:0.8rem;padding:0.3rem 0.7rem;text-decoration:none">Open ↗</a>` : ''}
+            <button class="btn btn-muted" style="font-size:0.8rem;padding:0.3rem 0.7rem" onclick="toggleNode(${i})">Info ▾</button>
+          </div>
         </div>
-        ${link ? `<a href="${esc(link)}" target="_blank" class="btn btn-muted" style="font-size:0.8rem;padding:0.3rem 0.7rem;text-decoration:none">Open ↗</a>` : ''}
+        <div id="node-info-${i}" style="display:none;margin-top:0.75rem;display:none">
+          <div style="font-size:0.78rem;color:#555;margin-bottom:0.6rem">
+            <strong style="color:#888">User ID:</strong> ${esc(n.user_id)}<br>
+            <strong style="color:#888">Node key:</strong> ${esc(pubShort)}<br>
+            <strong style="color:#888">Delegation expires:</strong> ${esc(expiry)}
+          </div>
+          <div style="display:flex;flex-direction:column;gap:0.5rem">
+            <details style="background:#111;border-radius:4px;padding:0.5rem">
+              <summary style="cursor:pointer;font-size:0.85rem;color:#aaa">Update handle / display name</summary>
+              <div style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem">
+                <input type="text" id="node-handle-${i}" placeholder="Handle" value="${esc(n.handle)}" style="font-size:0.85rem">
+                <input type="text" id="node-name-${i}" placeholder="Display name" value="${esc(n.display_name||'')}" style="font-size:0.85rem">
+                <button class="btn btn-primary" style="font-size:0.82rem" onclick="updateNode(${i})">Save</button>
+                <div id="node-update-msg-${i}" class="msg"></div>
+              </div>
+            </details>
+            <details style="background:#111;border-radius:4px;padding:0.5rem">
+              <summary style="cursor:pointer;font-size:0.85rem;color:#aaa">Re-delegate (renew cert)</summary>
+              <div style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem">
+                <input type="password" id="node-idkey-${i}" placeholder="Identity private key (hex)" style="font-size:0.82rem;font-family:monospace">
+                <button class="btn btn-primary" style="font-size:0.82rem" onclick="redelegateNode(${i})">Sign new delegation</button>
+                <div id="node-redeleg-msg-${i}" class="msg"></div>
+              </div>
+            </details>
+            <details style="background:#111;border-radius:4px;padding:0.5rem">
+              <summary style="cursor:pointer;font-size:0.85rem;color:#e06c6c">Remove from registry</summary>
+              <div style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem">
+                <p style="font-size:0.82rem;color:#888">This only removes the registry entry — the node continues running.</p>
+                <button class="btn" style="background:#3a1a1a;color:#e06c6c;font-size:0.82rem" onclick="removeNode(${i})">Remove</button>
+                <div id="node-remove-msg-${i}" class="msg"></div>
+              </div>
+            </details>
+          </div>
+        </div>
       </div>`;
     }).join('') || '<div style="color:#555;font-size:0.85rem">No nodes found for your account.</div>';
   }
 
-  function esc(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  function toggleNode(i) {
+    const el = document.getElementById("node-info-"+i);
+    el.style.display = el.style.display === "none" ? "block" : "none";
+  }
+
+  async function updateNode(i) {
+    const n = _nodes[i];
+    const handle = document.getElementById("node-handle-"+i).value.trim().toLowerCase();
+    const displayName = document.getElementById("node-name-"+i).value.trim();
+    const msg = document.getElementById("node-update-msg-"+i);
+    msg.textContent = "Saving…"; msg.className = "msg";
+    const r = await fetch("/nodes/"+n.user_id, {
+      method: "PATCH", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({handle, display_name: displayName}),
+    });
+    if (r.ok) { msg.className = "msg ok"; msg.textContent = "✓ Updated."; await loadNodes(); }
+    else { const d = await r.json().catch(()=>{}); msg.className = "msg err"; msg.textContent = d?.detail||"Failed."; }
+  }
+
+  async function redelegateNode(i) {
+    const n = _nodes[i];
+    const key = document.getElementById("node-idkey-"+i).value.trim();
+    const msg = document.getElementById("node-redeleg-msg-"+i);
+    if (!key) { msg.className="msg err"; msg.textContent="Identity private key required."; return; }
+    msg.textContent = "Signing…"; msg.className = "msg";
+    const r = await fetch("/nodes/"+n.user_id+"/redelegate", {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({identity_private_key: key}),
+    });
+    if (r.ok) { msg.className = "msg ok"; msg.textContent = "✓ New delegation cert signed."; await loadNodes(); }
+    else { const d = await r.json().catch(()=>{}); msg.className = "msg err"; msg.textContent = d?.detail||"Failed."; }
+  }
+
+  async function removeNode(i) {
+    const n = _nodes[i];
+    const msg = document.getElementById("node-remove-msg-"+i);
+    if (!confirm("Remove @"+n.handle+" from the registry?")) return;
+    const r = await fetch("/nodes/"+n.user_id, {method: "DELETE"});
+    if (r.ok) { msg.className = "msg ok"; msg.textContent = "✓ Removed."; await loadNodes(); }
+    else { const d = await r.json().catch(()=>{}); msg.className = "msg err"; msg.textContent = d?.detail||"Failed."; }
   }
 
   function signIn() {
