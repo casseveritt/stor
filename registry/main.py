@@ -345,24 +345,29 @@ def create_app(db_path: str) -> FastAPI:
   let _authed = false;
 
   async function checkAuth() {
-    // Exchange proxy_token from query param if present (registry proxy pattern)
-    const params = new URLSearchParams(location.search);
-    const token = params.get("proxy_token");
-    if (token) {
-      history.replaceState(null, "", location.pathname);
-      const r = await fetch("/auth/session", {
-        method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({proxy_token: token}),
-      });
-      if (!r.ok) { showAuth(false); return; }
-      const d = await r.json();
-      showAuth(true, d.identity);
-      return;
+    try {
+      // Exchange proxy_token from query param if present (registry proxy pattern)
+      const params = new URLSearchParams(location.search);
+      const token = params.get("proxy_token");
+      if (token) {
+        history.replaceState(null, "", location.pathname);
+        const r = await fetch("/auth/session", {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({proxy_token: token}),
+        });
+        if (!r.ok) { showAuth(false); return; }
+        const d = await r.json();
+        showAuth(true, d.identity);
+        return;
+      }
+      // Check existing session
+      const r = await fetch("/auth/me");
+      if (r.ok) { const d = await r.json(); showAuth(true, d.identity); }
+      else showAuth(false);
+    } catch(e) {
+      console.error("checkAuth failed:", e);
+      showAuth(false);
     }
-    // Check existing session
-    const r = await fetch("/auth/me");
-    if (r.ok) { const d = await r.json(); showAuth(true, d.identity); }
-    else showAuth(false);
   }
 
   function showAuth(authed, identity) {
