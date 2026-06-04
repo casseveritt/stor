@@ -6,36 +6,69 @@
 #   web  internal:  16443+N
 
 {$CONTACC_DOMAIN}:8443 {
+    handle /tang/deliver {
+        reverse_proxy node-0-me:28443
+    }
     reverse_proxy node-0-them:18443
 }
 {$CONTACC_DOMAIN}:8444 {
+    handle /tang/deliver {
+        reverse_proxy node-1-me:28444
+    }
     reverse_proxy node-1-them:18444
 }
 {$CONTACC_DOMAIN}:8445 {
+    handle /tang/deliver {
+        reverse_proxy node-2-me:28445
+    }
     reverse_proxy node-2-them:18445
 }
 {$CONTACC_DOMAIN}:8446 {
+    handle /tang/deliver {
+        reverse_proxy node-3-me:28446
+    }
     reverse_proxy node-3-them:18446
 }
 {$CONTACC_DOMAIN}:8447 {
+    handle /tang/deliver {
+        reverse_proxy node-4-me:28447
+    }
     reverse_proxy node-4-them:18447
 }
 {$CONTACC_DOMAIN}:8448 {
+    handle /tang/deliver {
+        reverse_proxy node-5-me:28448
+    }
     reverse_proxy node-5-them:18448
 }
 {$CONTACC_DOMAIN}:8449 {
+    handle /tang/deliver {
+        reverse_proxy node-6-me:28449
+    }
     reverse_proxy node-6-them:18449
 }
 {$CONTACC_DOMAIN}:8450 {
+    handle /tang/deliver {
+        reverse_proxy node-7-me:28450
+    }
     reverse_proxy node-7-them:18450
 }
 {$CONTACC_DOMAIN}:8451 {
+    handle /tang/deliver {
+        reverse_proxy node-8-me:28451
+    }
     reverse_proxy node-8-them:18451
 }
 {$CONTACC_DOMAIN}:8452 {
+    handle /tang/deliver {
+        reverse_proxy node-9-me:28452
+    }
     reverse_proxy node-9-them:18452
 }
 {$CONTACC_DOMAIN}:8453 {
+    handle /tang/deliver {
+        reverse_proxy node-10-me:28453
+    }
     reverse_proxy node-10-them:18453
 }
 
