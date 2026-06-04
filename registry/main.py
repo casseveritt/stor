@@ -226,6 +226,22 @@ def create_app(db_path: str) -> FastAPI:
                         samesite="lax", max_age=REG_SESSION_TTL)
         return resp
 
+    @app.get("/auth/nodes")
+    def auth_nodes(request: Request):
+        identity = _get_session(request)
+        if not identity:
+            raise HTTPException(401, "Not authenticated")
+        rows = con.execute(
+            "SELECT username, display_name, server_url, web_url, user_id "
+            "FROM handles WHERE google_identity = ? ORDER BY updated_at DESC",
+            (identity,)
+        ).fetchall()
+        return {"nodes": [
+            {"handle": r[0], "display_name": r[1], "server_url": r[2],
+             "web_url": r[3], "user_id": r[4]}
+            for r in rows
+        ]}
+
     @app.post("/auth/logout", status_code=204)
     def auth_logout(request: Request):
         token = request.cookies.get("reg_session")
@@ -297,6 +313,12 @@ def create_app(db_path: str) -> FastAPI:
   </div>
 
   <!-- Recover identity key — shown when signed in -->
+  <!-- Nodes — shown when signed in -->
+  <div id="nodes-card" class="card" style="display:none">
+    <h2 id="nodes-heading">Node</h2>
+    <div id="nodes-list"></div>
+  </div>
+
   <div id="recover-card" class="card" style="display:none">
     <h2>Recover identity key</h2>
     <p style="font-size:0.82rem;color:#666;margin-bottom:0.75rem">
@@ -372,10 +394,34 @@ def create_app(db_path: str) -> FastAPI:
   function showAuth(authed, identity) {
     _authed = authed;
     document.getElementById("auth-gate").hidden = authed;
+    document.getElementById("nodes-card").style.display = authed ? "" : "none";
     document.getElementById("recover-card").style.display = authed ? "" : "none";
     document.getElementById("chgpass-card").style.display = authed ? "" : "none";
     document.getElementById("auth-footer").style.display = authed ? "" : "none";
     if (authed && identity) document.getElementById("auth-identity").textContent = identity;
+    if (authed) loadNodes();
+  }
+
+  async function loadNodes() {
+    const r = await fetch("/auth/nodes");
+    if (!r.ok) return;
+    const { nodes } = await r.json();
+    document.getElementById("nodes-heading").textContent = nodes.length === 1 ? "Node" : "Nodes";
+    document.getElementById("nodes-list").innerHTML = nodes.map(n => {
+      const name = n.display_name || n.handle;
+      const link = n.web_url || n.server_url;
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:0.5rem 0;border-bottom:1px solid #2a2a2a">
+        <div>
+          <div style="font-size:0.92rem;color:#e0e0e0">${esc(name)}</div>
+          <div style="font-size:0.75rem;color:#555">@${esc(n.handle)} &nbsp;·&nbsp; ${esc(n.server_url)}</div>
+        </div>
+        ${link ? `<a href="${esc(link)}" target="_blank" class="btn btn-muted" style="font-size:0.8rem;padding:0.3rem 0.7rem;text-decoration:none">Open ↗</a>` : ''}
+      </div>`;
+    }).join('') || '<div style="color:#555;font-size:0.85rem">No nodes found for your account.</div>';
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
   function signIn() {
