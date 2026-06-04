@@ -309,10 +309,14 @@ def create_app(db_path: str) -> FastAPI:
     <button class="btn btn-primary" onclick="doRecover()">Retrieve key</button>
     <div id="rec-msg" class="msg"></div>
     <div id="rec-key" class="key-box"></div>
-    <div id="rec-warn" class="warn" style="display:none">
-      ⚠ Save this key immediately. Clear when done.
+    <div id="rec-warn" style="display:none">
+      <p class="warn">⚠ Save this key immediately.</p>
+      <p style="font-size:0.8rem;color:#888;margin-top:0.4rem">
+        For security, close this entire tab once you have saved the key.
+        The browser cannot reliably erase key material from memory — closing the tab is the only safe way to discard it.
+      </p>
     </div>
-    <button id="rec-clear" class="btn btn-muted" style="display:none" onclick="clearRecover()">Clear</button>
+    <button id="rec-clear" class="btn btn-muted" style="display:none" onclick="window.close()">Close tab</button>
   </div>
 
   <!-- Change recovery passphrase — shown when signed in -->
@@ -410,14 +414,6 @@ def create_app(db_path: str) -> FastAPI:
     document.getElementById("rec-clear").style.display = "";
   }
 
-  function clearRecover() {
-    document.getElementById("rec-pass").value = "";
-    document.getElementById("rec-msg").textContent = "";
-    document.getElementById("rec-key").style.display = "none";
-    document.getElementById("rec-key").innerHTML = "";
-    document.getElementById("rec-warn").style.display = "none";
-    document.getElementById("rec-clear").style.display = "none";
-  }
 
   async function doChangePass() {
     const oldPass = document.getElementById("chg-old").value;
