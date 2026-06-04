@@ -310,8 +310,9 @@ def create_app(db_path: str) -> FastAPI:
     <div id="rec-msg" class="msg"></div>
     <div id="rec-key" class="key-box"></div>
     <div id="rec-warn" class="warn" style="display:none">
-      ⚠ Save this key immediately. Close this page when done.
+      ⚠ Save this key immediately. Clear when done.
     </div>
+    <button id="rec-clear" class="btn btn-muted" style="display:none" onclick="clearRecover()">Clear</button>
   </div>
 
   <!-- Change recovery passphrase — shown when signed in -->
@@ -406,6 +407,16 @@ def create_app(db_path: str) -> FastAPI:
       '<div style="word-break:break-all">' + d.identity_private_key + '</div>';
     keyBox.style.display = "block";
     warn.style.display = "block";
+    document.getElementById("rec-clear").style.display = "";
+  }
+
+  function clearRecover() {
+    document.getElementById("rec-pass").value = "";
+    document.getElementById("rec-msg").textContent = "";
+    document.getElementById("rec-key").style.display = "none";
+    document.getElementById("rec-key").innerHTML = "";
+    document.getElementById("rec-warn").style.display = "none";
+    document.getElementById("rec-clear").style.display = "none";
   }
 
   async function doChangePass() {
