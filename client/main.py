@@ -801,6 +801,23 @@ def create_app(config_path: str | Path) -> FastAPI:
             headers={"Content-Disposition": "attachment; filename=contacc-private-key.pem"},
         )
 
+    @api.get("/setup/passphrase-is-default")
+    async def api_passphrase_is_default():
+        async with httpx.AsyncClient() as hc:
+            r = await hc.get(_server + "/setup/passphrase-is-default",
+                             headers=_internal_headers(), timeout=30)
+        return r.json() if r.is_success else {"is_default": False}
+
+    @api.post("/setup/change-identity-passphrase")
+    async def api_change_identity_passphrase(request: Request):
+        payload = await request.json()
+        async with httpx.AsyncClient() as hc:
+            r = await hc.post(_server + "/setup/change-identity-passphrase", json=payload,
+                              headers=_internal_headers(), timeout=30)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", r.text))
+        return r.json()
+
     @api.post("/settings/change-passphrase")
     async def api_change_passphrase(request: Request):
         payload = await request.json()
