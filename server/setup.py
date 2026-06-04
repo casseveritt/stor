@@ -285,7 +285,43 @@ def change_passphrase(body: ChangePassphraseBody, request: Request):
     # Re-bind (or clear) Tang with the new passphrase
     import json as _json2
     config_data2 = _json2.loads(config_path.read_text())
-    if body.tang_enabled and config.tang_C and config.user_id and app.state.private_key:
+    if body.tang_enabled and not config.tang_C and config.user_id and app.state.private_key:
+        # First-time Tang registration for this node
+        try:
+            from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey as _X25519PK2, X25519PublicKey as _X25519Pub2
+            from cryptography.hazmat.primitives.serialization import Encoding as _E4, PublicFormat as _PF4
+            from cryptography.hazmat.primitives.kdf.hkdf import HKDF as _HKDF4
+            from cryptography.hazmat.primitives.hashes import SHA256 as _SHA4
+            import httpx as _hx3, time as _t3
+            registry_url = (config.tang_url or config.identity_proxy_url or "").rstrip("/")
+            if registry_url:
+                ts3 = int(_t3.time())
+                node_pub_b64_reg = base64.b64encode(
+                    app.state.private_key.public_key().public_bytes(_E4.Raw, _PF4.Raw)
+                ).decode()
+                reg_msg = f"contacc:tang:register:{config.user_id}:{ts3}"
+                reg_sig = base64.b64encode(app.state.private_key.sign(reg_msg.encode())).decode()
+                r_reg = _hx3.post(f"{registry_url}/tang/register", json={
+                    "node_id": config.user_id, "identity_public_key": node_pub_b64_reg,
+                    "timestamp": ts3, "signature": reg_sig,
+                }, timeout=10)
+                if r_reg.is_success:
+                    T_pub_bytes = base64.b64decode(r_reg.json()["T_pub"])
+                    c_priv_new = _X25519PK2.generate()
+                    C_pub_bytes_new = c_priv_new.public_key().public_bytes(_E4.Raw, _PF4.Raw)
+                    T_pub_key = _X25519Pub2.from_public_bytes(T_pub_bytes)
+                    S_bytes_new = c_priv_new.exchange(T_pub_key)
+                    K_new2 = _HKDF4(_SHA4(), 32, None, b"contacc-tang-unlock").derive(S_bytes_new)
+                    config_data2["tang_C"] = base64.b64encode(C_pub_bytes_new).decode()
+                    config_data2["tang_E"] = base64.b64encode(
+                        encrypt_bytes(body.new_passphrase.encode(), K_new2)
+                    ).decode()
+                    config_data2["tang_url"] = registry_url
+                    config_data2["tang_enabled"] = True
+                    log.info("Tang registered for existing node during passphrase change")
+        except Exception as _te:
+            log.warning("Could not register Tang during passphrase change: %s", _te)
+    elif body.tang_enabled and config.tang_C and config.user_id and app.state.private_key:
         try:
             from cryptography.hazmat.primitives.serialization import Encoding as _E3, PublicFormat as _PF3
             from cryptography.hazmat.primitives.kdf.hkdf import HKDF as _HKDF3

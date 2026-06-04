@@ -263,20 +263,29 @@ def create_app(db_path: str) -> FastAPI:
 
     class TangRegisterBody(BaseModel):
         node_id: str
-        identity_public_key: str   # base64
+        identity_public_key: str   # base64 (identity key OR node key)
         timestamp: int
-        signature: str             # identity_key signs "contacc:tang:register:{node_id}:{timestamp}"
+        signature: str             # signs "contacc:tang:register:{node_id}:{timestamp}"
 
     @app.post("/tang/register")
     def tang_register(body: TangRegisterBody):
-        """Generate a per-node Tang X25519 key pair. Authenticated by identity key."""
+        """Generate a per-node Tang X25519 key pair. Authenticated by identity key or node key."""
         _check_timestamp(body.timestamp)
         msg = f"contacc:tang:register:{body.node_id}:{body.timestamp}"
+        pub_bytes = base64.b64decode(body.identity_public_key + "==")
         try:
-            id_pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(body.identity_public_key + "=="))
-            id_pub.verify(base64.b64decode(body.signature + "=="), msg.encode())
+            Ed25519PublicKey.from_public_bytes(pub_bytes).verify(
+                base64.b64decode(body.signature + "=="), msg.encode())
         except Exception:
-            raise HTTPException(401, "Invalid identity key signature")
+            # Fall back to checking against the registered node key
+            row = con.execute("SELECT public_key FROM handles WHERE user_id = ?", (body.node_id,)).fetchone()
+            if not row:
+                raise HTTPException(401, "Node not found")
+            try:
+                node_pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(row[0] + "=="))
+                node_pub.verify(base64.b64decode(body.signature + "=="), msg.encode())
+            except Exception:
+                raise HTTPException(401, "Invalid signature")
         from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
         from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat, PrivateFormat, NoEncryption
         t_priv = X25519PrivateKey.generate()
