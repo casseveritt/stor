@@ -79,36 +79,12 @@ def _validate_handle_format(handle: str) -> None:
         raise HTTPException(400, "Handle must start with a letter or _, followed by letters, digits, or _")
 
 
-@router.get("/check-handle")
-def check_handle(handle: str, request: Request):
-    """Return 200 if handle is available, 400 if taken, 502 if registry unreachable."""
-    handle = handle.lower()
-    _validate_handle_format(handle)
-    identity_proxy_url = os.environ.get("CONTACC_IDENTITY_PROXY_URL", "https://starkville.hopto.org:8421")
-    registry_url = os.environ.get("CONTACC_REGISTRY_URL", identity_proxy_url)
-    _check_handle_available(handle, registry_url)
-    return {"available": True, "handle": handle}
-
-
 class NewBody(BaseModel):
     passphrase: str
     confirm_passphrase: str
     owner_identity: str
     setup_token: str
     handle: str
-
-
-def _check_handle_available(handle: str, registry_url: str) -> None:
-    """Raise HTTPException if handle is already registered."""
-    import httpx
-    try:
-        r = httpx.get(f"{registry_url}/lookup/{handle}", timeout=5)
-        if r.status_code == 200:
-            raise HTTPException(400, f"Handle '{handle}' is already taken")
-        if r.status_code != 404:
-            raise HTTPException(502, "Registry returned an unexpected response — try again")
-    except httpx.RequestError as exc:
-        raise HTTPException(502, f"Could not reach registry: {exc}")
 
 
 @router.post("/new")
@@ -130,8 +106,6 @@ def setup_new(body: NewBody, request: Request):
     node_address = app.state.node_address or ""
     identity_proxy_url = os.environ.get("CONTACC_IDENTITY_PROXY_URL", "https://starkville.hopto.org:8421")
     registry_url = os.environ.get("CONTACC_REGISTRY_URL", identity_proxy_url)
-
-    _check_handle_available(body.handle, registry_url)
 
     key_material = _create_node_config(config_path, node_address, identity_proxy_url, body.owner_identity, body.passphrase, body.handle)
 

@@ -1926,8 +1926,6 @@ async function uploadProfilePhoto(input) {
 // ── setup / unlock ─────────────────────────────────────────────────────────
 
 let _setupToken = null;
-let _handleCheckTimer = null;
-let _handleAvailable = false;
 let restoreFile = null;
 
 function acceptSetupToken() {
@@ -1944,38 +1942,6 @@ function showSetupTab(tab) {
   document.getElementById("setup-restore-form").hidden = tab !== "restore";
   document.getElementById("tab-new").classList.toggle("active", tab === "new");
   document.getElementById("tab-restore").classList.toggle("active", tab === "restore");
-}
-
-function checkHandleAvailability() {
-  const input = document.getElementById("setup-handle");
-  input.value = input.value.toLowerCase();
-  const handle = input.value.trim();
-  const status = document.getElementById("setup-handle-status");
-  _handleAvailable = false;
-  clearTimeout(_handleCheckTimer);
-  if (!handle) { status.textContent = ""; return; }
-  if (!/^[a-z_][a-z0-9_]*$/.test(handle)) {
-    status.style.color = "#e06c6c";
-    status.textContent = "Handle must start with a letter or _, followed by letters, digits, or _.";
-    return;
-  }
-  status.style.color = "#888";
-  status.textContent = "Checking…";
-  _handleCheckTimer = setTimeout(async () => {
-    try {
-      const r = await fetch("/setup/check-handle?handle=" + encodeURIComponent(handle));
-      const d = await r.json();
-      if (r.ok) {
-        status.style.color = "#6dbf6d";
-        status.textContent = `✓ '${handle}' is available`;
-        _handleAvailable = true;
-      } else {
-        status.style.color = "#e06c6c";
-        status.textContent = d.detail || "Handle unavailable";
-        _handleAvailable = false;
-      }
-    } catch { status.style.color = "#888"; status.textContent = "Could not check availability"; }
-  }, 400);
 }
 
 function restoreFileSelected(input) {
@@ -1998,7 +1964,7 @@ async function doSetupNew() {
   const err = document.getElementById("setup-new-error");
   err.textContent = "";
   if (!email || !handle || !pass) { err.textContent = "All fields required."; return; }
-  if (!_handleAvailable) { err.textContent = "Please choose an available handle."; return; }
+  if (!/^[a-z_][a-z0-9_]*$/.test(handle)) { err.textContent = "Handle must start with a letter or _, followed by letters, digits, or _."; return; }
   if (pass !== confirm) { err.textContent = "Passphrases do not match."; return; }
   try {
     const r = await fetch("/setup/new", {

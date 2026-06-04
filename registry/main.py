@@ -81,9 +81,11 @@ def _verify_delegation_cert(cert: dict, node_pub_b64: str) -> bool:
 def create_app(db_path: str) -> FastAPI:
     con = sqlite3.connect(db_path, check_same_thread=False)
     con.execute("PRAGMA journal_mode=WAL")
+    # Schema v2: primary key is user_id (UUID); username/handle is non-unique.
     con.execute("""
         CREATE TABLE IF NOT EXISTS handles (
-            username      TEXT PRIMARY KEY,
+            user_id       TEXT PRIMARY KEY,
+            username      TEXT NOT NULL DEFAULT '',
             server_url    TEXT NOT NULL,
             public_key    TEXT NOT NULL,
             ttl           INTEGER NOT NULL DEFAULT 14400,
@@ -93,19 +95,16 @@ def create_app(db_path: str) -> FastAPI:
             web_url       TEXT
         )
     """)
-    # Migrate: drop client_url (was NOT NULL, recreate table to remove it)
+    # Migrate from old schema where username was the PK
     try:
-        con.execute(
-            "INSERT INTO handles (username, server_url, public_key, ttl, registered_at, updated_at)"
-            " VALUES ('__migration_probe__', '', '', 0, 0, 0)"
-        )
-        con.execute("DELETE FROM handles WHERE username = '__migration_probe__'")
-        con.commit()
+        con.execute("SELECT user_id FROM handles LIMIT 1")
     except Exception:
+        # Old schema — rename and recreate with user_id as PK
         con.execute("ALTER TABLE handles RENAME TO _handles_v1")
         con.execute("""
             CREATE TABLE handles (
-                username      TEXT PRIMARY KEY,
+                user_id       TEXT PRIMARY KEY,
+                username      TEXT NOT NULL DEFAULT '',
                 server_url    TEXT NOT NULL,
                 public_key    TEXT NOT NULL,
                 ttl           INTEGER NOT NULL DEFAULT 14400,
@@ -115,10 +114,12 @@ def create_app(db_path: str) -> FastAPI:
                 web_url       TEXT
             )
         """)
+        # Preserve old rows — user_id will be NULL for legacy entries without one
         con.execute("""
-            INSERT INTO handles
-              (username, server_url, public_key, ttl, registered_at, updated_at, display_name)
-            SELECT username, server_url, public_key, ttl, registered_at, updated_at, display_name
+            INSERT OR IGNORE INTO handles
+              (user_id, username, server_url, public_key, ttl, registered_at, updated_at, display_name, web_url)
+            SELECT COALESCE(user_id, username), username, server_url, public_key, ttl,
+                   registered_at, updated_at, display_name, web_url
             FROM _handles_v1
         """)
         con.execute("DROP TABLE _handles_v1")
@@ -587,26 +588,27 @@ def create_app(db_path: str) -> FastAPI:
         msg = f"contacc:register:{username}:{body.server_url}:{body.timestamp}"
         if not _verify_sig(body.public_key, msg, body.signature):
             raise HTTPException(status_code=401, detail="Invalid signature")
-        if con.execute("SELECT 1 FROM handles WHERE username = ?", (username,)).fetchone():
-            raise HTTPException(status_code=409, detail="Username already registered")
-        reg_user_id = reg_identity_public_key = reg_delegation_json = None
+        reg_identity_public_key = reg_delegation_json = None
         if body.delegation_cert:
             cert = body.delegation_cert
             if not _verify_delegation_cert(cert, body.public_key):
                 raise HTTPException(400, "Invalid or expired delegation cert")
-            existing = con.execute("SELECT username FROM handles WHERE user_id = ?", (cert.get("user_id"),)).fetchone()
-            if existing and existing[0] != username:
-                raise HTTPException(409, f"user_id already registered to {existing[0]}")
             reg_user_id = cert.get("user_id")
             reg_identity_public_key = cert.get("identity_public_key")
             reg_delegation_json = json.dumps(cert)
+        else:
+            # Legacy: no delegation cert — use username as fallback user_id
+            reg_user_id = username
+        # Conflict only if same user_id tries to register again
+        if con.execute("SELECT 1 FROM handles WHERE user_id = ?", (reg_user_id,)).fetchone():
+            raise HTTPException(status_code=409, detail="Already registered — use update instead")
         now = time.time_ns()
         con.execute(
             "INSERT INTO handles "
-            "(username, server_url, public_key, ttl, registered_at, updated_at, display_name, web_url, user_id, identity_public_key, delegation_sig) "
+            "(user_id, username, server_url, public_key, ttl, registered_at, updated_at, display_name, web_url, identity_public_key, delegation_sig) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (username, body.server_url, body.public_key, ttl, now, now, body.display_name, body.web_url,
-             reg_user_id, reg_identity_public_key, reg_delegation_json),
+            (reg_user_id, username, body.server_url, body.public_key, ttl, now, now,
+             body.display_name, body.web_url, reg_identity_public_key, reg_delegation_json),
         )
         con.commit()
         return {"username": username, "ttl": ttl}
@@ -624,11 +626,14 @@ def create_app(db_path: str) -> FastAPI:
     def update(username: str, body: UpdateBody):
         username = username.lower()
         _check_timestamp(body.timestamp)
-        row = con.execute(
-            "SELECT public_key FROM handles WHERE username = ?", (username,)
-        ).fetchone()
+        # Look up by user_id from cert if available, else by username (legacy)
+        lookup_user_id = body.delegation_cert.get("user_id") if body.delegation_cert else None
+        if lookup_user_id:
+            row = con.execute("SELECT public_key FROM handles WHERE user_id = ?", (lookup_user_id,)).fetchone()
+        else:
+            row = con.execute("SELECT public_key FROM handles WHERE username = ? ORDER BY updated_at DESC", (username,)).fetchone()
         if not row:
-            raise HTTPException(status_code=404, detail="Username not found")
+            raise HTTPException(status_code=404, detail="Handle not found")
         ttl = _clamp_ttl(body.ttl)
         msg = f"contacc:update:{username}:{body.server_url}:{body.timestamp}"
         if not _verify_sig(row[0], msg, body.signature):
@@ -636,27 +641,21 @@ def create_app(db_path: str) -> FastAPI:
         upd_user_id = upd_identity_public_key = upd_delegation_json = None
         if body.delegation_cert:
             cert = body.delegation_cert
-            if not _verify_delegation_cert(cert, body.server_url and row[0]):
+            if not _verify_delegation_cert(cert, row[0]):
                 raise HTTPException(400, "Invalid or expired delegation cert")
-            existing = con.execute("SELECT username FROM handles WHERE user_id = ?", (cert.get("user_id"),)).fetchone()
-            if existing and existing[0] != username:
-                raise HTTPException(409, f"user_id already registered to {existing[0]}")
             upd_user_id = cert.get("user_id")
             upd_identity_public_key = cert.get("identity_public_key")
-            upd_delegation_sig = body.delegation_sig
-        if upd_user_id:
-            con.execute(
-                "UPDATE handles SET server_url=?, ttl=?, updated_at=?, display_name=?, web_url=?, "
-                "user_id=?, identity_public_key=?, delegation_sig=? WHERE username=?",
-                (body.server_url, ttl, time.time_ns(), body.display_name, body.web_url,
-                 upd_user_id, upd_identity_public_key, upd_delegation_json, username),
-            )
-        else:
-            con.execute(
-                "UPDATE handles SET server_url=?, ttl=?, updated_at=?, display_name=?, web_url=? "
-                "WHERE username=?",
-                (body.server_url, ttl, time.time_ns(), body.display_name, body.web_url, username),
-            )
+        # Always update by user_id (preferred) or username (legacy)
+        where_col = "user_id" if upd_user_id or lookup_user_id else "username"
+        where_val = upd_user_id or lookup_user_id or username
+        upd_delegation_json = json.dumps(body.delegation_cert) if body.delegation_cert else None
+        con.execute(
+            "UPDATE handles SET username=?, server_url=?, ttl=?, updated_at=?, display_name=?, web_url=?, "
+            "identity_public_key=?, delegation_sig=? "
+            f"WHERE {where_col}=?",
+            (username, body.server_url, ttl, time.time_ns(), body.display_name, body.web_url,
+             upd_identity_public_key, upd_delegation_json, where_val),
+        )
         con.commit()
         return {"username": username, "ttl": ttl}
 
