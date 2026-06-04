@@ -26,7 +26,7 @@ import httpx
 import uvicorn
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
@@ -176,6 +176,63 @@ def create_app(db_path: str) -> FastAPI:
 
     app = FastAPI(title="contacc registry")
 
+    # ── registry sessions ─────────────────────────────────────────────────────
+    _reg_sessions: dict[str, tuple[str, float]] = {}  # token → (identity, expires_at)
+    REG_SESSION_TTL = 3600 * 8  # 8 hours
+
+    def _get_session(request) -> str | None:
+        token = request.cookies.get("reg_session")
+        if not token:
+            return None
+        entry = _reg_sessions.get(token)
+        if not entry or time.time() > entry[1]:
+            _reg_sessions.pop(token, None)
+            return None
+        return entry[0]
+
+    from fastapi import Cookie
+    from fastapi.responses import JSONResponse as _JR
+
+    @app.get("/auth/me")
+    def auth_me(request: Request):
+        identity = _get_session(request)
+        if not identity:
+            raise HTTPException(401, "Not authenticated")
+        return {"identity": identity}
+
+    @app.post("/auth/session")
+    def auth_session(body: dict, request: Request):
+        """Exchange a proxy_token for a registry session cookie."""
+        proxy_token = body.get("proxy_token", "")
+        if not proxy_token:
+            raise HTTPException(400, "proxy_token required")
+        # Verify via the proxy's own verify endpoint
+        r = __import__("httpx").get(
+            f"{registry_public_url}/auth/verify",
+            params={"token": proxy_token}, timeout=5
+        )
+        if not r.is_success:
+            raise HTTPException(403, "Invalid or expired token")
+        data = r.json()
+        identity = data.get("identity", "")
+        if not identity:
+            raise HTTPException(403, "No identity in token")
+        session_token = secrets.token_urlsafe(32)
+        _reg_sessions[session_token] = (identity, time.time() + REG_SESSION_TTL)
+        resp = _JR({"identity": identity})
+        resp.set_cookie("reg_session", session_token, httponly=True,
+                        samesite="lax", max_age=REG_SESSION_TTL)
+        return resp
+
+    @app.post("/auth/logout", status_code=204)
+    def auth_logout(request: Request):
+        token = request.cookies.get("reg_session")
+        if token:
+            _reg_sessions.pop(token, None)
+        resp = _JR(None, status_code=204)
+        resp.delete_cookie("reg_session")
+        return resp
+
     _INDEX_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -248,8 +305,17 @@ def create_app(db_path: str) -> FastAPI:
     </div>
   </div>
 
-  <!-- Recover identity key -->
-  <div class="card">
+  <!-- Auth gate — shown when not signed in -->
+  <div id="auth-gate" class="card" style="display:none">
+    <h2>Identity management</h2>
+    <p style="font-size:0.85rem;color:#888;margin-bottom:1rem">
+      Sign in with Google to recover your identity key or change your recovery passphrase.
+    </p>
+    <button class="btn btn-primary" onclick="signIn()">Sign in with Google</button>
+  </div>
+
+  <!-- Recover identity key — shown when signed in -->
+  <div id="recover-card" class="card" style="display:none">
     <h2>Recover identity key</h2>
     <p style="font-size:0.82rem;color:#666;margin-bottom:0.75rem">
       If you've lost access to your node, enter your handle and recovery passphrase
@@ -269,8 +335,8 @@ def create_app(db_path: str) -> FastAPI:
     </div>
   </div>
 
-  <!-- Change recovery passphrase -->
-  <div class="card">
+  <!-- Change recovery passphrase — shown when signed in -->
+  <div id="chgpass-card" class="card" style="display:none">
     <h2>Change recovery passphrase</h2>
     <div class="field">
       <input id="chg-handle" type="text" placeholder="handle" autocomplete="off" autocapitalize="none">
@@ -284,9 +350,56 @@ def create_app(db_path: str) -> FastAPI:
     <button class="btn btn-primary" onclick="doChangePass()">Update</button>
     <div id="chg-msg" class="msg"></div>
   </div>
+
+  <!-- Signed-in footer -->
+  <div id="auth-footer" style="display:none;font-size:0.8rem;color:#555;text-align:center">
+    Signed in as <span id="auth-identity" style="color:#888"></span>
+    &nbsp;·&nbsp;
+    <a href="#" onclick="signOut();return false" style="color:#555">Sign out</a>
+  </div>
 </div>
 <script>
   let _webUrl = null;
+  let _authed = false;
+
+  async function checkAuth() {
+    // Exchange proxy_token from URL fragment if present
+    const hash = location.hash;
+    if (hash.startsWith("#token=")) {
+      const token = decodeURIComponent(hash.slice(7));
+      history.replaceState(null, "", location.pathname + location.search);
+      const r = await fetch("/auth/session", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({proxy_token: token}),
+      });
+      if (!r.ok) { showAuth(false); return; }
+      const d = await r.json();
+      showAuth(true, d.identity);
+      return;
+    }
+    // Check existing session
+    const r = await fetch("/auth/me");
+    if (r.ok) { const d = await r.json(); showAuth(true, d.identity); }
+    else showAuth(false);
+  }
+
+  function showAuth(authed, identity) {
+    _authed = authed;
+    document.getElementById("auth-gate").style.display = authed ? "none" : "";
+    document.getElementById("recover-card").style.display = authed ? "" : "none";
+    document.getElementById("chgpass-card").style.display = authed ? "" : "none";
+    document.getElementById("auth-footer").style.display = authed ? "" : "none";
+    if (authed && identity) document.getElementById("auth-identity").textContent = identity;
+  }
+
+  function signIn() {
+    window.location.href = "/auth/start?return_to=" + encodeURIComponent(location.origin + "/");
+  }
+
+  async function signOut() {
+    await fetch("/auth/logout", {method: "POST"});
+    showAuth(false);
+  }
 
   async function doLookup() {
     const handle = document.getElementById("lookup-handle").value.trim().toLowerCase();
@@ -353,6 +466,7 @@ def create_app(db_path: str) -> FastAPI:
     else { const d = await r.json(); msg.className = "msg err"; msg.textContent = d.detail || "Failed."; }
   }
 
+  checkAuth();
   const h = new URLSearchParams(location.search).get("handle");
   if (h) { document.getElementById("lookup-handle").value = h; doLookup(); }
 </script>
@@ -633,9 +747,11 @@ def create_app(db_path: str) -> FastAPI:
         recovery_passphrase: str
 
     @app.post("/identity/recover")
-    def recover_identity(body: RecoverBody):
+    def recover_identity(body: RecoverBody, request: Request):
         """Decrypt and return the identity private key for a handle.
-        Rate-limit in production — caller needs the recovery passphrase."""
+        Requires registry session (Google auth) + recovery passphrase."""
+        if not _get_session(request):
+            raise HTTPException(401, "Sign in first")
         _, escrow = _escrow_for_handle(body.handle)
         try:
             id_priv = _decrypt_escrow(escrow, body.recovery_passphrase)
@@ -649,8 +765,11 @@ def create_app(db_path: str) -> FastAPI:
         new_recovery_passphrase: str
 
     @app.post("/identity/change-passphrase", status_code=204)
-    def change_identity_passphrase(body: ChangePassphraseBody):
-        """Re-encrypt the identity key escrow under a new passphrase."""
+    def change_identity_passphrase(body: ChangePassphraseBody, request: Request):
+        """Re-encrypt the identity key escrow under a new passphrase.
+        Requires registry session (Google auth) + recovery passphrase."""
+        if not _get_session(request):
+            raise HTTPException(401, "Sign in first")
         user_id, escrow = _escrow_for_handle(body.handle)
         try:
             id_priv = _decrypt_escrow(escrow, body.old_recovery_passphrase)
