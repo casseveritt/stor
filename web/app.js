@@ -598,6 +598,7 @@ function scheduleSearch(val) {
 async function loadFeed() {
   showView("feed");
   renderServerList();
+  checkDefaultPassphrase();
 
   // Render from cache immediately so the page is populated before any network calls.
   if (allPosts.length === 0 && !activeServer && !currentSearch && activeTags.size === 0) {
@@ -1848,6 +1849,49 @@ async function downloadPrivateKey() {
   document.getElementById("privkey-passphrase").value = "";
   status.style.color = "#4caf50"; status.textContent = "Downloaded.";
   setTimeout(() => { status.textContent = ""; }, 3000);
+}
+
+async function checkDefaultPassphrase() {
+  try {
+    const r = await apiFetch("/api/setup/passphrase-is-default");
+    if (r.ok) {
+      const data = await r.json();
+      document.getElementById("default-passphrase-banner").hidden = !data.is_default;
+    }
+  } catch (_) {}
+}
+
+function openDefaultPassphrasePanel() {
+  document.getElementById("dp-new").value = "";
+  document.getElementById("dp-confirm").value = "";
+  document.getElementById("dp-error").textContent = "";
+  document.getElementById("default-passphrase-overlay").hidden = false;
+}
+
+async function doSetDefaultPassphrase() {
+  const newPass = document.getElementById("dp-new").value;
+  const confirm = document.getElementById("dp-confirm").value;
+  const err = document.getElementById("dp-error");
+  if (!newPass) { err.textContent = "Please enter a new passphrase."; return; }
+  if (newPass !== confirm) { err.textContent = "Passphrases don't match."; return; }
+  err.style.color = "#888"; err.textContent = "Setting passphrase…";
+  const r = await apiFetch("/api/settings/change-passphrase", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({current_passphrase: "foobar", new_passphrase: newPass, confirm_new_passphrase: confirm, tang_enabled: document.getElementById("dp-tang").checked}),
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    err.style.color = "#e06c6c"; err.textContent = e.detail || "Failed."; return;
+  }
+  // Also update the recovery passphrase if an escrow exists
+  await apiFetch("/api/setup/change-identity-passphrase", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({old_recovery_passphrase: "foobar", new_recovery_passphrase: newPass}),
+  }).catch(() => {});
+  document.getElementById("default-passphrase-overlay").hidden = true;
+  document.getElementById("default-passphrase-banner").hidden = true;
 }
 
 async function changePassphrase() {

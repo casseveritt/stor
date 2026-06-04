@@ -141,6 +141,7 @@
       </div>
     </nav>
     <div id="main-area">
+      <div id="default-passphrase-banner" hidden onclick="openDefaultPassphrasePanel()" style="cursor:pointer;text-align:center;padding:0.55rem 1rem;background:#7a2020;color:#fff;font-size:0.9rem;font-weight:bold;border-radius:6px;margin-bottom:0.75rem;max-width:680px;margin-left:auto;margin-right:auto;letter-spacing:0.03em">⚠ PLEASE set your passphrase — click here</div>
       <div id="new-posts-banner" hidden onclick="refreshFeed()" style="cursor:pointer;text-align:center;padding:0.4rem;background:#1e2d4a;color:#6aa3f5;font-size:0.85rem;border-radius:6px;margin-bottom:0.5rem;max-width:680px;margin-left:auto;margin-right:auto"></div>
       <div id="inline-compose" hidden style="max-width:680px;margin:0 auto 0.75rem;display:flex;gap:0.5rem;align-items:center">
         <textarea id="inline-compose-body" placeholder="Wazzup?" rows="1"
@@ -350,6 +351,24 @@
     <div style="display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1rem;flex-shrink:0">
       <button class="btn btn-muted btn-sm" onclick="document.getElementById('db-check-overlay').hidden=true">Close</button>
       <button class="btn btn-primary btn-sm" id="db-fix-btn" hidden onclick="runDbFix()">Fix selected</button>
+    </div>
+  </div>
+</div>
+
+<div id="default-passphrase-overlay" class="overlay" hidden onclick="maybeClose('default-passphrase-overlay',event)">
+  <div class="modal" style="max-width:420px">
+    <button class="modal-close" onclick="document.getElementById('default-passphrase-overlay').hidden=true">&#x2715;</button>
+    <h3 style="color:#e06c6c;margin-bottom:0.5rem">Set Your Passphrase</h3>
+    <p style="font-size:0.85rem;color:#aaa;margin-bottom:1.25rem">Choose a strong passphrase and save it somewhere safe. You'll need it to make changes to your account.</p>
+    <div class="setup-form" style="gap:0.75rem">
+      <input type="password" id="dp-new" placeholder="New passphrase">
+      <input type="password" id="dp-confirm" placeholder="Confirm new passphrase">
+      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;color:#aaa;cursor:pointer">
+        <input type="checkbox" id="dp-tang" checked>
+        Keep registry unlock enabled
+      </label>
+      <button class="btn btn-primary" onclick="doSetDefaultPassphrase()">Set Passphrase</button>
+      <div class="setup-error" id="dp-error"></div>
     </div>
   </div>
 </div>

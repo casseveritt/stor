@@ -70,6 +70,26 @@ def setup_status(request: Request):
     return {"state": _state(request.app)}
 
 
+@router.get("/passphrase-is-default")
+def passphrase_is_default(request: Request):
+    """Returns true if the node passphrase is still the default 'foobar'."""
+    config_path = request.app.state.config_path
+    try:
+        import json as _j
+        config_data = _j.loads(Path(config_path).read_text())
+        salt = bytes.fromhex(config_data["argon2_salt"])
+        master_key = derive_master_key(
+            "foobar", salt,
+            config_data.get("argon2_time_cost", 3),
+            config_data.get("argon2_memory_cost", 65536),
+            config_data.get("argon2_parallelism", 4),
+        )
+        decrypt_bytes(base64.b64decode(config_data["encrypted_private_key"]), master_key)
+        return {"is_default": True}
+    except Exception:
+        return {"is_default": False}
+
+
 _HANDLE_RE = re.compile(r'^[a-z_][a-z0-9_]*$')
 
 
