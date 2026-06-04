@@ -412,6 +412,12 @@ def _create_node_config(
 
     store_path = config_path.parent
     store_path.mkdir(parents=True, exist_ok=True)
+
+    # Remove any partial state from a previous failed setup attempt
+    import shutil as _shutil
+    db_path = store_path / "db"
+    if db_path.exists():
+        _shutil.rmtree(db_path)
     (store_path / "files").mkdir(exist_ok=True)
 
     salt = _os.urandom(16)
