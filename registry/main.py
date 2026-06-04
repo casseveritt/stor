@@ -250,6 +250,8 @@ def create_app(db_path: str) -> FastAPI:
     .logo { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.5rem; }
     .logo span { font-size: 1.8rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; }
     .logo small { font-size: 0.8rem; color: #555; margin-left: 0.25rem; align-self: flex-end; margin-bottom: 0.2rem; }
+    .auth-gate-box { display: flex; flex-direction: column; align-items: center; gap: 2rem; text-align: center; padding: 3rem 1rem; }
+    [hidden] { display: none !important; }
     .card { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px; padding: 1.25rem; }
     .card h2 { font-size: 0.95rem; font-weight: 500; color: #aaa; margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.06em; }
     .field { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 0.75rem; }
@@ -289,7 +291,7 @@ def create_app(db_path: str) -> FastAPI:
   </div>
 
   <!-- Auth gate — shown when not signed in -->
-  <div id="auth-gate" style="display:none;text-align:center;padding:3rem 1rem;display:flex;flex-direction:column;align-items:center;gap:2rem">
+  <div id="auth-gate" class="auth-gate-box" hidden>
     <p style="color:#888;font-size:1rem">Please sign in to continue.</p>
     <button class="btn btn-primary" onclick="signIn()">Sign in with Google</button>
   </div>
@@ -365,7 +367,7 @@ def create_app(db_path: str) -> FastAPI:
 
   function showAuth(authed, identity) {
     _authed = authed;
-    document.getElementById("auth-gate").style.display = authed ? "none" : "";
+    document.getElementById("auth-gate").hidden = authed;
     document.getElementById("recover-card").style.display = authed ? "" : "none";
     document.getElementById("chgpass-card").style.display = authed ? "" : "none";
     document.getElementById("auth-footer").style.display = authed ? "" : "none";
