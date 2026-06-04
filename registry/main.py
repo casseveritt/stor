@@ -721,7 +721,7 @@ def create_app(db_path: str) -> FastAPI:
     def recover_identity(body: RecoverBody, request: Request):
         """Decrypt and return the identity private key for the signed-in user.
         Requires registry session (Google auth) + recovery passphrase."""
-        _, escrow = _escrow_for_session(request)
+        user_id, escrow = _escrow_for_session(request)
         try:
             id_priv = _decrypt_escrow(escrow, body.recovery_passphrase)
         except ValueError as e:
