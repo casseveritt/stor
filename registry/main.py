@@ -307,11 +307,8 @@ def create_app(db_path: str) -> FastAPI:
   </div>
 
   <!-- Auth gate — shown when not signed in -->
-  <div id="auth-gate" class="card" style="display:none">
-    <h2>Identity management</h2>
-    <p style="font-size:0.85rem;color:#888;margin-bottom:1rem">
-      Sign in with Google to recover your identity key or change your recovery passphrase.
-    </p>
+  <div id="auth-gate" style="display:none;text-align:center;padding:3rem 1rem;display:flex;flex-direction:column;align-items:center;gap:1.25rem">
+    <p style="color:#888;font-size:1rem">Please sign in to continue.</p>
     <button class="btn btn-primary" onclick="signIn()">Sign in with Google</button>
   </div>
 
