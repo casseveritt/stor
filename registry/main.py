@@ -914,7 +914,7 @@ def create_app(db_path: str) -> FastAPI:
         lookup_user_id = body.delegation_cert.get("user_id") if body.delegation_cert else None
         if lookup_user_id:
             row = con.execute("SELECT public_key FROM handles WHERE user_id = ?", (lookup_user_id,)).fetchone()
-        else:
+        if not lookup_user_id or not row:
             row = con.execute("SELECT public_key FROM handles WHERE username = ? ORDER BY updated_at DESC", (username,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Handle not found")
