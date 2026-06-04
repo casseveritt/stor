@@ -19,6 +19,7 @@ import secrets
 import sqlite3
 import sys
 import time
+NS = 1_000_000_000
 from pathlib import Path
 from urllib.parse import urlencode
 
