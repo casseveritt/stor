@@ -1861,7 +1861,7 @@ async function changePassphrase() {
   const r = await apiFetch("/api/settings/change-passphrase", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({current_passphrase: current, new_passphrase: newPass, confirm_new_passphrase: confirm}),
+    body: JSON.stringify({current_passphrase: current, new_passphrase: newPass, confirm_new_passphrase: confirm, tang_enabled: document.getElementById("cp-tang")?.checked ?? true}),
   });
   if (r.status === 403) { status.style.color = "#e06c6c"; status.textContent = "Wrong current passphrase."; return; }
   if (!r.ok) {

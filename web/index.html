@@ -288,6 +288,10 @@
         <input type="password" id="cp-current" placeholder="Current passphrase">
         <input type="password" id="cp-new" placeholder="New passphrase">
         <input type="password" id="cp-confirm" placeholder="Confirm new passphrase" onkeydown="if(event.key==='Enter')changePassphrase()">
+        <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;color:#aaa;cursor:pointer">
+          <input type="checkbox" id="cp-tang" checked>
+          Keep registry unlock enabled
+        </label>
         <button class="btn btn-muted btn-sm" onclick="changePassphrase()">Change passphrase</button>
         <div id="cp-status" style="font-size:0.8rem;min-height:1em"></div>
       </div>
@@ -350,6 +354,6 @@
   </div>
 </div>
 
-  <script src="/app.js?v=dbca8eb"></script>
+  <script src="/app.js?v=ebc8746"></script>
 </body>
 </html>

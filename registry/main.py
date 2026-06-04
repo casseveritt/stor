@@ -319,6 +319,37 @@ def create_app(db_path: str) -> FastAPI:
             raise HTTPException(502, f"Could not reach node for Tang delivery: {e}")
         return {"status": "delivered"}
 
+    class TangExchangeDirectBody(BaseModel):
+        node_id: str
+        C: str
+        node_public_key: str   # base64 — must match registry's stored public_key
+        timestamp: int
+        signature: str         # node_key signs "contacc:tang:direct:{node_id}:{C}:{timestamp}"
+
+    @app.post("/tang/exchange-direct")
+    def tang_exchange_direct(body: TangExchangeDirectBody):
+        """Return S directly (no callback) for authenticated node operations like passphrase change."""
+        _check_timestamp(body.timestamp)
+        # Verify node key signature
+        msg = f"contacc:tang:direct:{body.node_id}:{body.C}:{body.timestamp}"
+        if not _verify_sig(body.node_public_key, msg, body.signature):
+            raise HTTPException(401, "Invalid node key signature")
+        # Verify the node_public_key matches what's registered
+        row = con.execute("SELECT public_key FROM handles WHERE user_id = ?", (body.node_id,)).fetchone()
+        if not row:
+            raise HTTPException(404, "Node not registered")
+        if row[0] != body.node_public_key:
+            raise HTTPException(403, "Node key mismatch")
+        # Compute S
+        tang_row = con.execute("SELECT t_priv FROM tang_keys WHERE node_id = ?", (body.node_id,)).fetchone()
+        if not tang_row:
+            raise HTTPException(404, "No Tang key for this node")
+        from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
+        t_priv = X25519PrivateKey.from_private_bytes(tang_row[0])
+        C_pub = X25519PublicKey.from_public_bytes(base64.b64decode(body.C + "=="))
+        S_bytes = t_priv.exchange(C_pub)
+        return {"S": base64.b64encode(S_bytes).decode()}
+
     def _require_node_ownership(request, user_id: str) -> str:
         """Verify session owns this node; return google_identity."""
         identity = _get_session(request)

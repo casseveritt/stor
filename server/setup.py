@@ -220,6 +220,7 @@ class ChangePassphraseBody(BaseModel):
     current_passphrase: str
     new_passphrase: str
     confirm_new_passphrase: str
+    tang_enabled: bool = True   # whether to (re-)bind Tang with the new passphrase
 
 
 @router.post("/change-passphrase")
@@ -280,6 +281,46 @@ def change_passphrase(body: ChangePassphraseBody, request: Request):
 
     # Update running state
     app.state.file_key = new_file_key
+
+    # Re-bind (or clear) Tang with the new passphrase
+    import json as _json2
+    config_data2 = _json2.loads(config_path.read_text())
+    if body.tang_enabled and config.tang_C and config.user_id and app.state.private_key:
+        try:
+            from cryptography.hazmat.primitives.serialization import Encoding as _E3, PublicFormat as _PF3
+            from cryptography.hazmat.primitives.kdf.hkdf import HKDF as _HKDF3
+            from cryptography.hazmat.primitives.hashes import SHA256 as _SHA3
+            import httpx as _hx2, time as _t2
+            registry_url = (config.tang_url or config.identity_proxy_url or "").rstrip("/")
+            if registry_url:
+                # Use /tang/exchange-direct: node signs the request, registry returns S inline
+                ts2 = int(_t2.time())
+                node_pub_b64 = base64.b64encode(
+                    app.state.private_key.public_key().public_bytes(_E3.Raw, _PF3.Raw)
+                ).decode()
+                sig_msg = f"contacc:tang:direct:{config.user_id}:{config.tang_C}:{ts2}"
+                sig = base64.b64encode(app.state.private_key.sign(sig_msg.encode())).decode()
+                r = _hx2.post(f"{registry_url}/tang/exchange-direct", json={
+                    "node_id": config.user_id, "C": config.tang_C,
+                    "node_public_key": node_pub_b64,
+                    "timestamp": ts2, "signature": sig,
+                }, timeout=10)
+                if r.is_success:
+                    S_bytes = base64.b64decode(r.json()["S"])
+                    K_new = _HKDF3(_SHA3(), 32, None, b"contacc-tang-unlock").derive(S_bytes)
+                    config_data2["tang_E"] = base64.b64encode(
+                        encrypt_bytes(body.new_passphrase.encode(), K_new)
+                    ).decode()
+                    config_data2["tang_enabled"] = True
+        except Exception as _te:
+            log.warning("Could not re-bind Tang after passphrase change: %s", _te)
+    elif not body.tang_enabled:
+        config_data2.pop("tang_C", None)
+        config_data2.pop("tang_E", None)
+        config_data2.pop("tang_url", None)
+        config_data2["tang_enabled"] = False
+
+    config_path.write_text(_json2.dumps(config_data2, indent=2))
 
     return {
         "status": "ok",
