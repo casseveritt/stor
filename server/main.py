@@ -315,9 +315,15 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     @app.on_event("startup")
     async def _tang_autounlock():
-        """Attempt Tang-based auto-unlock if configured and not yet initialized."""
+        """Schedule Tang-based auto-unlock after server is ready to accept connections."""
         if app.state.initialized or not config_path.exists():
             return
+        import asyncio as _aio
+        _aio.ensure_future(_tang_autounlock_task())
+
+    async def _tang_autounlock_task():
+        import asyncio as _aio
+        await _aio.sleep(2)  # wait for uvicorn to finish binding
         try:
             from .config import NodeConfig as _NC
             _cfg = _NC.load(config_path)
