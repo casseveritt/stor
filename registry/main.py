@@ -288,7 +288,7 @@ def create_app(db_path: str) -> FastAPI:
   </div>
 
   <!-- Auth gate — shown when not signed in -->
-  <div id="auth-gate" style="display:none;text-align:center;padding:3rem 1rem;display:flex;flex-direction:column;align-items:center;gap:1.25rem">
+  <div id="auth-gate" style="display:none;text-align:center;padding:3rem 1rem;display:flex;flex-direction:column;align-items:center;gap:2rem">
     <p style="color:#888;font-size:1rem">Please sign in to continue.</p>
     <button class="btn btn-primary" onclick="signIn()">Sign in with Google</button>
   </div>
