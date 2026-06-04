@@ -387,30 +387,6 @@ def create_app(db_path: str) -> FastAPI:
     await fetch("/auth/logout", {method: "POST"});
     showAuth(false);
   }
-    const handle = document.getElementById("lookup-handle").value.trim().toLowerCase();
-    const msg = document.getElementById("lookup-msg");
-    const card = document.getElementById("profile-card");
-    msg.textContent = ""; card.style.display = "none"; _webUrl = null;
-    if (!handle) return;
-    const r = await fetch("/lookup/" + encodeURIComponent(handle));
-    if (r.status === 404) { msg.textContent = "Handle not found."; return; }
-    if (!r.ok) { msg.textContent = "Registry error."; return; }
-    const d = await r.json();
-    _webUrl = d.web_url || d.server_url || null;
-    const name = d.display_name || ("@" + handle);
-    document.getElementById("profile-name").textContent = name;
-    document.getElementById("profile-handle").textContent = "@" + handle;
-    document.getElementById("profile-uuid").textContent = d.user_id ? "id: " + d.user_id : "";
-    const photo = document.getElementById("profile-photo");
-    const init = document.getElementById("profile-init");
-    if (d.photo_url) {
-      photo.src = d.photo_url; photo.style.display = ""; init.style.display = "none";
-    } else {
-      init.textContent = name.trim()[0].toUpperCase();
-      init.style.display = ""; photo.style.display = "none";
-    }
-    card.style.display = "flex";
-  }
 
   async function doRecover() {
     const handle = document.getElementById("rec-handle").value.trim().toLowerCase();
