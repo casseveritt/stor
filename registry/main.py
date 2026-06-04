@@ -131,7 +131,7 @@ def create_app(db_path: str) -> FastAPI:
         con.execute("ALTER TABLE handles ADD COLUMN web_url TEXT")
         con.commit()
     # Add identity/user_id columns if missing
-    for col in ["user_id TEXT", "identity_public_key TEXT", "delegation_sig TEXT", "encrypted_identity_key TEXT"]:
+    for col in ["user_id TEXT", "identity_public_key TEXT", "delegation_sig TEXT", "encrypted_identity_key TEXT", "google_identity TEXT"]:
         try:
             con.execute(f"ALTER TABLE handles ADD COLUMN {col}")
             con.commit()
@@ -304,9 +304,6 @@ def create_app(db_path: str) -> FastAPI:
       to retrieve your identity private key.
     </p>
     <div class="field">
-      <input id="rec-handle" type="text" placeholder="handle" autocomplete="off" autocapitalize="none">
-    </div>
-    <div class="field">
       <input id="rec-pass" type="password" placeholder="Recovery passphrase">
     </div>
     <button class="btn btn-primary" onclick="doRecover()">Retrieve key</button>
@@ -320,9 +317,6 @@ def create_app(db_path: str) -> FastAPI:
   <!-- Change recovery passphrase — shown when signed in -->
   <div id="chgpass-card" class="card" style="display:none">
     <h2>Change recovery passphrase</h2>
-    <div class="field">
-      <input id="chg-handle" type="text" placeholder="handle" autocomplete="off" autocapitalize="none">
-    </div>
     <div class="field">
       <input id="chg-old" type="password" placeholder="Current recovery passphrase">
     </div>
@@ -389,17 +383,16 @@ def create_app(db_path: str) -> FastAPI:
   }
 
   async function doRecover() {
-    const handle = document.getElementById("rec-handle").value.trim().toLowerCase();
     const pass = document.getElementById("rec-pass").value;
     const msg = document.getElementById("rec-msg");
     const keyBox = document.getElementById("rec-key");
     const warn = document.getElementById("rec-warn");
     msg.textContent = ""; keyBox.style.display = "none"; warn.style.display = "none";
-    if (!handle || !pass) { msg.className = "msg err"; msg.textContent = "Handle and passphrase required."; return; }
+    if (!pass) { msg.className = "msg err"; msg.textContent = "Recovery passphrase required."; return; }
     msg.className = "msg"; msg.textContent = "Decrypting…";
     const r = await fetch("/identity/recover", {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({handle, recovery_passphrase: pass}),
+      body: JSON.stringify({recovery_passphrase: pass}),
     });
     const d = await r.json();
     if (!r.ok) { msg.className = "msg err"; msg.textContent = d.detail || "Failed."; return; }
@@ -410,16 +403,15 @@ def create_app(db_path: str) -> FastAPI:
   }
 
   async function doChangePass() {
-    const handle = document.getElementById("chg-handle").value.trim().toLowerCase();
     const oldPass = document.getElementById("chg-old").value;
     const newPass = document.getElementById("chg-new").value;
     const msg = document.getElementById("chg-msg");
     msg.textContent = "";
-    if (!handle || !oldPass || !newPass) { msg.className = "msg err"; msg.textContent = "All fields required."; return; }
+    if (!oldPass || !newPass) { msg.className = "msg err"; msg.textContent = "Both passphrases required."; return; }
     msg.className = "msg"; msg.textContent = "Updating…";
     const r = await fetch("/identity/change-passphrase", {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({handle, old_recovery_passphrase: oldPass, new_recovery_passphrase: newPass}),
+      body: JSON.stringify({old_recovery_passphrase: oldPass, new_recovery_passphrase: newPass}),
     });
     if (r.ok) { msg.className = "msg ok"; msg.textContent = "✓ Passphrase updated."; }
     else { const d = await r.json(); msg.className = "msg err"; msg.textContent = d.detail || "Failed."; }
@@ -534,6 +526,7 @@ def create_app(db_path: str) -> FastAPI:
         display_name: str | None = None
         web_url: str | None = None
         delegation_cert: dict | None = None  # replaces user_id/identity_public_key/delegation_sig
+        google_identity: str | None = None
 
     @app.post("/register/{username}", status_code=201)
     def register(username: str, body: RegisterBody):
@@ -563,10 +556,10 @@ def create_app(db_path: str) -> FastAPI:
         now = time.time_ns()
         con.execute(
             "INSERT INTO handles "
-            "(user_id, username, server_url, public_key, ttl, registered_at, updated_at, display_name, web_url, identity_public_key, delegation_sig) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "(user_id, username, server_url, public_key, ttl, registered_at, updated_at, display_name, web_url, identity_public_key, delegation_sig, google_identity) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (reg_user_id, username, body.server_url, body.public_key, ttl, now, now,
-             body.display_name, body.web_url, reg_identity_public_key, reg_delegation_json),
+             body.display_name, body.web_url, reg_identity_public_key, reg_delegation_json, body.google_identity),
         )
         con.commit()
         return {"username": username, "ttl": ttl}
@@ -579,6 +572,7 @@ def create_app(db_path: str) -> FastAPI:
         display_name: str | None = None
         web_url: str | None = None
         delegation_cert: dict | None = None  # replaces user_id/identity_public_key/delegation_sig
+        google_identity: str | None = None
 
     @app.put("/update/{username}")
     def update(username: str, body: UpdateBody):
@@ -609,10 +603,10 @@ def create_app(db_path: str) -> FastAPI:
         upd_delegation_json = json.dumps(body.delegation_cert) if body.delegation_cert else None
         con.execute(
             "UPDATE handles SET username=?, server_url=?, ttl=?, updated_at=?, display_name=?, web_url=?, "
-            "identity_public_key=?, delegation_sig=? "
+            "identity_public_key=?, delegation_sig=?, google_identity=COALESCE(?, google_identity) "
             f"WHERE {where_col}=?",
             (username, body.server_url, ttl, time.time_ns(), body.display_name, body.web_url,
-             upd_identity_public_key, upd_delegation_json, where_val),
+             upd_identity_public_key, upd_delegation_json, body.google_identity, where_val),
         )
         con.commit()
         return {"username": username, "ttl": ttl}
@@ -700,16 +694,28 @@ def create_app(db_path: str) -> FastAPI:
             raise ValueError("Wrong recovery passphrase")
 
     class RecoverBody(BaseModel):
-        handle: str
         recovery_passphrase: str
+
+    def _escrow_for_session(request) -> tuple[str, dict]:
+        """Find the escrow for the currently signed-in user via their Google identity."""
+        identity = _get_session(request)
+        if not identity:
+            raise HTTPException(401, "Sign in first")
+        row = con.execute(
+            "SELECT user_id, encrypted_identity_key FROM handles WHERE google_identity = ? "
+            "ORDER BY updated_at DESC LIMIT 1", (identity,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "No registered identity found for your account")
+        if not row[1]:
+            raise HTTPException(404, "No recovery escrow stored for your account")
+        return row[0], json.loads(row[1])
 
     @app.post("/identity/recover")
     def recover_identity(body: RecoverBody, request: Request):
-        """Decrypt and return the identity private key for a handle.
+        """Decrypt and return the identity private key for the signed-in user.
         Requires registry session (Google auth) + recovery passphrase."""
-        if not _get_session(request):
-            raise HTTPException(401, "Sign in first")
-        _, escrow = _escrow_for_handle(body.handle)
+        _, escrow = _escrow_for_session(request)
         try:
             id_priv = _decrypt_escrow(escrow, body.recovery_passphrase)
         except ValueError as e:
@@ -717,7 +723,6 @@ def create_app(db_path: str) -> FastAPI:
         return {"identity_private_key": id_priv.hex()}
 
     class ChangePassphraseBody(BaseModel):
-        handle: str
         old_recovery_passphrase: str
         new_recovery_passphrase: str
 
@@ -725,9 +730,7 @@ def create_app(db_path: str) -> FastAPI:
     def change_identity_passphrase(body: ChangePassphraseBody, request: Request):
         """Re-encrypt the identity key escrow under a new passphrase.
         Requires registry session (Google auth) + recovery passphrase."""
-        if not _get_session(request):
-            raise HTTPException(401, "Sign in first")
-        user_id, escrow = _escrow_for_handle(body.handle)
+        user_id, escrow = _escrow_for_session(request)
         try:
             id_priv = _decrypt_escrow(escrow, body.old_recovery_passphrase)
         except ValueError as e:

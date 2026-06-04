@@ -46,6 +46,7 @@ def _registry_heartbeat(
     display_name: str | None = None,
     web_address: str | None = None,
     delegation_cert: dict | None = None,
+    google_identity: str | None = None,
 ) -> None:
     """Sign and push an update to the registry. Runs in the background; failures are logged and ignored."""
     try:
@@ -61,6 +62,8 @@ def _registry_heartbeat(
             payload["web_url"] = web_address
         if delegation_cert:
             payload["delegation_cert"] = delegation_cert
+        if google_identity:
+            payload["google_identity"] = google_identity
         r = httpx.put(f"{registry_url.rstrip('/')}/update/{handle}", json=payload, timeout=10.0)
         if r.status_code == 404:
             # Not registered yet — register for the first time
@@ -220,9 +223,11 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
                     try:
                         _cfg = NodeConfig.load(cfg_path)
                         _dcert = _j.loads(_cfg.identity_delegation) if _cfg.identity_delegation else None
+                        _gid = _cfg.sso_owner_identity
                     except Exception:
                         _dcert = None
-                    _registry_heartbeat(pk, addr, hdl, reg_url, dn, web_addr, _dcert)
+                        _gid = None
+                    _registry_heartbeat(pk, addr, hdl, reg_url, dn, web_addr, _dcert, _gid)
                 return trigger
 
             def _heartbeat_loop(trigger):
