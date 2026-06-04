@@ -287,27 +287,6 @@ def create_app(db_path: str) -> FastAPI:
     <span>contacc</span><small>registry</small>
   </div>
 
-  <!-- Find a person -->
-  <div id="lookup-card" class="card" style="display:none">
-    <h2>Find a person</h2>
-    <div class="field">
-      <input id="lookup-handle" type="text" placeholder="handle" autocomplete="off"
-             autocapitalize="none" onkeydown="if(event.key==='Enter')doLookup()">
-    </div>
-    <button class="btn btn-primary" onclick="doLookup()">Look up</button>
-    <div id="lookup-msg" class="msg err"></div>
-    <div id="profile-card" class="profile-card">
-      <img id="profile-photo" class="avatar" alt="" style="display:none">
-      <div id="profile-init" class="avatar-init" style="display:none"></div>
-      <div class="profile-info">
-        <div id="profile-name" class="profile-name"></div>
-        <div id="profile-handle" class="profile-handle"></div>
-        <div id="profile-uuid" class="profile-uuid"></div>
-      </div>
-      <button class="btn btn-muted" onclick="gotoProfile()">Open ↗</button>
-    </div>
-  </div>
-
   <!-- Auth gate — shown when not signed in -->
   <div id="auth-gate" style="display:none;text-align:center;padding:3rem 1rem;display:flex;flex-direction:column;align-items:center;gap:1.25rem">
     <p style="color:#888;font-size:1rem">Please sign in to continue.</p>
@@ -386,7 +365,6 @@ def create_app(db_path: str) -> FastAPI:
   function showAuth(authed, identity) {
     _authed = authed;
     document.getElementById("auth-gate").style.display = authed ? "none" : "";
-    document.getElementById("lookup-card").style.display = authed ? "" : "none";
     document.getElementById("recover-card").style.display = authed ? "" : "none";
     document.getElementById("chgpass-card").style.display = authed ? "" : "none";
     document.getElementById("auth-footer").style.display = authed ? "" : "none";
@@ -401,9 +379,6 @@ def create_app(db_path: str) -> FastAPI:
     await fetch("/auth/logout", {method: "POST"});
     showAuth(false);
   }
-
-  async function doLookup() {
-    if (!_authed) { document.getElementById("lookup-msg").textContent = "Sign in first."; document.getElementById("lookup-msg").className = "msg err"; return; }
     const handle = document.getElementById("lookup-handle").value.trim().toLowerCase();
     const msg = document.getElementById("lookup-msg");
     const card = document.getElementById("profile-card");
@@ -428,8 +403,6 @@ def create_app(db_path: str) -> FastAPI:
     }
     card.style.display = "flex";
   }
-
-  function gotoProfile() { if (_webUrl) window.open(_webUrl, "_blank"); }
 
   async function doRecover() {
     const handle = document.getElementById("rec-handle").value.trim().toLowerCase();
@@ -470,7 +443,6 @@ def create_app(db_path: str) -> FastAPI:
 
   checkAuth();
   const h = new URLSearchParams(location.search).get("handle");
-  if (h) { document.getElementById("lookup-handle").value = h; doLookup(); }
 </script>
 </body>
 </html>"""
