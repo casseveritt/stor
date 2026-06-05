@@ -136,37 +136,54 @@ def setup_new(body: NewBody, request: Request):
     except WrongPassphraseError:
         raise HTTPException(500, "Failed to initialize after setup")
 
-    # Fire the heartbeat synchronously so the registry has the handles entry before escrow upload
-    if callable(getattr(app.state, "trigger_heartbeat", None)):
-        try:
-            app.state.trigger_heartbeat()
-        except Exception as _he:
-            log.warning("Initial heartbeat failed: %s", _he)
-
-    # Upload identity key escrow now that the node is registered
+    # Register with the registry directly using fresh key material, then upload escrow.
+    # We do this ourselves rather than waiting for the background heartbeat thread to avoid
+    # a race where the escrow upload fires before the handles entry exists.
     _id_key_hex = key_material.pop("_identity_key_hex", None)
     _reg_url = key_material.pop("_registry_url", "")
     if _id_key_hex and _reg_url:
         try:
-            import os as _os2
+            import os as _os2, time as _time2, httpx as _hx_e, json as _json_e
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _Ed
+            from cryptography.hazmat.primitives.serialization import Encoding as _Enc, PrivateFormat as _PF, PublicFormat as _PuF, NoEncryption as _NE
             from .identity import identity_key_from_hex as _ikfh
-            _ik = _ikfh(_id_key_hex)
+            from .crypto import ARGON2_TIME_COST as _TC, ARGON2_MEMORY_COST as _MC, ARGON2_PARALLELISM as _PAR
+
+            # Reconstruct node private key from encrypted key material
+            _node_priv_bytes = decrypt_bytes(
+                base64.b64decode(key_material["encrypted_private_key"]),
+                derive_master_key(body.passphrase, bytes.fromhex(key_material["argon2_salt"]), _TC, _MC, _PAR)
+            )
+            _node_key = _Ed.from_private_bytes(_node_priv_bytes)
+            _node_pub_b64 = base64.b64encode(_node_key.public_key().public_bytes(_Enc.Raw, _PuF.Raw)).decode()
             _uid = key_material["user_id"]
+            _dcert = _json_e.loads(Path(config_path).read_text()).get("identity_delegation")
+
+            # Register node with registry
+            ts_r = int(_time2.time())
+            reg_msg = f"contacc:register:{body.handle}:{node_address}:{ts_r}"
+            reg_sig = base64.b64encode(_node_key.sign(reg_msg.encode())).decode()
+            web_address = app.state.web_address or ""
+            _hx_e.post(f"{_reg_url.rstrip('/')}/register/{body.handle}", json={
+                "server_url": node_address, "public_key": _node_pub_b64,
+                "ttl": 14400, "timestamp": ts_r, "signature": reg_sig,
+                "display_name": body.display_name or None,
+                "web_url": web_address or None,
+                "delegation_cert": _json_e.loads(_dcert) if _dcert else None,
+            }, timeout=10)
+
+            # Upload escrow now that the handles entry exists
+            _ik = _ikfh(_id_key_hex)
             escrow_salt = _os2.urandom(16)
-            escrow_key = derive_master_key(body.passphrase, escrow_salt)
-            id_priv_bytes = bytes.fromhex(_id_key_hex)
-            enc_id_key = base64.b64encode(encrypt_bytes(id_priv_bytes, escrow_key)).decode()
-            import time as _time2, httpx as _hx_e
+            escrow_key = derive_master_key(body.passphrase, escrow_salt, _TC, _MC, _PAR)
+            enc_id_key = base64.b64encode(encrypt_bytes(bytes.fromhex(_id_key_hex), escrow_key)).decode()
             ts_e = int(_time2.time())
             escrow_sig = base64.b64encode(_ik.sign(f"contacc:escrow:{_uid}:{ts_e}".encode())).decode()
             r_e = _hx_e.put(f"{_reg_url.rstrip('/')}/identity-key/{_uid}", json={
                 "encrypted_identity_key": enc_id_key,
                 "argon2_salt": escrow_salt.hex(),
-                "argon2_time_cost": ARGON2_TIME_COST,
-                "argon2_memory_cost": ARGON2_MEMORY_COST,
-                "argon2_parallelism": ARGON2_PARALLELISM,
-                "signature": escrow_sig,
-                "timestamp": ts_e,
+                "argon2_time_cost": _TC, "argon2_memory_cost": _MC, "argon2_parallelism": _PAR,
+                "signature": escrow_sig, "timestamp": ts_e,
             }, timeout=10)
             if not r_e.is_success:
                 log.warning("Escrow upload failed: %s %s", r_e.status_code, r_e.text)
