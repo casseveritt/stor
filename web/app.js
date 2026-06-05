@@ -1252,18 +1252,27 @@ function _toggleComments(post, cardEl) {
 async function _loadCommentsIntoPanel(post, panel) {
   const params = post._server_url !== CFG.own_server
     ? "?server=" + encodeURIComponent(post._server_url) : "";
-  // Preserve any in-progress comment text before rebuilding
+  // Preserve in-progress comment text, focus, and cursor before rebuilding
   const existingInput = panel.querySelector('.comment-input[data-post-id="' + post.id + '"]');
   const savedDraft = existingInput ? existingInput.value : "";
+  const hadFocus = existingInput && document.activeElement === existingInput;
+  const savedSelStart = existingInput ? existingInput.selectionStart : 0;
+  const savedSelEnd = existingInput ? existingInput.selectionEnd : 0;
   const r = await apiFetch("/api/posts/" + post.id + "/comments" + params);
   if (!panel.isConnected || panel.hidden) return;
   if (!r.ok) { panel.innerHTML = ""; return; }
   const data = await r.json();
   _renderCommentsInto(post, data.comments, panel);
-  // Restore draft if panel was rebuilt while user was typing
-  if (savedDraft) {
+  // Restore draft, focus, and cursor position
+  if (savedDraft || hadFocus) {
     const newInput = panel.querySelector('.comment-input[data-post-id="' + post.id + '"]');
-    if (newInput) newInput.value = savedDraft;
+    if (newInput) {
+      if (savedDraft) newInput.value = savedDraft;
+      if (hadFocus) {
+        newInput.focus();
+        newInput.setSelectionRange(savedSelStart, savedSelEnd);
+      }
+    }
   }
   // update toggle label with live count
   const toggle = panel.previousElementSibling;
