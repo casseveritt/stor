@@ -166,7 +166,10 @@
   .reactors-panel-initial { width: 20px; height: 20px; border-radius: 50%; background: var(--avatar-bg); display: flex; align-items: center; justify-content: center; font-size: 0.62rem; color: var(--avatar-text); flex-shrink: 0; }
   .reactors-panel-name { color: var(--text-1); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .reactors-panel-emojis { font-size: 0.9rem; flex-shrink: 0; }
-  .emoji-picker { display: flex; gap: 0.3rem; background: var(--surface-2); border: 1px solid #3a3a3a; border-radius: 8px; padding: 0.4rem; margin-top: 0.3rem; flex-wrap: wrap; max-width: 260px; }
+  .emoji-picker { display: flex; flex-direction: column; gap: 0.3rem; background: var(--surface-2); border: 1px solid #3a3a3a; border-radius: 8px; padding: 0.5rem; margin-top: 0.3rem; width: 280px; box-shadow: 0 4px 16px rgba(0,0,0,0.5); z-index: 200; position: relative; }
+  .emoji-search { padding: 0.3rem 0.5rem; border-radius: 4px; border: 1px solid #3a3a3a; background: #1a1a1a; color: var(--text-1); font-size: 0.85rem; outline: none; width: 100%; }
+  .emoji-search:focus { border-color: var(--accent); }
+  .emoji-grid { display: flex; flex-wrap: wrap; gap: 0.1rem; max-height: 200px; overflow-y: auto; }
   .emoji-pick-btn { background: none; border: none; font-size: 1.2rem; cursor: pointer; padding: 3px 5px; border-radius: 4px; line-height: 1; }
   .emoji-pick-btn:hover { background: #3a3a3a; }
   #reactor-tooltip { position: fixed; background: var(--surface-3); border: 1px solid var(--border-strong); border-radius: 6px; padding: 0.35rem 0.65rem; font-size: 0.8rem; color: #ddd; z-index: 1000; pointer-events: none; white-space: pre; box-shadow: 0 4px 12px rgba(0,0,0,0.5); max-width: 220px; line-height: 1.5; }

@@ -526,6 +526,7 @@ function selectContactResult(idx) {
     server_url: d.server_url,
     photo_url: d.photo_url || null,
     public_key: d.public_key || null,
+    user_id: d.user_id || null,
   };
   const photoEl = document.getElementById("add-contact-photo");
   const initEl  = document.getElementById("add-contact-initials");
@@ -556,7 +557,7 @@ async function confirmAddContact() {
   const r = await apiFetch("/api/contacts", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({name, url: _pendingContact.server_url, handle: _pendingContact.handle || null, public_key: _pendingContact.public_key || null}),
+    body: JSON.stringify({name, url: _pendingContact.server_url, handle: _pendingContact.handle || null, public_key: _pendingContact.public_key || null, user_id: _pendingContact.user_id || null}),
   });
   if (r.status === 409) { err.textContent = "Already in your contacts."; return; }
   if (!r.ok) { err.textContent = "Failed to add contact."; return; }
@@ -706,6 +707,94 @@ async function loadMore(allowLoginRedirect = false) {
 
 // ── reactions ──────────────────────────────────────────────────────────────
 const REACTION_EMOJI = ['👍', '👎', '❤️', '😄', '😮', '😢', '🎉'];
+
+// Full searchable emoji list: [emoji, name/keywords...]
+// Loaded from unicode-emoji-json at startup; falls back to built-in list
+let ALL_EMOJI = null;
+async function _loadEmojiList() {
+  if (ALL_EMOJI) return;
+  try {
+    const r = await fetch('https://cdn.jsdelivr.net/npm/unicode-emoji-json@0.6.0/data-by-emoji.json');
+    if (r.ok) {
+      const data = await r.json();
+      ALL_EMOJI = Object.entries(data).map(([emoji, d]) => [emoji, ...(d.name || '').toLowerCase().split(/[\s_,]+/), ...(d.keywords || [])]);
+      return;
+    }
+  } catch (_) {}
+  ALL_EMOJI = _BUILTIN_EMOJI;
+}
+const _BUILTIN_EMOJI = [
+  ['👍','thumbs up','like','good','yes','approve'],['👎','thumbs down','dislike','no','bad'],
+  ['❤️','heart','love','red heart'],['🧡','orange heart'],['💛','yellow heart'],
+  ['💚','green heart'],['💙','blue heart'],['💜','purple heart'],['🖤','black heart'],
+  ['🤍','white heart'],['💕','two hearts'],['💞','revolving hearts'],['💗','growing heart'],
+  ['💓','beating heart'],['💔','broken heart'],['😀','grinning'],['😃','grin'],
+  ['😄','smile big eyes'],['😁','beaming'],['😆','laughing'],['😅','sweat smile'],
+  ['🤣','rofl rolling floor laughing'],['😂','joy tears laughing'],['🙂','slightly smiling'],
+  ['🙃','upside down'],['😉','winking'],['😊','smiling blush'],['😇','innocent halo'],
+  ['🥰','smiling hearts'],['😍','heart eyes'],['🤩','star struck'],['😘','kiss'],
+  ['😗','kissing'],['😚','kissing closed eyes'],['😙','kissing smiling'],['😋','yum'],
+  ['😛','tongue'],['😜','winking tongue'],['🤪','zany'],['😝','squinting tongue'],
+  ['🤑','money mouth'],['🤗','hugging'],['🤭','hand over mouth'],['🤫','shushing'],
+  ['🤔','thinking'],['🤐','zipper mouth'],['🤨','raised eyebrow'],['😐','neutral'],
+  ['😑','expressionless'],['😶','no mouth'],['😏','smirking'],['😒','unamused'],
+  ['🙄','eye roll'],['😬','grimacing'],['🤥','lying pinocchio'],['😌','relieved'],
+  ['😔','pensive'],['😪','sleepy'],['🤤','drooling'],['😴','sleeping'],
+  ['😷','mask sick'],['🤒','thermometer sick'],['🤕','bandage hurt'],['🤢','nauseated'],
+  ['🤮','vomiting'],['🤧','sneezing'],['🥵','hot'],['🥶','cold'],['🥴','woozy'],
+  ['😵','dizzy'],['🤯','exploding head'],['🤠','cowboy'],['🥳','party celebrating'],
+  ['😎','sunglasses cool'],['🤓','nerd glasses'],['🧐','monocle'],['😕','confused'],
+  ['😟','worried'],['🙁','slightly frowning'],['😮','open mouth'],['😯','hushed'],
+  ['😲','astonished'],['😳','flushed'],['🥺','pleading'],['😦','frowning open mouth'],
+  ['😧','anguished'],['😨','fearful'],['😰','anxious sweat'],['😥','sad relieved'],
+  ['😢','crying'],['😭','loudly crying'],['😱','screaming fear'],['😖','confounded'],
+  ['😣','persevering'],['😞','disappointed'],['😓','downcast sweat'],['😩','weary'],
+  ['😫','tired'],['🥱','yawning'],['😤','huffing'],['😡','pouting angry'],
+  ['😠','angry'],['🤬','swearing'],['👿','imp angry'],['💀','skull death'],
+  ['☠️','skull crossbones'],['💩','poop'],['🤡','clown'],['👹','ogre'],['👺','goblin'],
+  ['👻','ghost'],['👽','alien'],['👾','space invader'],['🤖','robot'],
+  ['😺','smiling cat'],['😸','grinning cat'],['😹','joy cat'],['😻','heart eyes cat'],
+  ['😼','smirking cat'],['😽','kissing cat'],['🙀','weary cat'],['😿','crying cat'],
+  ['😾','pouting cat'],['👋','wave hello'],['🤚','raised back hand'],['🖐️','hand splayed'],
+  ['✋','raised hand'],['🖖','vulcan'],['👌','ok'],['🤌','pinched fingers'],
+  ['✌️','peace victory'],['🤞','crossed fingers lucky'],['🤟','love you'],
+  ['🤘','horns rock'],['🤙','call me shaka'],['👈','point left'],['👉','point right'],
+  ['👆','point up'],['👇','point down'],['☝️','index up'],['👍','like'],
+  ['👏','clapping applause'],['🙌','hands up'],['🤲','palms up'],['🤝','handshake'],
+  ['🙏','pray thanks'],['✍️','writing'],['💪','muscle strong'],['🦵','leg'],
+  ['🦶','foot'],['👂','ear'],['🦻','ear hearing aid'],['👃','nose'],
+  ['🧠','brain'],['👀','eyes'],['👁️','eye'],['👅','tongue'],['👄','lips'],
+  ['🌸','cherry blossom'],['🌹','rose'],['🌺','hibiscus'],['🌻','sunflower'],
+  ['🌼','blossom'],['🍀','four leaf clover lucky'],['🎄','christmas tree'],
+  ['🌈','rainbow'],['⭐','star'],['🌟','glowing star'],['💫','dizzy star'],
+  ['⚡','lightning bolt'],['🔥','fire hot'],['❄️','snowflake cold'],['🌊','wave water'],
+  ['🎉','party tada'],['🎊','confetti'],['🎈','balloon'],['🎁','gift present'],
+  ['🏆','trophy winner'],['🥇','gold medal first'],['🎯','bullseye target'],
+  ['🎮','video game controller'],['🎲','dice random'],['♟️','chess'],
+  ['🍕','pizza'],['🍔','burger'],['🍟','fries'],['🌮','taco'],['🌯','burrito'],
+  ['🍣','sushi'],['🍜','noodles ramen'],['🍦','ice cream'],['🍰','cake'],['🎂','birthday cake'],
+  ['☕','coffee'],['🍵','tea'],['🧃','juice'],['🍺','beer'],['🥂','champagne toast'],
+  ['🐶','dog'],['🐱','cat'],['🐭','mouse'],['🐹','hamster'],['🐰','rabbit'],
+  ['🦊','fox'],['🐻','bear'],['🐼','panda'],['🐨','koala'],['🐯','tiger'],
+  ['🦁','lion'],['🐮','cow'],['🐷','pig'],['🐸','frog'],['🐵','monkey'],
+  ['🐔','chicken'],['🐧','penguin'],['🐦','bird'],['🦆','duck'],['🦅','eagle'],
+  ['🦉','owl'],['🐺','wolf'],['🐗','boar'],['🐴','horse'],['🦄','unicorn'],
+  ['🐝','bee'],['🦋','butterfly'],['🐌','snail'],['🐛','caterpillar'],['🐜','ant'],
+  ['🦀','crab'],['🦞','lobster'],['🦐','shrimp'],['🦑','squid'],['🐙','octopus'],
+  ['🌍','earth globe'],['🌙','moon'],['☀️','sun'],['🌤️','sun cloud'],
+  ['👑','crown king queen'],['💎','diamond gem'],['🔑','key'],['🔒','lock'],
+  ['🔓','unlock'],['⚙️','gear settings'],['🔧','wrench tool'],['💡','bulb idea'],
+  ['📱','phone mobile'],['💻','laptop computer'],['⌨️','keyboard'],['🖥️','desktop'],
+  ['📷','camera'],['🎵','music note'],['🎶','musical notes'],['🎤','microphone'],
+  ['📚','books'],['📖','open book'],['✏️','pencil'],['📝','memo note'],
+  ['💰','money bag'],['💸','flying money'],['💳','credit card'],['🏠','house home'],
+  ['🚗','car'],['✈️','airplane'],['🚀','rocket'],['🛸','ufo'],
+  ['⏰','alarm clock'],['⌛','hourglass'],['📅','calendar'],['📌','pushpin'],
+  ['✅','check mark done'],['❌','cross no'],['❓','question'],['❗','exclamation'],
+  ['💯','hundred percent'],['🆕','new'],['🆒','cool'],['🔝','top'],
+  ['▶️','play'],['⏸️','pause'],['⏹️','stop'],['🔁','repeat'],['🔀','shuffle'],
+  ['🔔','bell notification'],['🔕','no bell mute'],['🔇','mute'],['🔊','loud speaker'],
+];
 
 let _reactorTooltipBtn = null;
 function _showReactorTooltip(event, btn) {
@@ -892,23 +981,49 @@ function reactionBarHtml(reactions, postId, serverUrl, commentId) {
   return `<div class="reaction-bar" data-post-id="${esc(postId)}" data-server="${esc(serverUrl)}" data-comment-id="${esc(cid)}">${btns}${add}</div>`;
 }
 
-function showEmojiPicker(event, postId, serverUrl, commentId) {
+async function showEmojiPicker(event, postId, serverUrl, commentId) {
+  await _loadEmojiList();
   document.querySelectorAll('.emoji-picker').forEach(p => p.remove());
   const bar = event.target.closest('.reaction-bar');
   if (!bar) return;
   const picker = document.createElement('div');
   picker.className = 'emoji-picker';
-  for (const emoji of REACTION_EMOJI) {
-    const b = document.createElement('button');
-    b.className = 'emoji-pick-btn';
-    b.textContent = emoji;
-    b.onclick = e => { e.stopPropagation(); picker.remove(); toggleReaction(postId, serverUrl, emoji, commentId, null); };
-    picker.appendChild(b);
+
+  // Search input
+  const search = document.createElement('input');
+  search.type = 'text';
+  search.placeholder = 'Search emoji…';
+  search.className = 'emoji-search';
+  search.onclick = e => e.stopPropagation();
+  picker.appendChild(search);
+
+  // Grid of emoji
+  const grid = document.createElement('div');
+  grid.className = 'emoji-grid';
+
+  function renderEmoji(filter) {
+    grid.innerHTML = '';
+    const list = filter
+      ? ALL_EMOJI.filter(([, ...kw]) => kw.some(k => k.includes(filter)) || (kw[0] || '').startsWith(filter))
+      : ALL_EMOJI;
+    for (const [emoji] of list.slice(0, 120)) {
+      const b = document.createElement('button');
+      b.className = 'emoji-pick-btn';
+      b.textContent = emoji;
+      b.onclick = e => { e.stopPropagation(); picker.remove(); toggleReaction(postId, serverUrl, emoji, commentId, null); };
+      grid.appendChild(b);
+    }
   }
+
+  renderEmoji('');
+  search.oninput = () => renderEmoji(search.value.toLowerCase().trim());
+  picker.appendChild(grid);
+
   bar.insertAdjacentElement('afterend', picker);
-  setTimeout(() => document.addEventListener('click', function close() {
-    picker.remove(); document.removeEventListener('click', close);
-  }, {once: true}), 0);
+  setTimeout(() => search.focus(), 0);
+  setTimeout(() => document.addEventListener('click', function close(e) {
+    if (!picker.contains(e.target)) { picker.remove(); document.removeEventListener('click', close); }
+  }), 0);
 }
 
 async function toggleReaction(postId, serverUrl, emoji, commentId, _btn) {
@@ -1252,16 +1367,16 @@ function _toggleComments(post, cardEl) {
 async function _loadCommentsIntoPanel(post, panel) {
   const params = post._server_url !== CFG.own_server
     ? "?server=" + encodeURIComponent(post._server_url) : "";
-  // Preserve in-progress comment text, focus, and cursor before rebuilding
+  const r = await apiFetch("/api/posts/" + post.id + "/comments" + params);
+  if (!panel.isConnected || panel.hidden) return;
+  if (!r.ok) { panel.innerHTML = ""; return; }
+  const data = await r.json();
+  // Read draft state just before rebuilding — captures any typing done during the fetch
   const existingInput = panel.querySelector('.comment-input[data-post-id="' + post.id + '"]');
   const savedDraft = existingInput ? existingInput.value : "";
   const hadFocus = existingInput && document.activeElement === existingInput;
   const savedSelStart = existingInput ? existingInput.selectionStart : 0;
   const savedSelEnd = existingInput ? existingInput.selectionEnd : 0;
-  const r = await apiFetch("/api/posts/" + post.id + "/comments" + params);
-  if (!panel.isConnected || panel.hidden) return;
-  if (!r.ok) { panel.innerHTML = ""; return; }
-  const data = await r.json();
   _renderCommentsInto(post, data.comments, panel);
   // Restore draft, focus, and cursor position
   if (savedDraft || hadFocus) {
@@ -1398,20 +1513,21 @@ function _mentionTag(c) {
 function _expandMentions(text) {
   const tagMap = new Map();
   for (const c of (CFG?.contacts || [])) {
-    if (!c.public_key) continue;
+    const id = c.user_id || c.public_key;
+    if (!id) continue;
     const tag = _contactTag(c);
-    tagMap.set(tag.toLowerCase(), {label: tag, pubkey: c.public_key});
+    tagMap.set(tag.toLowerCase(), {label: tag, id});
   }
   return text.replace(/@(\w+)/g, (full, word) => {
     const entry = tagMap.get(word.toLowerCase());
-    return entry ? `[${entry.pubkey}|${entry.label}]` : full;
+    return entry ? `[${entry.id}|${entry.label}]` : full;
   });
 }
 
 // Collapse [pubkey|disptext] → @tag (reader's current tag for that pubkey). Called when loading for edit.
 function _collapseMentions(text) {
-  return text.replace(/\[([^|\]]+)\|([^\]]+)\]/g, (full, pubkey, disptext) => {
-    const contact = (CFG?.contacts || []).find(c => c.public_key === pubkey);
+  return text.replace(/\[([^|\]]+)\|([^\]]+)\]/g, (full, id, disptext) => {
+    const contact = (CFG?.contacts || []).find(c => c.user_id === id || c.public_key === id);
     return `@${contact ? _contactTag(contact) : disptext}`;
   });
 }
@@ -1422,8 +1538,8 @@ function _renderMentions(text) {
   return text.split(/(\[[^\]]+\])/).map(part => {
     const m = part.match(/^\[([^|\]]+)\|([^\]]+)\]$/);
     if (!m) return esc(part);
-    const pubkey = m[1], disptext = m[2];
-    const contact = (CFG?.contacts || []).find(c => c.public_key === pubkey);
+    const id = m[1], disptext = m[2];
+    const contact = (CFG?.contacts || []).find(c => c.user_id === id || c.public_key === id);
     const prof = contact ? (serverProfiles[contact.url] || {}) : {};
     const tooltip = prof.display_name || (contact ? contact.name : disptext);
     return `<span class="mention-tag" title="${esc(tooltip)}">${esc(disptext)}</span>`;
@@ -1475,8 +1591,9 @@ function _selectMention(c) {
   if (!state) return;
   const ta = document.getElementById(_mentionCtx.taId);
   const label = _contactTag(c);
-  // Replace @query (state.start points to the @) with [pubkey|label] — consuming the @
-  const replacement = c.public_key ? `[${c.public_key}|${label}] ` : `@${label} `;
+  // Replace @query (state.start points to the @) with [id|label] — consuming the @
+  const id = c.user_id || c.public_key;
+  const replacement = id ? `[${id}|${label}] ` : `@${label} `;
   const before = ta.value.substring(0, state.start);
   // Use the known end of "@query" from state rather than ta.selectionStart,
   // which can be wrong if focus shifted momentarily during the click.
