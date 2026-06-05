@@ -53,6 +53,36 @@ let _pendingKeyLookups = new Set();
   });
 })();
 
+// ── emoji hover preview ────────────────────────────────────────────────────
+(function() {
+  let _active = false;
+  const _EMOJI_CLASSES = ['reaction-btn', 'reaction-btn-active', 'emoji-pick-btn'];
+  document.addEventListener('mouseover', e => {
+    const btn = e.target.closest('.' + _EMOJI_CLASSES.join(',.'));
+    if (!btn) return;
+    const emoji = (btn.childNodes[0]?.textContent || btn.textContent || '').trim().split(/\s/)[0];
+    if (!emoji) return;
+    const el = document.getElementById('emoji-preview');
+    el.textContent = emoji;
+    el.hidden = false;
+    _active = true;
+  });
+  document.addEventListener('mouseout', e => {
+    if (!_active) return;
+    const btn = e.target.closest('.' + _EMOJI_CLASSES.join(',.'));
+    if (!btn) return;
+    document.getElementById('emoji-preview').hidden = true;
+    _active = false;
+  });
+  document.addEventListener('mousemove', e => {
+    if (!_active) return;
+    const el = document.getElementById('emoji-preview');
+    const vw = window.innerWidth, vh = window.innerHeight;
+    el.style.left = Math.min(e.clientX + 12, vw - 80) + 'px';
+    el.style.top = Math.max(e.clientY - 64, 4) + 'px';
+  });
+})();
+
 // ── client session token ───────────────────────────────────────────────────
 function getClientToken() { return localStorage.getItem("contacc_client_session"); }
 function setClientToken(t) { localStorage.setItem("contacc_client_session", t); }
