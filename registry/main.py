@@ -1010,7 +1010,7 @@ blockquote p { color: #888; font-style: italic; }
 <div>
 <h2>The registry</h2>
 <p>The <strong>registry</strong> is a shared directory that maps users to node URLs. It's how contacts find each other: search by name, get a URL, add them. The registry also brokers Google sign-in so individual node operators don't need to set up OAuth credentials.</p>
-<p>The registry doesn't store your content — it only knows your handle, your node's URL, and your identity public key. It's a phonebook, not a platform.</p>
+<p>The registry doesn't store your content — it only knows your user ID, handle, full name, node URL, and identity public key. It's a phonebook, not a platform.</p>
 <div class="diagram">  Registry
   ├── cass  →  https://strk.xyzw.us:8443
   ├── cindy →  https://strk.xyzw.us:8445
