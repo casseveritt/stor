@@ -1152,10 +1152,10 @@ def create_app(config_path: str | Path) -> FastAPI:
     @api.get("/dm/threads")
     async def api_dm_threads():
         async with httpx.AsyncClient() as hc:
-            r = await hc.get(_server + "/dm/threads", headers=_internal_headers(), timeout=10)
+            r = await hc.get(_server + "/dm/threads", headers=_headers(config.own_server), timeout=10)
         data = r.json() if r.is_success else {"threads": []}
-        contact_urls = {c.url for c in _config.contacts}
-        contact_node_ids = {c.node_id for c in _config.contacts if c.node_id}
+        contact_urls = {c.url for c in config.contacts}
+        contact_node_ids = {c.node_id for c in config.contacts if c.node_id}
         for t in data.get("threads", []):
             t["is_contact"] = (
                 t.get("peer_url", "") in contact_urls
@@ -1175,7 +1175,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                               json={"peer_node_id": payload.peer_node_id,
                                     "peer_url": payload.peer_url,
                                     "body": payload.body},
-                              headers=_internal_headers(), timeout=15)
+                              headers=_headers(config.own_server), timeout=15)
         if not r.is_success:
             raise HTTPException(status_code=r.status_code, detail=r.text)
         return r.json()
@@ -1185,14 +1185,14 @@ def create_app(config_path: str | Path) -> FastAPI:
         async with httpx.AsyncClient() as hc:
             r = await hc.get(_server + f"/dm/messages/{thread_id}",
                              params={"since": since, "limit": limit},
-                             headers=_internal_headers(), timeout=10)
+                             headers=_headers(config.own_server), timeout=10)
         return r.json() if r.is_success else {"messages": []}
 
     @api.post("/dm/threads/{thread_id}/seen", status_code=204)
     async def api_dm_seen(thread_id: str):
         async with httpx.AsyncClient() as hc:
             await hc.post(_server + f"/dm/threads/{thread_id}/seen",
-                          headers=_internal_headers(), timeout=5)
+                          headers=_headers(config.own_server), timeout=5)
 
     app.include_router(api)
 
