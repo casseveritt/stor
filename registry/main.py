@@ -977,7 +977,7 @@ blockquote p { color: #888; font-style: italic; }
 
 <div>
 <h2>Nodes</h2>
-<p>Every person runs a <strong>node</strong> — a small server, typically on a Raspberry Pi, that stores their data and serves it to authorized contacts. A node is the authoritative source for everything its owner posts. Content is never copied to a central server; it lives on your hardware.</p>
+<p>Every person runs a <strong>node</strong> — a small server, typically a Raspberry Pi or small VPS, that stores their data and serves it to authorized contacts. A node is the authoritative source for everything its owner posts. Content is never copied to a central server; it lives on your hardware.</p>
 <p>Each node has two sides that work together:</p>
 <ul>
   <li><strong>me</strong> — the private side. Owns your identity, stores your posts and assets, enforces your access rules. Only you can write to it. Other people's nodes read from it.</li>
