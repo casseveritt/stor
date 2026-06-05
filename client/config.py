@@ -11,6 +11,7 @@ class ContactEntry:
     handle: str | None = None
     public_key: str | None = None
     node_id: str | None = None  # node deployment identifier
+    description: str | None = None
 
 
 @dataclass

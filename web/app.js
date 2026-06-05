@@ -294,6 +294,7 @@ function renderServerList() {
     const tagLabel = s.tag || s.name.trim().split(/\s+/)[0] || s.handle || '';
     const urlJson = JSON.stringify(s.url).replace(/"/g, '&quot;');
     const tagJson = JSON.stringify(s.tag || '').replace(/"/g, '&quot;');
+    const descJson = JSON.stringify(s.description || '').replace(/"/g, '&quot;');
     return '<div class="contact-row">'
       + '<button class="server-btn' + (activeServer === s.url ? " active" : "") + '" onclick="setActiveServer(' + globalIdx + ')" title="' + esc(tagLabel ? '@' + tagLabel : s.name) + '">'
       + avatarHtml
@@ -301,14 +302,14 @@ function renderServerList() {
       + '<span class="server-dot ' + status + '"></span>'
       + '</button>'
       + '<span style="position:relative;display:inline-flex;align-items:center">'
-      + '<button class="contact-menu-btn" onclick="openContactMenu(event,' + urlJson + ',' + tagJson + ')" title="Contact options">…</button>'
+      + '<button class="contact-menu-btn" onclick="openContactMenu(event,' + urlJson + ',' + tagJson + ',' + descJson + ')" title="Contact options">…</button>'
       + '</span>'
       + '</div>';
   });
   list.innerHTML = allBtn + serverBtns.join("");
 }
 
-function openContactMenu(e, url, tag) {
+function openContactMenu(e, url, tag, description) {
   e.stopPropagation();
   closeAllPostMenus();
   const btn = e.currentTarget;
@@ -318,11 +319,15 @@ function openContactMenu(e, url, tag) {
   const tagBtn = document.createElement('button');
   tagBtn.textContent = 'Set @tag';
   tagBtn.onclick = () => { closeAllPostMenus(); setContactTag(url, tag); };
+  const descBtn = document.createElement('button');
+  descBtn.textContent = 'Edit description';
+  descBtn.onclick = () => { closeAllPostMenus(); editContactDescription(url, description); };
   const removeBtn = document.createElement('button');
   removeBtn.className = 'danger';
   removeBtn.textContent = 'Remove';
   removeBtn.onclick = () => { closeAllPostMenus(); removeContact(url); };
   popup.appendChild(tagBtn);
+  popup.appendChild(descBtn);
   popup.appendChild(removeBtn);
   wrap.appendChild(popup);
   const dismiss = ev => { if (!popup.contains(ev.target) && ev.target !== btn) { closeAllPostMenus(); document.removeEventListener('click', dismiss, true); } };
@@ -341,6 +346,19 @@ async function setContactTag(url, currentTag) {
   const cfg = await (await apiFetch("/api/config")).json();
   _setCFG(cfg);
   renderServerList();
+}
+
+async function editContactDescription(url, currentDescription) {
+  const newDesc = prompt("Description for this contact:", currentDescription || "");
+  if (newDesc === null) return;
+  const r = await apiFetch("/api/contacts", {
+    method: "PATCH",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({url, description: newDesc.trim()}),
+  });
+  if (!r.ok) { alert("Failed to save description."); return; }
+  const cfg = await (await apiFetch("/api/config")).json();
+  _setCFG(cfg);
 }
 
 async function removeContact(url) {

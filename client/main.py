@@ -468,7 +468,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                 {"name": _server_name(url), "url": url, "authenticated": bool(_token(url))}
                 for url in _all_servers()
             ],
-            "contacts": [{"name": c.name, "url": c.url, "handle": c.handle, "public_key": c.public_key, "tag": tags.get(c.url)} for c in config.contacts],
+            "contacts": [{"name": c.name, "url": c.url, "handle": c.handle, "public_key": c.public_key, "tag": tags.get(c.url), "description": c.description} for c in config.contacts],
             "cached_photos": [c.url for c in config.contacts if _has_cached_photo(c.url)],
         }
 
@@ -1005,15 +1005,21 @@ def create_app(config_path: str | Path) -> FastAPI:
                 )
         return {"name": body.name, "url": body.url, "handle": body.handle}
 
-    class ContactTagBody(BaseModel):
+    class ContactPatchBody(BaseModel):
         url: str
-        tag: str
+        tag: str | None = None
+        description: str | None = None
 
     @api.patch("/contacts")
-    async def api_set_contact_tag(body: ContactTagBody):
-        if not any(c.url == body.url for c in config.contacts):
+    async def api_patch_contact(body: ContactPatchBody):
+        contact = next((c for c in config.contacts if c.url == body.url), None)
+        if not contact:
             raise HTTPException(status_code=404, detail="Contact not found")
-        db_set_tag(_client_db, body.url, body.tag or None)
+        if body.tag is not None:
+            db_set_tag(_client_db, body.url, body.tag or None)
+        if body.description is not None:
+            contact.description = body.description or None
+            config.save(config_path)
         return {"ok": True}
 
     # ── dev / debug ───────────────────────────────────────────────────────
