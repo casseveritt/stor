@@ -458,17 +458,28 @@ def create_app(config_path: str | Path) -> FastAPI:
         except Exception:
             pass
         tags = get_all_tags(_client_db)
+        contact_by_url = {c.url: c for c in config.contacts}
+        servers_list = []
+        for url in _all_servers():
+            entry: dict = {"name": _server_name(url), "url": url, "authenticated": bool(_token(url))}
+            c = contact_by_url.get(url)
+            if c:
+                entry["tag"] = tags.get(url)
+                entry["handle"] = c.handle
+                entry["description"] = c.description
+                entry["category"] = c.category
+                entry["poll_weight"] = c.poll_weight
+            servers_list.append(entry)
         return {
             "own_server": config.own_server,
             "own_display_name": own_display_name,
             "own_handle": own_handle,
             "dev": bool(os.environ.get("CONTACC_DEV")),
             "identity_proxy_url": os.environ.get("CONTACC_IDENTITY_PROXY_URL", ""),
-            "servers": [
-                {"name": _server_name(url), "url": url, "authenticated": bool(_token(url))}
-                for url in _all_servers()
-            ],
-            "contacts": [{"name": c.name, "url": c.url, "handle": c.handle, "public_key": c.public_key, "tag": tags.get(c.url), "description": c.description} for c in config.contacts],
+            "servers": servers_list,
+            "contacts": [{"name": c.name, "url": c.url, "handle": c.handle, "public_key": c.public_key,
+                          "tag": tags.get(c.url), "description": c.description,
+                          "category": c.category, "poll_weight": c.poll_weight} for c in config.contacts],
             "cached_photos": [c.url for c in config.contacts if _has_cached_photo(c.url)],
         }
 
@@ -776,6 +787,10 @@ def create_app(config_path: str | Path) -> FastAPI:
         return r.json()
 
     # ── contacts ──────────────────────────────────────────────────────────
+    CATEGORY_WEIGHTS: dict[str, float] = {
+        "family": 1.0, "close_friends": 0.8, "friends": 0.6,
+        "colleagues": 0.5, "acquaintances": 0.3,
+    }
 
     @api.get("/profile")
     async def api_profile():
@@ -1009,18 +1024,34 @@ def create_app(config_path: str | Path) -> FastAPI:
         url: str
         tag: str | None = None
         description: str | None = None
+        category: str | None = None       # predefined key or custom; "" to clear
+        poll_weight: float | None = None  # explicit override; None = derive from category
 
     @api.patch("/contacts")
     async def api_patch_contact(body: ContactPatchBody):
         contact = next((c for c in config.contacts if c.url == body.url), None)
         if not contact:
             raise HTTPException(status_code=404, detail="Contact not found")
+        dirty = False
         if body.tag is not None:
             db_set_tag(_client_db, body.url, body.tag or None)
         if body.description is not None:
             contact.description = body.description or None
+            dirty = True
+        if body.category is not None:
+            cat = body.category or None
+            contact.category = cat
+            if body.poll_weight is not None:
+                contact.poll_weight = body.poll_weight if body.poll_weight > 0 else None
+            else:
+                contact.poll_weight = CATEGORY_WEIGHTS.get(cat, 0.5) if cat else None
+            dirty = True
+        elif body.poll_weight is not None:
+            contact.poll_weight = body.poll_weight if body.poll_weight > 0 else None
+            dirty = True
+        if dirty:
             config.save(config_path)
-        return {"ok": True}
+        return {"ok": True, "poll_weight": contact.poll_weight}
 
     # ── dev / debug ───────────────────────────────────────────────────────
 

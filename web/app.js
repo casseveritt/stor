@@ -292,9 +292,10 @@ function renderServerList() {
       ? `<img src="${esc(prof.photo_url)}" class="post-author-avatar" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span class="post-author-initials" hidden>${sInitial}</span>`
       : `<span class="post-author-initials">${sInitial}</span>`;
     const tagLabel = s.tag || s.name.trim().split(/\s+/)[0] || s.handle || '';
-    const urlJson = JSON.stringify(s.url).replace(/"/g, '&quot;');
-    const tagJson = JSON.stringify(s.tag || '').replace(/"/g, '&quot;');
+    const urlJson  = JSON.stringify(s.url).replace(/"/g, '&quot;');
+    const tagJson  = JSON.stringify(s.tag || '').replace(/"/g, '&quot;');
     const descJson = JSON.stringify(s.description || '').replace(/"/g, '&quot;');
+    const catJson  = JSON.stringify(s.category || '').replace(/"/g, '&quot;');
     return '<div class="contact-row">'
       + '<button class="server-btn' + (activeServer === s.url ? " active" : "") + '" onclick="setActiveServer(' + globalIdx + ')" title="' + esc(tagLabel ? '@' + tagLabel : s.name) + '">'
       + avatarHtml
@@ -302,33 +303,70 @@ function renderServerList() {
       + '<span class="server-dot ' + status + '"></span>'
       + '</button>'
       + '<span style="position:relative;display:inline-flex;align-items:center">'
-      + '<button class="contact-menu-btn" onclick="openContactMenu(event,' + urlJson + ',' + tagJson + ',' + descJson + ')" title="Contact options">…</button>'
+      + '<button class="contact-menu-btn" onclick="openContactMenu(event,' + urlJson + ',' + tagJson + ',' + descJson + ',' + catJson + ')" title="Contact options">…</button>'
       + '</span>'
       + '</div>';
   });
   list.innerHTML = allBtn + serverBtns.join("");
 }
 
-function openContactMenu(e, url, tag, description) {
+const _CONTACT_CATS = [
+  {key:'family',        label:'Family',    weight:1.0},
+  {key:'close_friends', label:'Close',     weight:0.8},
+  {key:'friends',       label:'Friends',   weight:0.6},
+  {key:'colleagues',    label:'Work',      weight:0.5},
+  {key:'acquaintances', label:'Acquaint.', weight:0.3},
+];
+
+function openContactMenu(e, url, tag, description, category) {
   e.stopPropagation();
   closeAllPostMenus();
   const btn = e.currentTarget;
   const wrap = btn.parentElement;
   const popup = document.createElement('div');
   popup.className = 'post-menu-popup';
+
   const tagBtn = document.createElement('button');
   tagBtn.textContent = 'Set @tag';
   tagBtn.onclick = () => { closeAllPostMenus(); setContactTag(url, tag); };
   const descBtn = document.createElement('button');
   descBtn.textContent = 'Edit description';
   descBtn.onclick = () => { closeAllPostMenus(); editContactDescription(url, description); };
+  popup.appendChild(tagBtn);
+  popup.appendChild(descBtn);
+
+  // Category section
+  const catSep = document.createElement('div');
+  catSep.style.cssText = 'border-top:1px solid #2a2a2a;margin:2px 0';
+  popup.appendChild(catSep);
+  const catWrap = document.createElement('div');
+  catWrap.style.cssText = 'padding:0.38rem 0.7rem 0.45rem';
+  const catLbl = document.createElement('div');
+  catLbl.textContent = 'Category';
+  catLbl.style.cssText = 'font-size:0.68rem;color:#666;text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.3rem';
+  catWrap.appendChild(catLbl);
+  const catGrid = document.createElement('div');
+  catGrid.style.cssText = 'display:flex;flex-wrap:wrap;gap:0.2rem';
+  [..._CONTACT_CATS, {key:'', label:'×'}].forEach(({key, label}) => {
+    const active = key ? category === key : !category;
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = `display:inline-block;width:auto;padding:0.16rem 0.38rem;font-size:0.72rem;border-radius:3px;border:1px solid ${active ? '#4285f4' : '#2e2e2e'};background:${active ? '#1a3360' : 'transparent'};color:${active ? '#90c0ff' : '#888'}`;
+    b.onclick = () => { closeAllPostMenus(); setContactCategory(url, key); };
+    catGrid.appendChild(b);
+  });
+  catWrap.appendChild(catGrid);
+  popup.appendChild(catWrap);
+
+  const removeWrap = document.createElement('div');
+  removeWrap.style.cssText = 'border-top:1px solid #2a2a2a;margin:2px 0';
+  popup.appendChild(removeWrap);
   const removeBtn = document.createElement('button');
   removeBtn.className = 'danger';
   removeBtn.textContent = 'Remove';
   removeBtn.onclick = () => { closeAllPostMenus(); removeContact(url); };
-  popup.appendChild(tagBtn);
-  popup.appendChild(descBtn);
   popup.appendChild(removeBtn);
+
   wrap.appendChild(popup);
   const dismiss = ev => { if (!popup.contains(ev.target) && ev.target !== btn) { closeAllPostMenus(); document.removeEventListener('click', dismiss, true); } };
   setTimeout(() => document.addEventListener('click', dismiss, true), 0);
@@ -346,6 +384,21 @@ async function setContactTag(url, currentTag) {
   const cfg = await (await apiFetch("/api/config")).json();
   _setCFG(cfg);
   renderServerList();
+}
+
+async function setContactCategory(url, category) {
+  const r = await apiFetch("/api/contacts", {
+    method: "PATCH",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({url, category}),
+  });
+  if (!r.ok) { alert("Failed to set category."); return; }
+  const d = await r.json();
+  const cfg = await (await apiFetch("/api/config")).json();
+  _setCFG(cfg);
+  renderServerList();
+  // Recompute poll interval with new weight
+  _serverPollIntervals[url] = _computePollInterval(_serverActivity7d[url] || 0, d.poll_weight);
 }
 
 async function editContactDescription(url, currentDescription) {
@@ -437,7 +490,9 @@ async function fetchServerHandles() {
           _rerenderVisibleAuthorNames();
         }
         const activity7d = (d.posts_7d || 0) + (d.comments_7d || 0);
-        _serverPollIntervals[s.url] = _computePollInterval(activity7d);
+        _serverActivity7d[s.url] = activity7d;
+        const contact = (CFG.servers || []).find(c => c.url === s.url);
+        _serverPollIntervals[s.url] = _computePollInterval(activity7d, contact?.poll_weight);
       }
     } catch {}
   }
@@ -1342,6 +1397,7 @@ const BG_CHECK_MS       = 60_000;   // how often the scheduler wakes to check du
 const DEFAULT_POLL_MS   = 30 * 60_000;
 const MIN_POLL_MS       =  5 * 60_000;
 const MAX_POLL_MS       = 60 * 60_000;
+let _serverActivity7d = {};  // url → 7-day activity count from last /node probe
 
 let _detailPollTimer  = null;
 let _bgFetchTimer     = null;
@@ -1350,10 +1406,12 @@ let _serverPollIntervals = {};    // url → ms (computed from node activity)
 const _openPanels = new Map();    // postId → post
 let _newestKnownAt = 0;           // created_at of newest post we've ever seen; survives allPosts = []
 
-function _computePollInterval(activity7d) {
-  if (!activity7d) return MAX_POLL_MS;
-  const perDay = activity7d / 7;
-  return Math.max(MIN_POLL_MS, Math.min(MAX_POLL_MS, Math.round(30 * 60_000 / perDay)));
+function _computePollInterval(activity7d, poll_weight) {
+  const weight = Math.max(0.1, poll_weight ?? 0.5);
+  const base = activity7d
+    ? Math.max(MIN_POLL_MS, Math.min(MAX_POLL_MS, Math.round(30 * 60_000 / (activity7d / 7))))
+    : MAX_POLL_MS;
+  return Math.max(MIN_POLL_MS, Math.min(MAX_POLL_MS, Math.round(base / weight)));
 }
 
 function _startDetailPoll() {
