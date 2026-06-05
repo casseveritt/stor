@@ -927,7 +927,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         url: str
         handle: str | None = None
         public_key: str | None = None
-        user_id: str | None = None
+        node_id: str | None = None  # node deployment identifier
 
     @api.post("/contacts", status_code=201)
     async def api_add_contact(body: ContactBody):
@@ -945,7 +945,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                     pub_key = nr.json().get("public_key") or None
             except Exception:
                 pass
-        config.contacts.append(ContactEntry(name=body.name, url=body.url, handle=body.handle, public_key=pub_key, user_id=body.user_id))
+        config.contacts.append(ContactEntry(name=body.name, url=body.url, handle=body.handle, public_key=pub_key, node_id=body.node_id))
         if pub_key:
             _contact_url_cache[pub_key] = body.url
         config.save(config_path)

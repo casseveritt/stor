@@ -12,17 +12,23 @@ _node_address: str = ""
 _public_key_b64: str = ""
 _watermark_enabled: bool = False
 _registry_handle: str | None = None
-_user_id: str = ""
+_user_id: str = ""       # legacy alias; prefer owner_id/node_id
+_owner_id: str = ""
+_node_id: str = ""
 
 
-def setup(node_address: str, private_key: Ed25519PrivateKey, watermark_enabled: bool, registry_handle: str | None = None, user_id: str = "") -> None:
-    global _node_address, _public_key_b64, _watermark_enabled, _registry_handle, _user_id
+def setup(node_address: str, private_key: Ed25519PrivateKey, watermark_enabled: bool,
+          registry_handle: str | None = None, user_id: str = "",
+          owner_id: str = "", node_id: str = "") -> None:
+    global _node_address, _public_key_b64, _watermark_enabled, _registry_handle, _user_id, _owner_id, _node_id
     _node_address = node_address
     pub_bytes = private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
     _public_key_b64 = base64.b64encode(pub_bytes).decode()
     _watermark_enabled = watermark_enabled
     _registry_handle = registry_handle
     _user_id = user_id
+    _owner_id = owner_id or user_id
+    _node_id = node_id
 
 
 @router.get("/health")
@@ -57,8 +63,12 @@ def node_metadata(request: Request):
     }
     if _registry_handle:
         result["handle"] = _registry_handle
+    if _owner_id:
+        result["owner_id"] = _owner_id
+    if _node_id:
+        result["node_id"] = _node_id
     if _user_id:
-        result["user_id"] = _user_id
+        result["user_id"] = _user_id  # legacy alias
     if profile_row and profile_row[0]:
         result["display_name"] = profile_row[0]
     if profile_row and profile_row[1]:

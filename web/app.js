@@ -122,7 +122,7 @@ function _showMentionPopup(event, span) {
   _mentionPopupTimer = setTimeout(() => {
     document.querySelectorAll('.mention-popup').forEach(p => p.remove());
     const id = span.dataset.mentionId;
-    const contact = (CFG?.contacts || []).find(c => c.user_id === id || c.public_key === id);
+    const contact = (CFG?.contacts || []).find(c => c.node_id === id || c.public_key === id);
     if (!contact) return;
     const prof = serverProfiles[contact.url] || {};
     const name = prof.display_name || contact.name || '';
@@ -444,16 +444,16 @@ async function fetchServerProfiles() {
           }
         }
         // Populate user_id from /node if not already in profile or contact entry
-        if (!profile.user_id && url !== CFG.own_server) {
+        if (!profile.node_id && url !== CFG.own_server) {
           try {
             const nr = await fetch(url + "/node");
             if (nr.ok) {
               const nd = await nr.json();
               if (nd.user_id) {
-                profile.user_id = nd.user_id;
+                profile.node_id = nd.node_id || nd.user_id;
                 // Also backfill the contact entry so mentions work without re-add
                 const c = (CFG.contacts || []).find(c => c.url === url);
-                if (c && !c.user_id) c.user_id = nd.user_id;
+                if (c && !c.node_id) c.node_id = nd.user_id;
               }
             }
           } catch {}
@@ -593,7 +593,7 @@ function selectContactResult(idx) {
     server_url: d.server_url,
     photo_url: d.photo_url || null,
     public_key: d.public_key || null,
-    user_id: d.user_id || null,
+    node_id: d.node_id || d.user_id || null,
   };
   const photoEl = document.getElementById("add-contact-photo");
   const initEl  = document.getElementById("add-contact-initials");
@@ -624,7 +624,7 @@ async function confirmAddContact() {
   const r = await apiFetch("/api/contacts", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({name, url: _pendingContact.server_url, handle: _pendingContact.handle || null, public_key: _pendingContact.public_key || null, user_id: _pendingContact.user_id || null}),
+    body: JSON.stringify({name, url: _pendingContact.server_url, handle: _pendingContact.handle || null, public_key: _pendingContact.public_key || null, node_id: _pendingContact.node_id || null}),
   });
   if (r.status === 409) { err.textContent = "Already in your contacts."; return; }
   if (!r.ok) { err.textContent = "Failed to add contact."; return; }
@@ -1617,7 +1617,7 @@ function _mentionTag(c) {
 function _expandMentions(text) {
   const tagMap = new Map();
   for (const c of (CFG?.contacts || [])) {
-    const id = c.user_id || (serverProfiles[c.url] || {}).user_id || c.public_key;
+    const id = c.node_id || (serverProfiles[c.url] || {}).owner_id || c.public_key;
     if (!id) continue;
     const tag = _contactTag(c);
     tagMap.set(tag.toLowerCase(), {label: tag, id});
@@ -1631,7 +1631,7 @@ function _expandMentions(text) {
 // Collapse [pubkey|disptext] → @tag (reader's current tag for that pubkey). Called when loading for edit.
 function _collapseMentions(text) {
   return text.replace(/\[([^|\]]+)\|([^\]]+)\]/g, (full, id, disptext) => {
-    const contact = (CFG?.contacts || []).find(c => c.user_id === id || c.public_key === id);
+    const contact = (CFG?.contacts || []).find(c => c.node_id === id || c.public_key === id);
     return `@${contact ? _contactTag(contact) : disptext}`;
   });
 }
@@ -1693,7 +1693,7 @@ function _selectMention(c) {
   const ta = document.getElementById(_mentionCtx.taId);
   const label = _contactTag(c);
   // Replace @query (state.start points to the @) with [id|label] — consuming the @
-  const id = c.user_id || c.public_key;
+  const id = c.node_id || c.public_key;
   const replacement = id ? `[${id}|${label}] ` : `@${label} `;
   const before = ta.value.substring(0, state.start);
   // Use the known end of "@query" from state rather than ta.selectionStart,
