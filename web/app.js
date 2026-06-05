@@ -23,6 +23,36 @@ let serverPublicKeys = {}; // base64 pubkey → server url
 let _keyToProfile = {};   // base64 pubkey → {username, display_name} from registry
 let _pendingKeyLookups = new Set();
 
+// ── avatar hover preview ───────────────────────────────────────────────────
+(function() {
+  let _previewActive = false;
+  document.addEventListener('mouseover', e => {
+    const av = e.target.closest('.post-author-avatar');
+    if (!av || !av.src || av.src.endsWith('/')) return;
+    const preview = document.getElementById('avatar-preview');
+    const img = document.getElementById('avatar-preview-img');
+    img.src = av.src;
+    preview.hidden = false;
+    _previewActive = true;
+  });
+  document.addEventListener('mouseout', e => {
+    if (!_previewActive) return;
+    const av = e.target.closest('.post-author-avatar');
+    if (!av) return;
+    document.getElementById('avatar-preview').hidden = true;
+    _previewActive = false;
+  });
+  document.addEventListener('mousemove', e => {
+    if (!_previewActive) return;
+    const p = document.getElementById('avatar-preview');
+    const vw = window.innerWidth, vh = window.innerHeight;
+    const px = Math.min(e.clientX + 14, vw - 110);
+    const py = Math.min(Math.max(e.clientY - 50, 4), vh - 110);
+    p.style.left = px + 'px';
+    p.style.top = py + 'px';
+  });
+})();
+
 // ── client session token ───────────────────────────────────────────────────
 function getClientToken() { return localStorage.getItem("contacc_client_session"); }
 function setClientToken(t) { localStorage.setItem("contacc_client_session", t); }
