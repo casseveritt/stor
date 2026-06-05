@@ -2430,7 +2430,8 @@ function _renderDmThreads() {
     const name = esc(t.peer_name || t.peer_url);
     const unread = t.unread_count || 0;
     const contactIcon = t.is_contact ? '<span title="Contact" style="font-size:0.75rem;color:#888">👤</span>' : '';
-    return `<div onclick="_dmOpenThread(${JSON.stringify(t.thread_id)},${JSON.stringify(t.peer_name||t.peer_url||'')})"
+    return `<div data-tid="${esc(t.thread_id)}" data-pname="${esc(t.peer_name||t.peer_url||'')}"
+      onclick="_dmOpenThread(this.dataset.tid,this.dataset.pname)"
       style="padding:0.5rem 0.75rem;cursor:pointer;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid #1a1a1a"
       onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
       ${contactIcon}
