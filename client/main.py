@@ -801,6 +801,19 @@ def create_app(config_path: str | Path) -> FastAPI:
             headers={"Content-Disposition": "attachment; filename=contacc-private-key.pem"},
         )
 
+    @api.get("/notifications/mentions")
+    async def api_get_mentions():
+        async with httpx.AsyncClient() as hc:
+            r = await hc.get(_server + "/api/notifications/mentions",
+                             headers=_internal_headers(), timeout=10)
+        return r.json() if r.is_success else {"notifications": []}
+
+    @api.post("/notifications/mentions/mark-seen", status_code=204)
+    async def api_mark_mentions_seen():
+        async with httpx.AsyncClient() as hc:
+            await hc.post(_server + "/api/notifications/mentions/mark-seen",
+                          headers=_internal_headers(), timeout=10)
+
     @api.get("/setup/passphrase-is-default")
     async def api_passphrase_is_default():
         async with httpx.AsyncClient() as hc:

@@ -659,6 +659,7 @@ async function loadFeed() {
   showView("feed");
   renderServerList();
   checkDefaultPassphrase();
+  loadMentions();
 
   // Render from cache immediately so the page is populated before any network calls.
   if (allPosts.length === 0 && !activeServer && !currentSearch && activeTags.size === 0) {
@@ -1414,6 +1415,7 @@ async function _fetchOneServer(url) {
 
 // Background scheduler: wakes every minute, fetches servers that are due.
 async function _runBgFetch() {
+  loadMentions();
   const now = Date.now();
   const servers = activeServer ? [activeServer] : [CFG.own_server, ...(CFG.contacts || []).map(c => c.url)];
   await Promise.all(servers.map(async url => {
@@ -2091,6 +2093,107 @@ async function downloadPrivateKey() {
   document.getElementById("privkey-passphrase").value = "";
   status.style.color = "#4caf50"; status.textContent = "Downloaded.";
   setTimeout(() => { status.textContent = ""; }, 3000);
+}
+
+// ── mention notifications ──────────────────────────────────────────────────
+let _mentionsData = [];
+
+async function loadMentions() {
+  const r = await apiFetch("/api/notifications/mentions");
+  if (!r.ok) return;
+  _mentionsData = (await r.json()).notifications || [];
+  const unread = _mentionsData.filter(m => !m.seen).length;
+  const badge = document.getElementById("mentions-badge");
+  const wrap = document.getElementById("mentions-wrap");
+  if (wrap) wrap.style.display = "";
+  if (badge) {
+    badge.hidden = unread === 0;
+    badge.textContent = unread > 9 ? "9+" : String(unread);
+  }
+}
+
+function _toggleMentionsPanel() {
+  const panel = document.getElementById("mentions-panel");
+  if (panel.hidden) {
+    _renderMentionsList();
+    panel.hidden = false;
+    setTimeout(() => document.addEventListener("click", _closeMentionsPanelOutside, {once: true}), 0);
+  } else {
+    panel.hidden = true;
+  }
+}
+
+function _closeMentionsPanelOutside(e) {
+  const wrap = document.getElementById("mentions-wrap");
+  if (wrap && !wrap.contains(e.target)) {
+    document.getElementById("mentions-panel").hidden = true;
+  } else {
+    setTimeout(() => document.addEventListener("click", _closeMentionsPanelOutside, {once: true}), 0);
+  }
+}
+
+function _renderMentionsList() {
+  const list = document.getElementById("mentions-list");
+  if (!_mentionsData.length) {
+    list.innerHTML = '<div style="padding:0.75rem;font-size:0.85rem;color:#555;text-align:center">No mentions yet</div>';
+    return;
+  }
+  list.innerHTML = _mentionsData.map(m => {
+    const contact = (CFG?.contacts || []).find(c => c.url === m.author_server);
+    const name = contact ? (contact.name || m.author_handle) : (m.author_handle || m.author_server);
+    const time = fmtDate(m.received_at);
+    const dot = m.seen ? '' : '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#4285f4;flex-shrink:0;margin-top:3px"></span>';
+    return `<div onclick="_jumpToMention('${esc(m.post_id)}','${esc(m.author_server)}')" style="display:flex;gap:0.5rem;align-items:flex-start;padding:0.55rem 0.75rem;cursor:pointer;border-bottom:1px solid #1e1e1e" onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
+      ${dot || '<span style="display:inline-block;width:7px;flex-shrink:0"></span>'}
+      <div style="flex:1;min-width:0">
+        <div style="font-size:0.85rem;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)} mentioned you</div>
+        <div style="font-size:0.75rem;color:#555">${esc(time)}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function _markMentionsSeen() {
+  await apiFetch("/api/notifications/mentions/mark-seen", {method: "POST"});
+  _mentionsData.forEach(m => m.seen = true);
+  const badge = document.getElementById("mentions-badge");
+  if (badge) badge.hidden = true;
+  _renderMentionsList();
+}
+
+async function _jumpToMention(postId, serverUrl) {
+  document.getElementById("mentions-panel").hidden = true;
+  // Fetch the post and open it in the detail overlay
+  const params = serverUrl && serverUrl !== CFG.own_server
+    ? "?server=" + encodeURIComponent(serverUrl) : "";
+  const r = await apiFetch("/api/posts/" + postId + params);
+  if (!r.ok) {
+    // Post may not be directly accessible — open the author's server in a new tab
+    window.open(serverUrl, "_blank");
+    return;
+  }
+  const post = await r.json();
+  post._server_url = post._server_url || serverUrl || CFG.own_server;
+  // Find or create an entry in allPosts, then open comments panel
+  let idx = allPosts.findIndex(p => p.id === postId);
+  if (idx === -1) {
+    allPosts.unshift(post);
+    idx = 0;
+  }
+  // Scroll to and highlight the post card if visible, otherwise prepend temporarily
+  let card = document.querySelector(`.post-card[data-post-id="${postId}"]`);
+  if (!card) {
+    prependPost(post);
+    card = document.querySelector(`.post-card[data-post-id="${postId}"]`);
+  }
+  if (card) {
+    card.scrollIntoView({behavior: "smooth", block: "start"});
+    card.style.outline = "2px solid #4285f4";
+    setTimeout(() => { card.style.outline = ""; }, 2000);
+    // Open comments panel
+    const toggle = card.querySelector(".comments-toggle");
+    if (toggle && card.querySelector(".comments-panel")?.hidden !== false) toggle.click();
+  }
 }
 
 async function checkDefaultPassphrase() {

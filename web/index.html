@@ -147,6 +147,19 @@
     </div>
     <div class="header-right">
       <button id="compose-btn" hidden></button><!-- replaced by inline compose -->
+      <span id="mentions-wrap" style="position:relative;display:none">
+        <button id="mentions-btn" class="btn btn-muted btn-sm" onclick="_toggleMentionsPanel()" title="Mentions" style="position:relative;padding:0.3rem 0.55rem;font-size:1rem">
+          @
+          <span id="mentions-badge" hidden style="position:absolute;top:-3px;right:-3px;background:#e06c6c;color:#fff;border-radius:50%;width:16px;height:16px;font-size:0.65rem;display:flex;align-items:center;justify-content:center;font-weight:600"></span>
+        </button>
+        <div id="mentions-panel" hidden style="position:absolute;right:0;top:calc(100% + 6px);background:#1e1e1e;border:1px solid #333;border-radius:8px;z-index:300;min-width:280px;max-width:340px;max-height:420px;overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,0.6)">
+          <div style="padding:0.5rem 0.75rem;font-size:0.78rem;color:#555;text-transform:uppercase;letter-spacing:0.06em;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;align-items:center">
+            Mentions
+            <button class="btn btn-muted btn-sm" style="font-size:0.7rem;padding:0.1rem 0.4rem" onclick="_markMentionsSeen()">Mark read</button>
+          </div>
+          <div id="mentions-list" style="padding:0.25rem 0"></div>
+        </div>
+      </span>
       <button class="btn btn-muted btn-sm" onclick="logout()">Sign out</button>
       <span id="dev-menu-wrap" style="position:relative;display:none">
         <button class="btn btn-sm" style="background:#2a1a00;color:#f90;border:1px solid #a60" onclick="_toggleDevMenu()">Dev ▾</button>
