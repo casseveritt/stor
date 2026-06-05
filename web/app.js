@@ -1302,7 +1302,7 @@ function _renderCommentsInto(post, comments, panel) {
     roots.map(c => renderOne(c, 0)).join("")
     + '<div class="comment-form">'
     + '<textarea class="comment-input" data-post-id="' + esc(post.id) + '" placeholder="Add a comment…"></textarea>'
-    + '<div class="comment-form-actions"><button class="btn btn-primary btn-sm" onclick="submitComment(\'' + esc(post.id) + '\',\'' + esc(post._server_url) + '\')">Post</button>'
+    + '<div class="comment-form-actions"><button class="btn btn-primary btn-sm comment-submit" data-post-id="' + esc(post.id) + '" onclick="submitComment(\'' + esc(post.id) + '\',\'' + esc(post._server_url) + '\')">Post</button>'
     + '<span class="comment-error" data-post-id="' + esc(post.id) + '" style="color:#e06c6c;font-size:0.82rem"></span></div>'
     + '</div>';
 }
@@ -1311,18 +1311,23 @@ async function submitComment(postId, serverUrl) {
   const input = document.querySelector('.comment-input[data-post-id="' + postId + '"]');
   const body = input ? _expandMentions(input.value.trim()) : "";
   if (!body) return;
+  const savedText = input ? input.value : "";
+  const btn = document.querySelector('.comment-submit[data-post-id="' + postId + '"]');
+  if (btn) { btn.disabled = true; btn.textContent = "Posting…"; }
   const params = serverUrl !== CFG.own_server ? "?server=" + encodeURIComponent(serverUrl) : "";
   const r = await apiFetch("/api/posts/" + postId + "/comments" + params, {
     method: "POST",
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({body}),
   });
+  if (btn) { btn.disabled = false; btn.textContent = "Post"; }
   if (r.ok) {
     if (input) input.value = "";
     const post = _openPanels.get(postId);
     const panel = document.querySelector(`.comments-panel[data-post-id="${postId}"]`);
     if (post && panel) _loadCommentsIntoPanel(post, panel);
   } else {
+    if (input) input.value = savedText;
     const errEl = document.querySelector('.comment-error[data-post-id="' + postId + '"]');
     if (errEl) errEl.textContent = r.status === 403 ? "Access denied." : "Failed to post comment.";
   }
@@ -1558,16 +1563,28 @@ async function submitInlinePost() {
   const ta = document.getElementById("inline-compose-body");
   const body = _expandMentions(ta.value.trim());
   if (!body) return;
+  const btn = ta.closest('div').querySelector('button.btn-primary');
+  const savedText = ta.value;
+  if (btn) { btn.disabled = true; btn.textContent = "Posting…"; }
   const fd = new FormData();
   fd.append("body", body);
   fd.append("tags", "[]");
   fd.append("visibility", "contacts");
   fd.append("comment_access", "contacts");
   const r = await apiFetch("/api/posts", {method: "POST", body: fd});
+  if (btn) { btn.disabled = false; btn.textContent = "Post"; }
   if (r.ok) {
     ta.value = "";
     ta.style.height = "auto";
-    await resetFeed(false);
+    // Show a brief confirmation rather than resetting the whole feed
+    const banner = document.getElementById("new-posts-banner");
+    banner.textContent = "✓ Posted — tap to refresh";
+    banner.hidden = false;
+    _newestKnownAt = Date.now() * 1_000_000; // mark feed as stale
+  } else {
+    ta.value = savedText;
+    const err = document.getElementById("feed-status");
+    if (err) { err.textContent = "Failed to post."; setTimeout(() => { err.textContent = ""; }, 3000); }
   }
 }
 
