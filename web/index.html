@@ -349,6 +349,15 @@
         <button class="btn btn-muted btn-sm" onclick="changePassphrase()">Change passphrase</button>
         <div id="cp-status" style="font-size:0.8rem;min-height:1em"></div>
       </div>
+      <hr style="border:none;border-top:1px solid #2a2a2a;margin:0.5rem 0">
+      <div id="escrow-upload-wrap" style="display:flex;flex-direction:column;gap:0.4rem">
+        <div style="font-size:0.72rem;color:#555;text-transform:uppercase;letter-spacing:0.08em">Upload identity escrow</div>
+        <div style="font-size:0.78rem;color:#666">For nodes set up before automatic escrow. Paste your identity private key (hex) to store it encrypted in the registry.</div>
+        <input type="password" id="eu-key" placeholder="Identity private key (hex)" style="font-family:monospace;font-size:0.78rem">
+        <input type="password" id="eu-pass" placeholder="Owner passphrase (to encrypt key)">
+        <button class="btn btn-muted btn-sm" onclick="uploadEscrowFromSettings()">Upload escrow</button>
+        <div id="eu-status" style="font-size:0.8rem;min-height:1em"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -428,6 +437,6 @@
 
 <div id="comment-mention-dropdown" class="mention-dropdown" hidden style="position:fixed"></div>
 
-  <script src="/app.js?v=02aa056"></script>
+  <script src="/app.js?v=f7834a8"></script>
 </body>
 </html>

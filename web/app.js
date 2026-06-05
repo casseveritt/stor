@@ -2419,6 +2419,29 @@ async function changePassphrase() {
   setTimeout(() => { status.textContent = ""; }, 4000);
 }
 
+async function uploadEscrowFromSettings() {
+  const key = document.getElementById("eu-key").value.trim();
+  const pass = document.getElementById("eu-pass").value;
+  const status = document.getElementById("eu-status");
+  if (!key) { status.style.color = "#e06c6c"; status.textContent = "Identity private key required."; return; }
+  if (!pass) { status.style.color = "#e06c6c"; status.textContent = "Owner passphrase required."; return; }
+  status.style.color = "#888"; status.textContent = "Uploading…";
+  const r = await fetch("/setup/escrow-identity-key", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({identity_private_key: key, owner_passphrase: pass}),
+  });
+  if (r.ok) {
+    document.getElementById("eu-key").value = "";
+    document.getElementById("eu-pass").value = "";
+    status.style.color = "#4caf50"; status.textContent = "Identity key escrowed in registry.";
+    setTimeout(() => { status.textContent = ""; }, 5000);
+  } else {
+    const d = await r.json().catch(() => ({}));
+    status.style.color = "#e06c6c"; status.textContent = d.detail || "Upload failed.";
+  }
+}
+
 async function saveProfileName() {
   const name = document.getElementById("profile-display-name").value.trim();
   const status = document.getElementById("profile-status");
