@@ -144,6 +144,37 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
                 config_data["identity_delegation"] = _json.dumps(cert)
             except Exception:
                 pass
+        # Re-register Tang under the new node_id (old Tang key was filed under user_id)
+        if config_data.get("tang_C") and config_data.get("tang_url"):
+            try:
+                import httpx as _hx_m, time as _t_m, base64 as _b64_m
+                from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey as _X25519_m, X25519PublicKey as _X25519P_m
+                from cryptography.hazmat.primitives.serialization import Encoding as _Em, PublicFormat as _PFm
+                from cryptography.hazmat.primitives.kdf.hkdf import HKDF as _HKDFm
+                from cryptography.hazmat.primitives.hashes import SHA256 as _SHA256m
+                from .crypto import ARGON2_TIME_COST as _TCm, ARGON2_MEMORY_COST as _MCm, ARGON2_PARALLELISM as _PARm
+                reg_url = config_data["tang_url"].rstrip("/")
+                node_pub_b64_m = base64.b64encode(
+                    private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+                ).decode()
+                ts_m = int(_t_m.time())
+                reg_msg_m = f"contacc:tang:register:{new_node_id}:{ts_m}"
+                reg_sig_m = _b64_m.b64encode(private_key.sign(reg_msg_m.encode())).decode()
+                r_tang_m = _hx_m.post(f"{reg_url}/tang/register", json={
+                    "node_id": new_node_id, "identity_public_key": node_pub_b64_m,
+                    "timestamp": ts_m, "signature": reg_sig_m,
+                }, timeout=10)
+                if r_tang_m.is_success:
+                    T_pub_m = _X25519P_m.from_public_bytes(_b64_m.b64decode(r_tang_m.json()["T_pub"]))
+                    c_priv_m = _X25519_m.generate()
+                    S_bytes_m = c_priv_m.exchange(T_pub_m)
+                    K_m = _HKDFm(_SHA256m(), 32, None, b"contacc-tang-unlock").derive(S_bytes_m)
+                    from .crypto import encrypt_bytes as _enc_m
+                    config_data["tang_C"] = _b64_m.b64encode(c_priv_m.public_key().public_bytes(_Em.Raw, _PFm.Raw)).decode()
+                    config_data["tang_E"] = _b64_m.b64encode(_enc_m(passphrase.encode(), K_m)).decode()
+                    log.info("Tang re-registered under new node_id=%s", new_node_id)
+            except Exception as _te_m:
+                log.warning("Could not re-register Tang during migration: %s", _te_m)
         config_path.write_text(_json.dumps(config_data, indent=2))
         config = NodeConfig.load(config_path)
         log.info("Migrated identity: owner_id=%s node_id=%s (was user_id, fresh node_id generated)", config.user_id, new_node_id)
