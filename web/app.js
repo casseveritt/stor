@@ -2508,7 +2508,12 @@ async function _dmSend() {
     headers: {"Content-Type": "application/json"},
     body: JSON.stringify({peer_node_id, peer_url, body}),
   });
-  if (!r.ok) { ta.value = body; return; }
+  if (!r.ok) {
+    ta.value = body;
+    const err = document.getElementById("dm-send-error");
+    if (err) { err.textContent = "Send failed — try again."; setTimeout(() => err.textContent = "", 4000); }
+    return;
+  }
   // After first message, update active thread to real thread_id
   const d = await r.json();
   if (_dmActiveThread.startsWith("__new__:")) {

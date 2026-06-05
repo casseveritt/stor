@@ -165,17 +165,18 @@
           ✉
           <span id="dm-badge" hidden style="position:absolute;top:-3px;right:-3px;background:#4285f4;color:#fff;border-radius:50%;width:16px;height:16px;font-size:0.65rem;display:flex;align-items:center;justify-content:center;font-weight:600"></span>
         </button>
-        <div id="dm-panel" hidden style="position:absolute;right:0;top:calc(100% + 6px);background:#1e1e1e;border:1px solid #333;border-radius:8px;z-index:300;width:340px;max-height:520px;display:flex;flex-direction:column;box-shadow:0 4px 16px rgba(0,0,0,0.6)">
-          <div id="dm-thread-list-view" style="display:flex;flex-direction:column;height:100%">
+        <div id="dm-panel" hidden style="position:absolute;right:0;top:calc(100% + 6px);background:#1e1e1e;border:1px solid #333;border-radius:8px;z-index:300;width:340px;max-height:520px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 4px 16px rgba(0,0,0,0.6)">
+          <div id="dm-thread-list-view" style="display:flex;flex-direction:column;flex:1;min-height:0">
             <div style="padding:0.5rem 0.75rem;font-size:0.78rem;color:#555;text-transform:uppercase;letter-spacing:0.06em;border-bottom:1px solid #2a2a2a">Messages</div>
-            <div id="dm-threads-list" style="flex:1;overflow-y:auto;padding:0.25rem 0"></div>
+            <div id="dm-threads-list" style="flex:1;min-height:0;overflow-y:auto;padding:0.25rem 0"></div>
           </div>
-          <div id="dm-conversation-view" hidden style="display:flex;flex-direction:column;height:100%;min-height:320px">
+          <div id="dm-conversation-view" hidden style="display:flex;flex-direction:column;flex:1;min-height:320px">
             <div style="padding:0.4rem 0.75rem;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;gap:0.5rem">
               <button onclick="_dmBackToThreads()" style="background:none;border:none;color:#888;cursor:pointer;font-size:0.9rem;padding:0.1rem 0.3rem">‹</button>
               <span id="dm-conv-name" style="font-size:0.88rem;color:#e0e0e0;font-weight:500"></span>
             </div>
             <div id="dm-messages-list" style="flex:1;overflow-y:auto;padding:0.5rem 0.75rem;display:flex;flex-direction:column;gap:0.4rem"></div>
+            <div id="dm-send-error" style="font-size:0.75rem;color:#e06c6c;padding:0 0.75rem;min-height:1rem"></div>
             <div style="padding:0.5rem 0.75rem;border-top:1px solid #2a2a2a;display:flex;gap:0.4rem">
               <textarea id="dm-compose" placeholder="Message…" rows="1"
                 style="flex:1;background:#222;border:1px solid #333;border-radius:4px;color:#e0e0e0;font-size:0.85rem;padding:0.35rem 0.5rem;resize:none;font-family:inherit;line-height:1.4;max-height:100px;overflow-y:auto"
@@ -527,6 +528,6 @@
 
 <div id="comment-mention-dropdown" class="mention-dropdown" hidden style="position:fixed"></div>
 
-  <script src="/app.js?v=b3eb7d4"></script>
+  <script src="/app.js?v=1d2eef2"></script>
 </body>
 </html>
