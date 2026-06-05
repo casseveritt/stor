@@ -2126,11 +2126,11 @@ async function doSetDefaultPassphrase() {
     const e = await r.json().catch(() => ({}));
     err.style.color = "#e06c6c"; err.textContent = e.detail || "Failed."; return;
   }
-  // Also update the recovery passphrase if an escrow exists
-  await apiFetch("/api/setup/change-identity-passphrase", {
+  // Also update the owner passphrase if an escrow exists
+  await apiFetch("/api/setup/change-owner-passphrase", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({old_recovery_passphrase: "foobar", new_recovery_passphrase: newPass}),
+    body: JSON.stringify({old_owner_passphrase: "foobar", new_owner_passphrase: newPass}),
   }).catch(() => {});
   document.getElementById("default-passphrase-overlay").hidden = true;
   document.getElementById("default-passphrase-banner").hidden = true;
@@ -2242,6 +2242,11 @@ function _badSetupToken(msg) {
   document.getElementById("setup-token-error").textContent = msg || "Invalid setup token.";
 }
 
+function toggleExistingOwner() {
+  const checked = document.getElementById("setup-existing-owner").checked;
+  document.getElementById("setup-existing-owner-fields").hidden = !checked;
+}
+
 async function doSetupNew() {
   const email = document.getElementById("setup-owner-email").value.trim();
   const displayName = document.getElementById("setup-display-name").value.trim();
@@ -2249,15 +2254,37 @@ async function doSetupNew() {
   const pass = document.getElementById("setup-passphrase").value;
   const confirm = document.getElementById("setup-passphrase-confirm").value;
   const err = document.getElementById("setup-new-error");
+  const existingOwner = document.getElementById("setup-existing-owner").checked;
   err.textContent = "";
   if (!email || !handle || !pass) { err.textContent = "All fields required."; return; }
   if (!/^[a-z_][a-z0-9_]*$/.test(handle)) { err.textContent = "Handle must start with a letter or _, followed by letters, digits, or _."; return; }
   if (pass !== confirm) { err.textContent = "Passphrases do not match."; return; }
+
+  const baseBody = {passphrase: pass, confirm_passphrase: confirm, owner_identity: "google:" + email,
+    setup_token: _setupToken, handle, display_name: displayName,
+    tang_enabled: document.getElementById("setup-tang").checked};
+
+  if (existingOwner) {
+    const ownerId = document.getElementById("setup-owner-id").value.trim();
+    const ownerPass = document.getElementById("setup-owner-passphrase").value;
+    if (!ownerId || !ownerPass) { err.textContent = "Owner ID and owner passphrase required."; return; }
+    try {
+      const r = await fetch("/setup/new-for-owner", {
+        method: "POST", headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({...baseBody, existing_owner_id: ownerId, owner_passphrase: ownerPass}),
+      });
+      const d = await r.json();
+      if (r.status === 403) { err.textContent = d.detail || "Wrong owner passphrase or invalid owner ID."; return; }
+      if (!r.ok) { err.textContent = d.detail || "Error."; return; }
+      location.reload();
+    } catch { err.textContent = "Network error."; }
+    return;
+  }
+
   try {
     const r = await fetch("/setup/new", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({passphrase: pass, confirm_passphrase: confirm, owner_identity: "google:" + email, setup_token: _setupToken, handle, display_name: displayName, tang_enabled: document.getElementById("setup-tang").checked}),
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(baseBody),
     });
     const d = await r.json();
     if (r.status === 403) { _badSetupToken(d.detail); return; }
@@ -2278,11 +2305,11 @@ function showIdentityEscrowPath() {
 
 async function uploadIdentityEscrowAndContinue() {
   const key = document.getElementById("identity-key-display").value.trim();
-  const passphrase = document.getElementById("identity-recovery-passphrase").value;
-  const confirm = document.getElementById("identity-recovery-passphrase-confirm").value;
+  const passphrase = document.getElementById("identity-owner-passphrase").value;
+  const confirm = document.getElementById("identity-owner-passphrase-confirm").value;
   const status = document.getElementById("identity-escrow-status");
   const btn = document.getElementById("identity-escrow-btn");
-  if (!passphrase) { status.textContent = "Enter a recovery passphrase."; return; }
+  if (!passphrase) { status.textContent = "Enter a owner passphrase."; return; }
   if (passphrase !== confirm) { status.textContent = "Passphrases don't match."; return; }
   btn.disabled = true;
   status.textContent = "Uploading…";
@@ -2291,7 +2318,7 @@ async function uploadIdentityEscrowAndContinue() {
     const r = await fetch("/setup/escrow-identity-key", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({identity_private_key: key, recovery_passphrase: passphrase}),
+      body: JSON.stringify({identity_private_key: key, owner_passphrase: passphrase}),
     });
     if (r.ok) {
       location.reload();

@@ -131,7 +131,7 @@ def create_app(db_path: str) -> FastAPI:
         con.execute("ALTER TABLE handles ADD COLUMN web_url TEXT")
         con.commit()
     # Add identity/user_id columns if missing
-    for col in ["user_id TEXT", "identity_public_key TEXT", "delegation_sig TEXT", "encrypted_identity_key TEXT", "google_identity TEXT", "is_primary INTEGER DEFAULT 0"]:
+    for col in ["user_id TEXT", "identity_public_key TEXT", "delegation_sig TEXT", "encrypted_identity_key TEXT", "google_identity TEXT", "is_primary INTEGER DEFAULT 0", "node_id TEXT"]:
         try:
             con.execute(f"ALTER TABLE handles ADD COLUMN {col}")
             con.commit()
@@ -524,11 +524,11 @@ def create_app(db_path: str) -> FastAPI:
   <div id="recover-card" class="card" style="display:none">
     <h2>Recover identity key</h2>
     <p style="font-size:0.82rem;color:#666;margin-bottom:0.75rem">
-      If you've lost access to your node, enter your handle and recovery passphrase
+      If you've lost access to your node, enter your handle and owner passphrase
       to retrieve your identity private key.
     </p>
     <div class="field">
-      <input id="rec-pass" type="password" placeholder="Recovery passphrase">
+      <input id="rec-pass" type="password" placeholder="Owner passphrase">
     </div>
     <button class="btn btn-primary" onclick="doRecover()">Retrieve key</button>
     <div id="rec-msg" class="msg"></div>
@@ -543,14 +543,14 @@ def create_app(db_path: str) -> FastAPI:
     <button id="rec-clear" class="btn btn-muted" style="display:none" onclick="window.close()">Close tab</button>
   </div>
 
-  <!-- Change recovery passphrase — shown when signed in -->
+  <!-- Change owner passphrase — shown when signed in -->
   <div id="chgpass-card" class="card" style="display:none">
-    <h2>Change recovery passphrase</h2>
+    <h2>Change owner passphrase</h2>
     <div class="field">
-      <input id="chg-old" type="password" placeholder="Current recovery passphrase">
+      <input id="chg-old" type="password" placeholder="Current owner passphrase">
     </div>
     <div class="field">
-      <input id="chg-new" type="password" placeholder="New recovery passphrase">
+      <input id="chg-new" type="password" placeholder="New owner passphrase">
     </div>
     <button class="btn btn-primary" onclick="doChangePass()">Update</button>
     <div id="chg-msg" class="msg"></div>
@@ -734,11 +734,11 @@ def create_app(db_path: str) -> FastAPI:
     const keyBox = document.getElementById("rec-key");
     const warn = document.getElementById("rec-warn");
     msg.textContent = ""; keyBox.style.display = "none"; warn.style.display = "none";
-    if (!pass) { msg.className = "msg err"; msg.textContent = "Recovery passphrase required."; return; }
+    if (!pass) { msg.className = "msg err"; msg.textContent = "Owner passphrase required."; return; }
     msg.className = "msg"; msg.textContent = "Decrypting…";
     const r = await fetch("/identity/recover", {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({recovery_passphrase: pass}),
+      body: JSON.stringify({owner_passphrase: pass}),
     });
     const d = await r.json();
     if (!r.ok) { msg.className = "msg err"; msg.textContent = d.detail || "Failed."; return; }
@@ -765,7 +765,7 @@ def create_app(db_path: str) -> FastAPI:
     msg.className = "msg"; msg.textContent = "Updating…";
     const r = await fetch("/identity/change-passphrase", {
       method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({old_recovery_passphrase: oldPass, new_recovery_passphrase: newPass}),
+      body: JSON.stringify({old_owner_passphrase: oldPass, new_owner_passphrase: newPass}),
     });
     if (r.ok) { msg.className = "msg ok"; msg.textContent = "✓ Passphrase updated."; }
     else { const d = await r.json(); msg.className = "msg err"; msg.textContent = d.detail || "Failed."; }
@@ -926,7 +926,7 @@ docker compose down                     # stop everything</code></pre>
 <p>UUID + Ed25519 identity key generated at setup. Identity key never stored on node. Delegation cert links identity key → node key.</p>
 
 <h3><span class="badge">done</span> Registry escrow</h3>
-<p>Identity private key encrypted with recovery passphrase, uploaded to registry at setup. Recoverable via Google auth + passphrase at the registry landing page.</p>
+<p>Identity private key encrypted with owner passphrase, uploaded to registry at setup. Recoverable via Google auth + passphrase at the registry landing page.</p>
 
 <h3><span class="badge">done</span> Tang network-bound unlock</h3>
 <p>Registry holds a per-node X25519 key. On startup the node sends its ephemeral public key to the registry; registry computes a shared secret and delivers it to the node's registered URL — the node can only unlock if it's actually at its registered address. Auto-registers when a node changes its passphrase for the first time. Retries at 2s, 7s, 22s after startup.</p>
@@ -950,7 +950,7 @@ docker compose down                     # stop everything</code></pre>
 <p>Up to 10 node slots per host (ports 8443–8452 / 6443–6452). Independent web layer per slot. All external traffic routes through <em>them</em>; path-based routing decisions live in code, not Caddy.</p>
 
 <h3><span class="badge">done</span> Registry landing page</h3>
-<p>Google auth, node list, passphrase recovery, change recovery passphrase.</p>
+<p>Google auth, node list, passphrase recovery, change owner passphrase.</p>
 </div>
 
 </div></body></html>"""
@@ -1256,25 +1256,28 @@ blockquote p { color: #888; font-style: italic; }
         if not _verify_sig(body.public_key, msg, body.signature):
             raise HTTPException(status_code=401, detail="Invalid signature")
         reg_identity_public_key = reg_delegation_json = None
+        reg_node_id = None
         if body.delegation_cert:
             cert = body.delegation_cert
             if not _verify_delegation_cert(cert, body.public_key):
                 raise HTTPException(400, "Invalid or expired delegation cert")
-            reg_user_id = cert.get("user_id")
+            reg_user_id = cert.get("owner_id") or cert.get("user_id")
+            reg_node_id = cert.get("node_id")
             reg_identity_public_key = cert.get("identity_public_key")
             reg_delegation_json = json.dumps(cert)
         else:
             # Legacy: no delegation cert — use username as fallback user_id
             reg_user_id = username
-        # Conflict only if same user_id tries to register again
-        if con.execute("SELECT 1 FROM handles WHERE user_id = ?", (reg_user_id,)).fetchone():
+        # Conflict only if same node_id (or user_id for legacy) tries to register again
+        check_id = reg_node_id or reg_user_id
+        if con.execute("SELECT 1 FROM handles WHERE node_id = ? OR (node_id IS NULL AND user_id = ?)", (check_id, check_id)).fetchone():
             raise HTTPException(status_code=409, detail="Already registered — use update instead")
         now = time.time_ns()
         con.execute(
             "INSERT INTO handles "
-            "(user_id, username, server_url, public_key, ttl, registered_at, updated_at, display_name, web_url, identity_public_key, delegation_sig, google_identity) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (reg_user_id, username, body.server_url, body.public_key, ttl, now, now,
+            "(user_id, node_id, username, server_url, public_key, ttl, registered_at, updated_at, display_name, web_url, identity_public_key, delegation_sig, google_identity) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (reg_user_id, reg_node_id, username, body.server_url, body.public_key, ttl, now, now,
              body.display_name, body.web_url, reg_identity_public_key, reg_delegation_json, body.google_identity),
         )
         con.commit()
@@ -1331,7 +1334,7 @@ blockquote p { color: #888; font-style: italic; }
 
     class EscrowBody(BaseModel):
         encrypted_identity_key: str  # base64: AES-GCM ciphertext
-        argon2_salt: str             # hex, used with recovery passphrase
+        argon2_salt: str             # hex, used with owner passphrase
         argon2_time_cost: int = 3
         argon2_memory_cost: int = 65536
         argon2_parallelism: int = 4
@@ -1365,6 +1368,16 @@ blockquote p { color: #888; font-style: italic; }
             (escrow_data, user_id),
         )
         con.commit()
+
+    @app.get("/identity-key/{user_id}")
+    def get_escrow(user_id: str):
+        """Return the encrypted escrow blob for an owner_id. Decryption requires the owner passphrase."""
+        row = con.execute(
+            "SELECT encrypted_identity_key FROM handles WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if not row or not row[0]:
+            raise HTTPException(404, "No escrow stored for this owner ID")
+        return json.loads(row[0])
 
     @app.post("/identity-key/{user_id}/recover")
     def recover_escrow(user_id: str):
@@ -1407,10 +1420,10 @@ blockquote p { color: #888; font-style: italic; }
         try:
             return AESGCM(key).decrypt(nonce, ct, None)
         except Exception:
-            raise ValueError("Wrong recovery passphrase")
+            raise ValueError("Wrong owner passphrase")
 
     class RecoverBody(BaseModel):
-        recovery_passphrase: str
+        owner_passphrase: str
 
     def _escrow_for_session(request) -> tuple[str, dict]:
         """Find the escrow for the currently signed-in user via their Google identity."""
@@ -1430,10 +1443,10 @@ blockquote p { color: #888; font-style: italic; }
     @app.post("/identity/recover")
     def recover_identity(body: RecoverBody, request: Request):
         """Decrypt and return the identity private key for the signed-in user.
-        Requires registry session (Google auth) + recovery passphrase."""
+        Requires registry session (Google auth) + owner passphrase."""
         user_id, escrow = _escrow_for_session(request)
         try:
-            id_priv = _decrypt_escrow(escrow, body.recovery_passphrase)
+            id_priv = _decrypt_escrow(escrow, body.owner_passphrase)
         except ValueError as e:
             raise HTTPException(403, str(e))
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _EPK
@@ -1443,16 +1456,16 @@ blockquote p { color: #888; font-style: italic; }
         return {"user_id": user_id, "identity_public_key": id_pub_hex, "identity_private_key": id_priv.hex()}
 
     class ChangePassphraseBody(BaseModel):
-        old_recovery_passphrase: str
-        new_recovery_passphrase: str
+        old_owner_passphrase: str
+        new_owner_passphrase: str
 
     @app.post("/identity/change-passphrase", status_code=204)
     def change_identity_passphrase(body: ChangePassphraseBody, request: Request):
         """Re-encrypt the identity key escrow under a new passphrase.
-        Requires registry session (Google auth) + recovery passphrase."""
+        Requires registry session (Google auth) + owner passphrase."""
         user_id, escrow = _escrow_for_session(request)
         try:
-            id_priv = _decrypt_escrow(escrow, body.old_recovery_passphrase)
+            id_priv = _decrypt_escrow(escrow, body.old_owner_passphrase)
         except ValueError as e:
             raise HTTPException(403, str(e))
         # Re-encrypt under new passphrase
@@ -1461,7 +1474,7 @@ blockquote p { color: #888; font-style: italic; }
         tc = escrow.get("argon2_time_cost", 3)
         mc = escrow.get("argon2_memory_cost", 65536)
         pa = escrow.get("argon2_parallelism", 4)
-        new_key = hash_secret_raw(body.new_recovery_passphrase.encode(), new_salt,
+        new_key = hash_secret_raw(body.new_owner_passphrase.encode(), new_salt,
                                    time_cost=tc, memory_cost=mc, parallelism=pa,
                                    hash_len=32, type=Type.ID)
         from cryptography.hazmat.primitives.ciphers.aead import AESGCM

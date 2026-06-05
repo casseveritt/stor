@@ -87,7 +87,7 @@ model.
 **Identity and security**
 - **Permanent user identity**: UUID + Ed25519 identity key generated at setup. Identity key
   never stored on node. Delegation cert links identity key → node key (1 year validity).
-- **Registry escrow**: identity private key encrypted with recovery passphrase (= node
+- **Registry escrow**: identity private key encrypted with owner passphrase (= node
   passphrase by default), uploaded to registry at setup. Recoverable via Google auth +
   passphrase at the registry landing page.
 - **Tang network-bound unlock**: registry holds a per-node X25519 key. On startup the node
@@ -125,5 +125,5 @@ model.
 - **Web layer**: independent Caddy container per slot; static files + proxy to `them`.
 - **Routing**: Caddy routes all external traffic to `them`; `them` proxies to `me` via
   catch-all with internal token. No path-based Caddy rules.
-- **Registry landing page**: Google auth, node list, passphrase recovery, change recovery
+- **Registry landing page**: Google auth, node list, identity recovery, change owner
   passphrase.

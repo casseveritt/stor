@@ -808,11 +808,11 @@ def create_app(config_path: str | Path) -> FastAPI:
                              headers=_internal_headers(), timeout=30)
         return r.json() if r.is_success else {"is_default": False}
 
-    @api.post("/setup/change-identity-passphrase")
-    async def api_change_identity_passphrase(request: Request):
+    @api.post("/setup/change-owner-passphrase")
+    async def api_change_owner_passphrase(request: Request):
         payload = await request.json()
         async with httpx.AsyncClient() as hc:
-            r = await hc.post(_server + "/setup/change-identity-passphrase", json=payload,
+            r = await hc.post(_server + "/setup/change-owner-passphrase", json=payload,
                               headers=_internal_headers(), timeout=30)
         if not r.is_success:
             raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", r.text))
@@ -1081,6 +1081,25 @@ def create_app(config_path: str | Path) -> FastAPI:
                 app.state.private_key = _load_private_key(config.node_key, passphrase)
             return JSONResponse({"status": data.get("status"), "node_address": data.get("node_address")},
                                 status_code=r.status_code)
+        return JSONResponse(content=data, status_code=r.status_code)
+
+    @app.post("/setup/new-for-owner")
+    async def proxy_setup_new_for_owner(request: Request):
+        payload = await request.json()
+        try:
+            async with httpx.AsyncClient() as hc:
+                r = await hc.post(_server + "/setup/new-for-owner", json=payload, timeout=30)
+        except httpx.RequestError as exc:
+            raise HTTPException(502, f"Could not reach server: {exc}")
+        data = r.json()
+        if r.is_success and "node_key" in data:
+            config.node_key = NodeKey(**data["node_key"])
+            config.internal_token = data.get("internal_token")
+            config.save(config_path)
+            passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
+            if passphrase:
+                app.state.private_key = _load_private_key(config.node_key, passphrase)
+            return JSONResponse({"status": data.get("status")}, status_code=r.status_code)
         return JSONResponse(content=data, status_code=r.status_code)
 
     # ── setup restore proxy (client extracts client_config.json from bundle) ──

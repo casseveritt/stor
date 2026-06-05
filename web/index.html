@@ -41,6 +41,15 @@
             Allow registry to unlock this node automatically
           </label>
           <div style="font-size:0.75rem;color:#555;margin-top:-0.25rem">The registry can unlock your node on startup without requiring you to enter the passphrase manually.</div>
+          <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:#aaa;cursor:pointer;margin-top:0.25rem">
+            <input type="checkbox" id="setup-existing-owner" onchange="toggleExistingOwner()">
+            This node belongs to an existing owner
+          </label>
+          <div id="setup-existing-owner-fields" hidden style="display:flex;flex-direction:column;gap:0.75rem;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;padding:0.65rem">
+            <div style="font-size:0.78rem;color:#888">Enter your owner ID and owner passphrase to link this node to your existing identity.</div>
+            <input type="text" id="setup-owner-id" placeholder="Owner ID (UUID)" autocomplete="off" autocapitalize="none" style="font-family:monospace;font-size:0.82rem">
+            <input type="password" id="setup-owner-passphrase" placeholder="Owner passphrase">
+          </div>
           <button class="btn btn-primary" onclick="doSetupNew()">Create Identity</button>
           <div class="setup-error" id="setup-new-error"></div>
         </div>
@@ -67,8 +76,8 @@
       <div id="identity-escrow-section">
         <p style="font-size:0.85rem;color:#aaa;margin-bottom:1rem;text-align:center">Your identity key will be securely stored in the registry. You only need to remember your passphrase.</p>
         <div class="setup-form">
-          <input type="password" id="identity-recovery-passphrase" placeholder="Recovery passphrase">
-          <input type="password" id="identity-recovery-passphrase-confirm" placeholder="Confirm recovery passphrase">
+          <input type="password" id="identity-owner-passphrase" placeholder="Owner passphrase">
+          <input type="password" id="identity-owner-passphrase-confirm" placeholder="Confirm owner passphrase">
           <button class="btn btn-primary" onclick="uploadIdentityEscrowAndContinue()" id="identity-escrow-btn">Continue</button>
           <div id="identity-escrow-status" style="font-size:0.82rem;min-height:1.2em;color:#e06c6c"></div>
           <div style="text-align:center;margin-top:0.25rem">
@@ -92,7 +101,7 @@
           </label>
           <button class="btn btn-primary" id="identity-continue-btn" disabled onclick="location.reload()">Continue</button>
           <div style="text-align:center;margin-top:0.25rem">
-            <button class="btn btn-muted btn-sm" onclick="showIdentityEscrowPath()" style="font-size:0.75rem">Use recovery passphrase instead</button>
+            <button class="btn btn-muted btn-sm" onclick="showIdentityEscrowPath()" style="font-size:0.75rem">Use owner passphrase instead</button>
           </div>
         </div>
       </div>

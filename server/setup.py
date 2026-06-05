@@ -206,6 +206,187 @@ def setup_new(body: NewBody, request: Request):
     }
 
 
+class NewForOwnerBody(BaseModel):
+    passphrase: str
+    confirm_passphrase: str
+    owner_identity: str       # google:...
+    setup_token: str
+    handle: str
+    display_name: str = ""
+    tang_enabled: bool = True
+    existing_owner_id: str    # the owner's owner_id UUID
+    owner_passphrase: str     # decrypts the identity key escrow
+
+
+@router.post("/new-for-owner")
+def setup_new_for_owner(body: NewForOwnerBody, request: Request):
+    """Set up a new node for an existing owner. Fetches identity key from registry escrow,
+    signs a new delegation cert, and registers as a new node under the same owner_id."""
+    app = request.app
+    if _state(app) != "uninitialized":
+        raise HTTPException(400, "Server already initialized")
+    _validate_token(app, body.setup_token)
+    if body.passphrase != body.confirm_passphrase:
+        raise HTTPException(400, "Passphrases do not match")
+    if not body.owner_identity.startswith("google:"):
+        raise HTTPException(400, "Owner identity must be in the form google:you@example.com")
+    if not body.handle:
+        raise HTTPException(400, "Handle is required")
+    body.handle = body.handle.lower()
+    _validate_handle_format(body.handle)
+
+    config_path = Path(app.state.config_path)
+    node_address = app.state.node_address or ""
+    identity_proxy_url = os.environ.get("CONTACC_IDENTITY_PROXY_URL", "https://starkville.hopto.org:8421")
+    registry_url = os.environ.get("CONTACC_REGISTRY_URL", identity_proxy_url)
+
+    # Fetch identity key escrow from registry and decrypt with owner passphrase
+    import httpx as _hx_o, uuid as _uuid_o
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _EK_o
+    from cryptography.hazmat.primitives.serialization import Encoding as _Enc_o, PublicFormat as _PuF_o
+    from .identity import make_delegation_cert as _mkdel_o, identity_key_from_hex as _ikfh_o
+
+    r_escrow = _hx_o.get(f"{registry_url.rstrip('/')}/identity-key/{body.existing_owner_id}", timeout=10)
+    if not r_escrow.is_success:
+        raise HTTPException(400, "Could not fetch identity key escrow for that owner ID — has the owner set up account recovery?")
+
+    escrow = r_escrow.json()
+    try:
+        old_salt = bytes.fromhex(escrow["argon2_salt"])
+        escrow_key = derive_master_key(body.owner_passphrase, old_salt,
+                                       escrow.get("argon2_time_cost", ARGON2_TIME_COST),
+                                       escrow.get("argon2_memory_cost", ARGON2_MEMORY_COST),
+                                       escrow.get("argon2_parallelism", ARGON2_PARALLELISM))
+        id_priv_bytes = decrypt_bytes(base64.b64decode(escrow["encrypted_identity_key"]), escrow_key)
+        identity_key = _EK_o.from_private_bytes(id_priv_bytes)
+    except Exception:
+        raise HTTPException(403, "Wrong owner passphrase")
+
+    # Generate fresh node credentials (new node_id, new node key pair)
+    import uuid as _uuid2, os as _os3
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _NK
+    from cryptography.hazmat.primitives.serialization import PrivateFormat as _PrF_o, NoEncryption as _NE_o
+
+    new_node_id = str(_uuid2.uuid4())
+    node_key = _NK.generate()
+    node_priv_bytes = node_key.private_bytes(_Enc_o.Raw, _PrF_o.Raw, _NE_o())
+    salt = _os3.urandom(16)
+    master_key = derive_master_key(body.passphrase, salt)
+    encrypted_privkey = encrypt_bytes(node_priv_bytes, master_key)
+    db_key, _ = derive_subkeys(master_key)
+
+    from .db import open_db, init_schema
+    store_path = config_path.parent
+    store_path.mkdir(parents=True, exist_ok=True)
+    import shutil as _sh
+    if (store_path / "db").exists():
+        _sh.rmtree(store_path / "db")
+    (store_path / "files").mkdir(exist_ok=True)
+
+    db_con = open_db(str(store_path / "db"), db_key)
+    init_schema(db_con)
+    if body.display_name:
+        db_con.execute("INSERT OR REPLACE INTO profile (id, display_name) VALUES (1, ?)", (body.display_name,))
+        db_con.commit()
+    db_con.close()
+
+    node_pub_b64 = base64.b64encode(node_key.public_key().public_bytes(_Enc_o.Raw, _PuF_o.Raw)).decode()
+    id_pub_b64 = base64.b64encode(identity_key.public_key().public_bytes(_Enc_o.Raw, _PuF_o.Raw)).decode()
+    delegation_cert = _mkdel_o(identity_key, body.existing_owner_id, node_pub_b64, node_id=new_node_id)
+    internal_token = secrets.token_urlsafe(32)
+
+    config = {
+        "node_address": node_address,
+        "store_path": str(store_path),
+        "argon2_salt": salt.hex(),
+        "argon2_time_cost": ARGON2_TIME_COST,
+        "argon2_memory_cost": ARGON2_MEMORY_COST,
+        "argon2_parallelism": ARGON2_PARALLELISM,
+        "encrypted_private_key": base64.b64encode(encrypted_privkey).decode(),
+        "watermark_enabled": False,
+        "sso_owner_identity": body.owner_identity,
+        "identity_proxy_url": identity_proxy_url,
+        "registry_handle": body.handle,
+        "internal_token": internal_token,
+        "owner_id": body.existing_owner_id,
+        "node_id": new_node_id,
+        "identity_public_key": id_pub_b64,
+        "identity_delegation": json.dumps(delegation_cert),
+        "tang_enabled": body.tang_enabled,
+    }
+
+    # Tang registration
+    tang_C = tang_E = tang_url_stored = None
+    if body.tang_enabled:
+        try:
+            import time as _t2
+            from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey as _X2, X25519PublicKey as _XP2
+            from cryptography.hazmat.primitives.serialization import Encoding as _E2, PublicFormat as _PF2
+            from cryptography.hazmat.primitives.kdf.hkdf import HKDF as _H2
+            from cryptography.hazmat.primitives.hashes import SHA256 as _S2
+            ts = int(_t2.time())
+            tang_msg = f"contacc:tang:register:{new_node_id}:{ts}"
+            tang_sig = base64.b64encode(identity_key.sign(tang_msg.encode())).decode()
+            r_tang = _hx_o.post(f"{registry_url.rstrip('/')}/tang/register", json={
+                "node_id": new_node_id, "identity_public_key": id_pub_b64,
+                "timestamp": ts, "signature": tang_sig,
+            }, timeout=10)
+            if r_tang.is_success:
+                T_pub = _XP2.from_public_bytes(base64.b64decode(r_tang.json()["T_pub"]))
+                c_priv = _X2.generate()
+                S_bytes = c_priv.exchange(T_pub)
+                K = _H2(_S2(), 32, None, b"contacc-tang-unlock").derive(S_bytes)
+                tang_C = base64.b64encode(c_priv.public_key().public_bytes(_E2.Raw, _PF2.Raw)).decode()
+                tang_E = base64.b64encode(encrypt_bytes(body.passphrase.encode(), K)).decode()
+                tang_url_stored = registry_url.rstrip("/")
+        except Exception as _te:
+            log.warning("Tang setup failed for new-for-owner node: %s", _te)
+
+    if tang_C:
+        config["tang_C"] = tang_C
+        config["tang_E"] = tang_E
+        config["tang_url"] = tang_url_stored
+
+    config_path.write_text(json.dumps(config, indent=2))
+
+    try:
+        app.state.do_initialize(body.passphrase)
+    except WrongPassphraseError:
+        raise HTTPException(500, "Failed to initialize after setup")
+
+    # Register with registry
+    try:
+        import time as _t3, json as _j3
+        ts_r = int(_t3.time())
+        reg_msg = f"contacc:register:{body.handle}:{node_address}:{ts_r}"
+        reg_sig = base64.b64encode(node_key.sign(reg_msg.encode())).decode()
+        web_address = app.state.web_address or ""
+        _hx_o.post(f"{registry_url.rstrip('/')}/register/{body.handle}", json={
+            "server_url": node_address, "public_key": node_pub_b64,
+            "ttl": 14400, "timestamp": ts_r, "signature": reg_sig,
+            "display_name": body.display_name or None,
+            "web_url": web_address or None,
+            "delegation_cert": delegation_cert,
+            "google_identity": body.owner_identity,
+        }, timeout=10)
+    except Exception as _re:
+        log.warning("Registry registration failed for new-for-owner node: %s", _re)
+
+    _consume_token(app)
+    return {
+        "status": "ok",
+        "node_address": node_address,
+        "node_key": {
+            "argon2_salt": salt.hex(),
+            "argon2_time_cost": ARGON2_TIME_COST,
+            "argon2_memory_cost": ARGON2_MEMORY_COST,
+            "argon2_parallelism": ARGON2_PARALLELISM,
+            "encrypted_private_key": base64.b64encode(encrypted_privkey).decode(),
+        },
+        "internal_token": internal_token,
+    }
+
+
 class UnlockBody(BaseModel):
     passphrase: str
 
@@ -589,12 +770,12 @@ def _create_node_config(
 
 class EscrowBody(BaseModel):
     identity_private_key: str   # hex — user provides this; never stored on node
-    recovery_passphrase: str
+    owner_passphrase: str
 
 
 @router.post("/escrow-identity-key", status_code=204)
 def escrow_identity_key(body: EscrowBody, request: Request):
-    """Encrypt the user-provided identity private key with a recovery passphrase and upload to the registry."""
+    """Encrypt the user-provided identity private key with a owner passphrase and upload to the registry."""
     from .identity import identity_key_from_hex
     app = request.app
     if not app.state.initialized:
@@ -623,7 +804,7 @@ def escrow_identity_key(body: EscrowBody, request: Request):
     id_priv_bytes = identity_private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
 
     recovery_salt = os.urandom(16)
-    recovery_key = derive_master_key(body.recovery_passphrase, recovery_salt)
+    recovery_key = derive_master_key(body.owner_passphrase, recovery_salt)
     encrypted_for_recovery = encrypt_bytes(id_priv_bytes, recovery_key)
 
     escrow_payload = {
@@ -702,13 +883,13 @@ def redelegate(body: RedelegateBody, request: Request):
     return {"status": "ok", "expires_at": delegation_cert["expires_at"]}
 
 
-class ChangeIdentityPassphraseBody(BaseModel):
-    old_recovery_passphrase: str
-    new_recovery_passphrase: str
+class ChangeOwnerPassphraseBody(BaseModel):
+    old_owner_passphrase: str
+    new_owner_passphrase: str
 
 
-@router.post("/change-identity-passphrase")
-def change_identity_passphrase(body: ChangeIdentityPassphraseBody, request: Request):
+@router.post("/change-owner-passphrase")
+def change_owner_passphrase(body: ChangeOwnerPassphraseBody, request: Request):
     """Fetch the identity key from registry escrow, decrypt with old passphrase,
     re-encrypt with new passphrase, re-upload. Returns identity_private_key hex
     so the user can confirm they have the latest version saved offline."""
@@ -737,7 +918,7 @@ def change_identity_passphrase(body: ChangeIdentityPassphraseBody, request: Requ
     try:
         old_salt = bytes.fromhex(escrow["argon2_salt"])
         old_key = derive_master_key(
-            body.old_recovery_passphrase, old_salt,
+            body.old_owner_passphrase, old_salt,
             escrow.get("argon2_time_cost", ARGON2_TIME_COST),
             escrow.get("argon2_memory_cost", ARGON2_MEMORY_COST),
             escrow.get("argon2_parallelism", ARGON2_PARALLELISM),
@@ -745,7 +926,7 @@ def change_identity_passphrase(body: ChangeIdentityPassphraseBody, request: Requ
         id_priv_bytes = decrypt_bytes(base64.b64decode(escrow["encrypted_identity_key"]), old_key)
         identity_private_key = identity_key_from_hex(id_priv_bytes.hex())
     except Exception:
-        raise HTTPException(403, "Wrong recovery passphrase")
+        raise HTTPException(403, "Wrong owner passphrase")
 
     # Verify key matches stored public key
     from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -758,7 +939,7 @@ def change_identity_passphrase(body: ChangeIdentityPassphraseBody, request: Requ
     # Re-encrypt with new passphrase and re-upload
     from cryptography.hazmat.primitives.serialization import PrivateFormat, NoEncryption
     new_salt = os.urandom(16)
-    new_key = derive_master_key(body.new_recovery_passphrase, new_salt)
+    new_key = derive_master_key(body.new_owner_passphrase, new_salt)
     new_encrypted = encrypt_bytes(
         identity_private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption()), new_key
     )
