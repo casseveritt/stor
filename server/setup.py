@@ -514,6 +514,31 @@ def _create_node_config(
         config["tang_url"] = tang_url_stored
 
     config_path.write_text(json.dumps(config, indent=2))
+
+    # Upload identity key escrow to registry using the node passphrase as recovery passphrase
+    try:
+        import os as _os2
+        from .crypto import ARGON2_TIME_COST as _TC, ARGON2_MEMORY_COST as _MC, ARGON2_PARALLELISM as _PAR
+        escrow_salt = _os2.urandom(16)
+        escrow_key = derive_master_key(passphrase, escrow_salt, _TC, _MC, _PAR)
+        id_priv_bytes = bytes.fromhex(identity_key_to_hex(identity_key))
+        enc_id_key = base64.b64encode(encrypt_bytes(id_priv_bytes, escrow_key)).decode()
+        import time as _time2, httpx as _hx_escrow
+        ts_e = int(_time2.time())
+        escrow_msg = f"contacc:escrow:{user_id}:{ts_e}"
+        escrow_sig = base64.b64encode(identity_key.sign(escrow_msg.encode())).decode()
+        _hx_escrow.put(f"{registry_url.rstrip('/')}/identity-key/{user_id}", json={
+            "encrypted_identity_key": enc_id_key,
+            "argon2_salt": escrow_salt.hex(),
+            "argon2_time_cost": _TC,
+            "argon2_memory_cost": _MC,
+            "argon2_parallelism": _PAR,
+            "signature": escrow_sig,
+            "timestamp": ts_e,
+        }, timeout=10)
+    except Exception as _ee:
+        log.warning("Escrow upload failed (can be done later from settings): %s", _ee)
+
     return {
         "argon2_salt": salt.hex(),
         "argon2_time_cost": ARGON2_TIME_COST,
@@ -522,7 +547,6 @@ def _create_node_config(
         "encrypted_private_key": base64.b64encode(encrypted_privkey).decode(),
         "internal_token": internal_token,
         "user_id": user_id,
-        "identity_private_key": identity_key_to_hex(identity_key),  # shown once, save offline
     }
 
 

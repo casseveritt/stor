@@ -2020,15 +2020,7 @@ async function doSetupNew() {
     const d = await r.json();
     if (r.status === 403) { _badSetupToken(d.detail); return; }
     if (!r.ok) { err.textContent = d.detail || "Error."; return; }
-    if (d.identity_private_key) {
-      showView("identity-key");
-      document.getElementById("identity-key-display").value = d.identity_private_key;
-      // Pre-fill recovery passphrase fields with the node passphrase
-      document.getElementById("identity-recovery-passphrase").value = pass;
-      document.getElementById("identity-recovery-passphrase-confirm").value = pass;
-    } else {
-      location.reload();
-    }
+    location.reload();
   } catch { err.textContent = "Network error."; }
 }
 
