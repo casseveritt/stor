@@ -1759,7 +1759,7 @@ function addFiles(files) {
 }
 
 // ── inline compose ─────────────────────────────────────────────────────────
-const INLINE_CTX = { taId: 'inline-compose-body', hlId: null, ddId: 'comment-mention-dropdown' };
+const INLINE_CTX = { taId: 'inline-compose-body', hlId: null, ddId: 'inline-mention-dropdown' };
 
 function _inlineComposeMentionInput(e) {
   const ta = e.target;
