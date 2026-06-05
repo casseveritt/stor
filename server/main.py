@@ -464,7 +464,9 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def init_guard(request: Request, call_next):
         path = request.url.path
         is_setup_path = path.startswith("/setup") or path == "/tang/deliver"
-        is_public_path = path == "/profile/photo" or path.startswith("/node") or path == "/notifications/mention"
+        is_public_path = (path == "/profile/photo" or path.startswith("/node")
+                         or path == "/notifications/mention"
+                         or path.startswith("/posts/") and path.endswith("/subscribe"))
         if not app.state.initialized and not is_setup_path:
             state = "locked" if config_path.exists() else "uninitialized"
             return JSONResponse({"detail": "Server not ready", "state": state}, status_code=503)

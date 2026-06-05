@@ -68,7 +68,19 @@ Design:
 - Clients check for extension support before calling optional endpoints
 - Popular extensions graduate into core over time
 
-**4 (was 3). Upload identity escrow from settings**
+**4. Hybrid push/poll for live post updates** ← implementing now
+
+Current: every 20s poll for open comment panels. Instead:
+- Opening a post panel subscribes to that post on the remote node for 5 minutes
+  (`POST /posts/{id}/subscribe {callback_url, ttl}`)
+- Remote node pushes updates (comments, reactions, edits) to the subscriber's
+  `/notifications/post-update` endpoint as they happen — no polling during the window
+- Browser polls a cheap in-memory endpoint (`GET /api/subscribed-updates`) every 2s
+  to pick up pushed updates; no remote network call unless the window expired
+- After TTL, subscription lapses; next panel open re-subscribes
+- Background feed poll rate unaffected (already contact-weight-driven in roadmap)
+
+**5 (was 4). Upload identity escrow from settings**
 Users who set up before the automatic escrow flow can upload their identity key escrow after
 the fact from the profile/settings UI (requires them to have their identity private key).
 

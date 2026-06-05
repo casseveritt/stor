@@ -1317,7 +1317,9 @@ function renderPostBody(post) {
 }
 
 // ── polling ────────────────────────────────────────────────────────────────
-const POLL_DETAIL_MS    = 20_000;
+const POLL_DETAIL_MS    = 120_000; // fallback poll for open panels (push covers the first 5 min)
+const SUB_POLL_MS       = 2_000;   // cheap in-memory check for pushed updates
+let _subPollTimer = null;
 const BG_CHECK_MS       = 60_000;   // how often the scheduler wakes to check due servers
 const DEFAULT_POLL_MS   = 30 * 60_000;
 const MIN_POLL_MS       =  5 * 60_000;
@@ -1340,10 +1342,41 @@ function _startDetailPoll() {
   clearInterval(_detailPollTimer);
   if (_openPanels.size === 0) return;
   _detailPollTimer = setInterval(_pollOpenPanels, POLL_DETAIL_MS);
+  // Also start the cheap subscription update poll
+  clearInterval(_subPollTimer);
+  _subPollTimer = setInterval(_applySubscribedUpdates, SUB_POLL_MS);
 }
 function _stopDetailPoll() {
   clearInterval(_detailPollTimer); _detailPollTimer = null;
+  clearInterval(_subPollTimer); _subPollTimer = null;
 }
+async function _applySubscribedUpdates() {
+  if (_openPanels.size === 0) return;
+  const r = await apiFetch('/api/subscribed-updates').catch(() => null);
+  if (!r || !r.ok) return;
+  const { updates } = await r.json();
+  for (const upd of updates) {
+    const post = _openPanels.get(upd.post_id);
+    if (!post) continue;
+    if (upd.event === 'comment') {
+      // Reload comments panel to show new comment
+      const panel = document.querySelector(`.comments-panel[data-post-id="${upd.post_id}"]`);
+      if (panel && !panel.hidden) _loadCommentsIntoPanel(post, panel);
+    } else if (upd.event === 'reaction') {
+      const cid = upd.data?.comment_id || '';
+      const reactions = upd.data?.reactions;
+      if (reactions) {
+        const serverUrl = post._server_url || CFG.own_server;
+        document.querySelectorAll(`.reaction-bar[data-post-id="${upd.post_id}"][data-comment-id="${cid}"]`).forEach(bar => {
+          const tmp = document.createElement('div');
+          tmp.innerHTML = reactionBarHtml(reactions, upd.post_id, serverUrl, cid);
+          bar.replaceWith(tmp.firstChild);
+        });
+      }
+    }
+  }
+}
+
 function _startBgFetch() {
   clearInterval(_bgFetchTimer);
   _bgFetchTimer = setInterval(_runBgFetch, BG_CHECK_MS);
@@ -1480,6 +1513,10 @@ function _toggleComments(post, cardEl) {
     _openPanels.set(post.id, post);
     _startDetailPoll();
     _loadCommentsIntoPanel(post, panel);
+    // Subscribe to push updates from the remote node
+    const subParams = post._server_url && post._server_url !== CFG.own_server
+      ? '?server=' + encodeURIComponent(post._server_url) : '';
+    apiFetch('/api/posts/' + post.id + '/subscribe' + subParams, {method: 'POST'}).catch(() => {});
   } else {
     panel.hidden = true;
     arrow.textContent = '▶';

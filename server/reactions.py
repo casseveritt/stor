@@ -86,4 +86,7 @@ def toggle_reaction(post_id: str, payload: _ReactBody, request: Request, identit
         reacted = True
     db.commit()
 
-    return {"reactions": get_reactions(db, post_id, payload.comment_id, reactor), "reacted": reacted}
+    result = {"reactions": get_reactions(db, post_id, payload.comment_id, reactor), "reacted": reacted}
+    from .posts import _push_post_update
+    _push_post_update(post_id, "reaction", {"comment_id": payload.comment_id or "", "reactions": result["reactions"]}, request.app)
+    return result

@@ -801,6 +801,51 @@ def create_app(config_path: str | Path) -> FastAPI:
             headers={"Content-Disposition": "attachment; filename=contacc-private-key.pem"},
         )
 
+    # ── post subscriptions ────────────────────────────────────────────────────
+    _pending_post_updates: list[dict] = []
+    _active_subs: dict[str, float] = {}
+
+    @app.post("/notifications/post-update", status_code=204)
+    async def receive_post_update(request: Request):
+        try:
+            body = await request.json()
+            if body.get("post_id") and body.get("event"):
+                _pending_post_updates.append(body)
+                if len(_pending_post_updates) > 200:
+                    del _pending_post_updates[:100]
+        except Exception:
+            pass
+
+    @api.get("/subscribed-updates")
+    async def get_subscribed_updates():
+        updates = list(_pending_post_updates)
+        _pending_post_updates.clear()
+        return {"updates": updates}
+
+    @api.post("/posts/{post_id}/subscribe")
+    async def api_subscribe_post(post_id: str, request: Request, server: str = ""):
+        src = server or config.own_server
+        own_node = os.environ.get("CONTACC_NODE_ADDRESS", config.own_server).rstrip("/")
+        callback_url = own_node + "/notifications/post-update"
+        sub_key = f"{post_id}|{src}"
+        now_t = time.time()
+        if _active_subs.get(sub_key, 0) > now_t + 60:
+            return {"status": "active"}
+        ttl = 300
+        try:
+            async with httpx.AsyncClient() as hc:
+                r = await hc.post(
+                    _call_url(src) + f"/posts/{post_id}/subscribe",
+                    json={"callback_url": callback_url, "ttl": ttl},
+                    headers=_headers(src), timeout=5,
+                )
+            if r.is_success or r.status_code == 204:
+                _active_subs[sub_key] = now_t + ttl
+                return {"status": "subscribed", "ttl": ttl}
+        except Exception:
+            pass
+        return {"status": "failed"}
+
     @api.get("/notifications/mentions")
     async def api_get_mentions():
         async with httpx.AsyncClient() as hc:

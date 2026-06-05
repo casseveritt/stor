@@ -18,6 +18,62 @@ router = APIRouter()
 _ASSET_REF = re.compile(r"\[asset:([0-9a-f-]+)\]")
 _MENTION_RE = re.compile(r"\[([^\|\]]+)\|([^\]]+)\]")
 
+# ── post subscriptions (ephemeral, in-memory) ─────────────────────────────────
+# post_id → list of (callback_url, expires_at)
+_post_subscriptions: dict[str, list[tuple[str, float]]] = {}
+_SUB_MAX_PER_POST = 20
+_SUB_MAX_TOTAL = 200
+
+
+def _sub_cleanup() -> None:
+    now = time.time()
+    for pid in list(_post_subscriptions):
+        _post_subscriptions[pid] = [(u, e) for u, e in _post_subscriptions[pid] if e > now]
+        if not _post_subscriptions[pid]:
+            del _post_subscriptions[pid]
+
+
+def _push_post_update(post_id: str, event: str, data: dict, app) -> None:
+    """Fire-and-forget push to all active subscribers for a post."""
+    import threading
+    subs = _post_subscriptions.get(post_id, [])
+    if not subs:
+        return
+    now = time.time()
+    active = [(u, e) for u, e in subs if e > now]
+    if not active:
+        return
+    payload = {"post_id": post_id, "event": event, "data": data}
+
+    def _send():
+        import httpx as _hx
+        for callback_url, _ in active:
+            try:
+                _hx.post(callback_url, json=payload, timeout=5)
+            except Exception:
+                pass
+    threading.Thread(target=_send, daemon=True).start()
+
+
+class SubscribeBody(BaseModel):
+    callback_url: str
+    ttl: int = 300  # seconds, max 600
+
+
+@router.post("/posts/{post_id}/subscribe", status_code=204)
+def subscribe_post(post_id: str, body: SubscribeBody):
+    """Register a callback URL to receive updates for this post for TTL seconds."""
+    ttl = max(10, min(body.ttl, 600))
+    expires = time.time() + ttl
+    _sub_cleanup()
+    if sum(len(v) for v in _post_subscriptions.values()) >= _SUB_MAX_TOTAL:
+        return  # silently drop if too many global subs
+    existing = _post_subscriptions.setdefault(post_id, [])
+    # replace existing sub for this callback_url, or add new
+    existing[:] = [(u, e) for u, e in existing if u != body.callback_url]
+    if len(existing) < _SUB_MAX_PER_POST:
+        existing.append((body.callback_url, expires))
+
 
 def _notify_mentions(body: str, post_id: str, app) -> None:
     """Best-effort federated notification to any nodes mentioned in body."""
@@ -561,13 +617,15 @@ async def post_comment(post_id: str, payload: _CommentBody, request: Request, id
     db.commit()
 
     _notify_mentions(payload.body, post_id, request.app)
-    return {
+    result = {
         "id": comment_id, "content_hash": content_hash,
         "post_id": post_id, "parent_id": payload.parent_id,
         "author_recipient_id": author_id, "author_identity": author_identity,
         "body": payload.body, "deleted": False,
         "created_at": now, "predecessor": None, "successor": None,
     }
+    _push_post_update(post_id, "comment", result, request.app)
+    return result
 
 
 class _EditCommentBody(BaseModel):
