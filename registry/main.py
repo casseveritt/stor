@@ -131,7 +131,7 @@ def create_app(db_path: str) -> FastAPI:
         con.execute("ALTER TABLE handles ADD COLUMN web_url TEXT")
         con.commit()
     # Add identity/user_id columns if missing
-    for col in ["user_id TEXT", "identity_public_key TEXT", "delegation_sig TEXT", "encrypted_identity_key TEXT", "google_identity TEXT"]:
+    for col in ["user_id TEXT", "identity_public_key TEXT", "delegation_sig TEXT", "encrypted_identity_key TEXT", "google_identity TEXT", "is_primary INTEGER DEFAULT 0"]:
         try:
             con.execute(f"ALTER TABLE handles ADD COLUMN {col}")
             con.commit()
@@ -242,15 +242,15 @@ def create_app(db_path: str) -> FastAPI:
             raise HTTPException(401, "Not authenticated")
         rows = con.execute(
             "SELECT username, display_name, server_url, web_url, user_id, "
-            "public_key, delegation_sig, identity_public_key "
-            "FROM handles WHERE google_identity = ? ORDER BY updated_at DESC",
+            "public_key, delegation_sig, identity_public_key, is_primary "
+            "FROM handles WHERE google_identity = ? ORDER BY is_primary DESC, updated_at DESC",
             (identity,)
         ).fetchall()
         nodes = []
         for r in rows:
             node = {"handle": r[0], "display_name": r[1], "server_url": r[2],
                     "web_url": r[3], "user_id": r[4], "public_key": r[5],
-                    "identity_public_key": r[7]}
+                    "identity_public_key": r[7], "is_primary": bool(r[8])}
             if r[6]:
                 try:
                     node["delegation_cert"] = json.loads(r[6])
@@ -618,6 +618,7 @@ def create_app(db_path: str) -> FastAPI:
             <div style="font-size:0.75rem;color:#555">@${esc(n.handle)} &nbsp;·&nbsp; ${esc(n.server_url)}</div>
           </div>
           <div style="display:flex;gap:0.4rem;align-items:center">
+            ${n.is_primary ? '<span style="font-size:0.75rem;color:#6cbe6c;padding:0.3rem 0.5rem">★ primary</span>' : `<button class="btn btn-muted" style="font-size:0.8rem;padding:0.3rem 0.7rem" onclick="setPrimary('${esc(n.user_id)}')">Set primary</button>`}
             ${link ? `<a href="${esc(link)}" target="_blank" class="btn btn-muted" style="font-size:0.8rem;padding:0.3rem 0.7rem;text-decoration:none">Open ↗</a>` : ''}
             <button class="btn btn-muted" style="font-size:0.8rem;padding:0.3rem 0.7rem" onclick="toggleNode(${i})">Info ▾</button>
           </div>
@@ -700,6 +701,11 @@ def create_app(db_path: str) -> FastAPI:
     const r = await fetch("/nodes/"+n.user_id, {method: "DELETE"});
     if (r.ok) { msg.className = "msg ok"; msg.textContent = "✓ Removed."; await loadNodes(); }
     else { const d = await r.json().catch(()=>{}); msg.className = "msg err"; msg.textContent = d?.detail||"Failed."; }
+  }
+
+  async function setPrimary(userId) {
+    const r = await fetch("/nodes/"+userId+"/set-primary", {method: "POST"});
+    if (r.ok) await loadNodes();
   }
 
   function signIn() {
@@ -1077,6 +1083,39 @@ blockquote p { color: #888; font-style: italic; }
     @app.get("/docs/roadmap", response_class=HTMLResponse)
     def docs_roadmap():
         return _ROADMAP_HTML
+
+    @app.get("/go")
+    def go_me(request: Request):
+        """Redirect to the signed-in user's primary node."""
+        identity = _get_session(request)
+        if not identity:
+            return RedirectResponse("/auth/start?return_to=/go", status_code=302)
+        rows = con.execute(
+            "SELECT server_url, web_url, is_primary FROM handles "
+            "WHERE google_identity = ? ORDER BY is_primary DESC, updated_at DESC",
+            (identity,)
+        ).fetchall()
+        if not rows:
+            return RedirectResponse("/", status_code=302)
+        # Prefer is_primary=1, else most recently updated
+        dest = rows[0][1] or rows[0][0]
+        return RedirectResponse(dest, status_code=302)
+
+    @app.post("/nodes/{user_id}/set-primary", status_code=204)
+    def set_primary(user_id: str, request: Request):
+        """Mark a node as the primary for its owner. Requires registry session."""
+        identity = _get_session(request)
+        if not identity:
+            raise HTTPException(401, "Sign in first")
+        row = con.execute(
+            "SELECT google_identity FROM handles WHERE user_id = ?", (user_id,)
+        ).fetchone()
+        if not row or row[0] != identity:
+            raise HTTPException(403, "Not your node")
+        # Clear existing primary for this identity, set new one
+        con.execute("UPDATE handles SET is_primary = 0 WHERE google_identity = ?", (identity,))
+        con.execute("UPDATE handles SET is_primary = 1 WHERE user_id = ?", (user_id,))
+        con.commit()
 
     @app.get("/go/{username}")
     def go(username: str):
