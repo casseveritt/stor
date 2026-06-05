@@ -1153,7 +1153,15 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def api_dm_threads():
         async with httpx.AsyncClient() as hc:
             r = await hc.get(_server + "/dm/threads", headers=_internal_headers(), timeout=10)
-        return r.json() if r.is_success else {"threads": []}
+        data = r.json() if r.is_success else {"threads": []}
+        contact_urls = {c.url for c in _config.contacts}
+        contact_node_ids = {c.node_id for c in _config.contacts if c.node_id}
+        for t in data.get("threads", []):
+            t["is_contact"] = (
+                t.get("peer_url", "") in contact_urls
+                or t.get("peer_node_id", "") in contact_node_ids
+            )
+        return data
 
     class DmSendBody(BaseModel):
         peer_node_id: str

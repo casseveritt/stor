@@ -2429,9 +2429,11 @@ function _renderDmThreads() {
   list.innerHTML = _dmThreads.map(t => {
     const name = esc(t.peer_name || t.peer_url);
     const unread = t.unread_count || 0;
+    const contactIcon = t.is_contact ? '<span title="Contact" style="font-size:0.75rem;color:#888">👤</span>' : '';
     return `<div onclick="_dmOpenThread(${JSON.stringify(t.thread_id)},${JSON.stringify(t.peer_name||t.peer_url||'')})"
       style="padding:0.5rem 0.75rem;cursor:pointer;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid #1a1a1a"
       onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
+      ${contactIcon}
       <span style="flex:1;font-size:0.88rem;color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</span>
       ${unread ? `<span style="background:#4285f4;color:#fff;border-radius:10px;padding:0.1rem 0.4rem;font-size:0.7rem;font-weight:600">${unread}</span>` : ''}
     </div>`;
