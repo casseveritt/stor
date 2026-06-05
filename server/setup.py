@@ -136,6 +136,43 @@ def setup_new(body: NewBody, request: Request):
     except WrongPassphraseError:
         raise HTTPException(500, "Failed to initialize after setup")
 
+    # Fire the heartbeat synchronously so the registry has the handles entry before escrow upload
+    if callable(getattr(app.state, "trigger_heartbeat", None)):
+        try:
+            app.state.trigger_heartbeat()
+        except Exception as _he:
+            log.warning("Initial heartbeat failed: %s", _he)
+
+    # Upload identity key escrow now that the node is registered
+    _id_key_hex = key_material.pop("_identity_key_hex", None)
+    _reg_url = key_material.pop("_registry_url", "")
+    if _id_key_hex and _reg_url:
+        try:
+            import os as _os2
+            from .identity import identity_key_from_hex as _ikfh
+            _ik = _ikfh(_id_key_hex)
+            _uid = key_material["user_id"]
+            escrow_salt = _os2.urandom(16)
+            escrow_key = derive_master_key(body.passphrase, escrow_salt)
+            id_priv_bytes = bytes.fromhex(_id_key_hex)
+            enc_id_key = base64.b64encode(encrypt_bytes(id_priv_bytes, escrow_key)).decode()
+            import time as _time2, httpx as _hx_e
+            ts_e = int(_time2.time())
+            escrow_sig = base64.b64encode(_ik.sign(f"contacc:escrow:{_uid}:{ts_e}".encode())).decode()
+            r_e = _hx_e.put(f"{_reg_url.rstrip('/')}/identity-key/{_uid}", json={
+                "encrypted_identity_key": enc_id_key,
+                "argon2_salt": escrow_salt.hex(),
+                "argon2_time_cost": ARGON2_TIME_COST,
+                "argon2_memory_cost": ARGON2_MEMORY_COST,
+                "argon2_parallelism": ARGON2_PARALLELISM,
+                "signature": escrow_sig,
+                "timestamp": ts_e,
+            }, timeout=10)
+            if not r_e.is_success:
+                log.warning("Escrow upload failed: %s %s", r_e.status_code, r_e.text)
+        except Exception as _ee:
+            log.warning("Escrow upload failed: %s", _ee)
+
     _consume_token(app)
     return {
         "status": "ok",
@@ -515,30 +552,6 @@ def _create_node_config(
 
     config_path.write_text(json.dumps(config, indent=2))
 
-    # Upload identity key escrow to registry using the node passphrase as recovery passphrase
-    try:
-        import os as _os2
-        from .crypto import ARGON2_TIME_COST as _TC, ARGON2_MEMORY_COST as _MC, ARGON2_PARALLELISM as _PAR
-        escrow_salt = _os2.urandom(16)
-        escrow_key = derive_master_key(passphrase, escrow_salt, _TC, _MC, _PAR)
-        id_priv_bytes = bytes.fromhex(identity_key_to_hex(identity_key))
-        enc_id_key = base64.b64encode(encrypt_bytes(id_priv_bytes, escrow_key)).decode()
-        import time as _time2, httpx as _hx_escrow
-        ts_e = int(_time2.time())
-        escrow_msg = f"contacc:escrow:{user_id}:{ts_e}"
-        escrow_sig = base64.b64encode(identity_key.sign(escrow_msg.encode())).decode()
-        _hx_escrow.put(f"{registry_url.rstrip('/')}/identity-key/{user_id}", json={
-            "encrypted_identity_key": enc_id_key,
-            "argon2_salt": escrow_salt.hex(),
-            "argon2_time_cost": _TC,
-            "argon2_memory_cost": _MC,
-            "argon2_parallelism": _PAR,
-            "signature": escrow_sig,
-            "timestamp": ts_e,
-        }, timeout=10)
-    except Exception as _ee:
-        log.warning("Escrow upload failed (can be done later from settings): %s", _ee)
-
     return {
         "argon2_salt": salt.hex(),
         "argon2_time_cost": ARGON2_TIME_COST,
@@ -547,6 +560,8 @@ def _create_node_config(
         "encrypted_private_key": base64.b64encode(encrypted_privkey).decode(),
         "internal_token": internal_token,
         "user_id": user_id,
+        "_identity_key_hex": identity_key_to_hex(identity_key),  # internal only — not sent to client
+        "_registry_url": registry_url,
     }
 
 
