@@ -618,7 +618,7 @@ def create_app(db_path: str) -> FastAPI:
             <div style="font-size:0.75rem;color:#555">@${esc(n.handle)} &nbsp;·&nbsp; ${esc(n.server_url)}</div>
           </div>
           <div style="display:flex;gap:0.4rem;align-items:center">
-            ${n.is_primary ? '<span style="font-size:0.75rem;color:#6cbe6c;padding:0.3rem 0.5rem">★ primary</span>' : `<button class="btn btn-muted" style="font-size:0.8rem;padding:0.3rem 0.7rem" onclick="setPrimary('${esc(n.user_id)}')">Set primary</button>`}
+            ${(n.is_primary || nodes.length === 1) ? '<span style="font-size:0.75rem;color:#6cbe6c;padding:0.3rem 0.5rem">★ primary</span>' : `<button class="btn btn-muted" style="font-size:0.8rem;padding:0.3rem 0.7rem" onclick="setPrimary('${esc(n.user_id)}')">Set primary</button>`}
             ${link ? `<a href="${esc(link)}" target="_blank" class="btn btn-muted" style="font-size:0.8rem;padding:0.3rem 0.7rem;text-decoration:none">Open ↗</a>` : ''}
             <button class="btn btn-muted" style="font-size:0.8rem;padding:0.3rem 0.7rem" onclick="toggleNode(${i})">Info ▾</button>
           </div>
