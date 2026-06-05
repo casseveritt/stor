@@ -53,7 +53,22 @@ Weight propagation: since me and them share a data volume, me writes `poll_weigh
 Predefined category defaults: family=1.0, close_friends=0.8, friends=0.6,
 colleagues=0.5, acquaintances=0.3. Custom tags start neutral and can be tuned.
 
-**3. Upload identity escrow from settings**
+**3. API versioning and capability negotiation**
+
+Both the node API and the registry API need a version number and a mechanism to declare
+optional extension support. Nodes and registries implement a core set of capabilities
+guaranteed to be present everywhere, plus optional extensions that may or may not be
+available on a given instance.
+
+Design:
+- `GET /node` (already exists) should include `api_version` and `extensions: [string]`
+- `GET /` on the registry returns `api_version` and `extensions`
+- Core is what every conforming node/registry implements. Extensions are named capabilities
+  (e.g. `tang`, `reactions`, `mention_notifications`, `contact_categories`)
+- Clients check for extension support before calling optional endpoints
+- Popular extensions graduate into core over time
+
+**4 (was 3). Upload identity escrow from settings**
 Users who set up before the automatic escrow flow can upload their identity key escrow after
 the fact from the profile/settings UI (requires them to have their identity private key).
 
