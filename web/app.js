@@ -1064,7 +1064,11 @@ async function toggleReaction(postId, serverUrl, emoji, commentId, _btn) {
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({emoji, comment_id: commentId || ''}),
   });
-  if (!r.ok) return;
+  if (!r.ok) {
+    const status = document.getElementById('feed-status');
+    if (status) { status.textContent = 'Reaction failed — try again.'; setTimeout(() => { status.textContent = ''; }, 3000); }
+    return;
+  }
   const data = await r.json();
   const cid = commentId || '';
   document.querySelectorAll(`.reaction-bar[data-post-id="${postId}"][data-comment-id="${cid}"]`).forEach(bar => {
