@@ -12,7 +12,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from .auth import OwnerDep
+from .auth import OwnerDep, FederatedOrTokenDep
 from .db import NS, now_ns
 from .crypto import make_thread_id, derive_thread_key, encrypt_dm, decrypt_dm
 
@@ -70,30 +70,17 @@ class ReceiveBody(BaseModel):
 
 
 @router.post("/dm/receive", status_code=204)
-async def dm_receive(body: ReceiveBody, request: Request):
+async def dm_receive(body: ReceiveBody, request: Request, identity: FederatedOrTokenDep):
     """Receive an inbound DM from another node.
 
-    Auth: verified via X-Public-Key header — must match a known contact's public key.
+    Auth: any node with a valid federated signature is accepted (not contact-only).
+    The FederatedOrTokenDep will verify against known contacts or do an on-the-fly
+    /node fetch if the sender's key is unknown (requires X-Origin-Server header).
     """
-    pub_key = request.headers.get("X-Public-Key", "")
-    if not pub_key:
-        raise HTTPException(401, "X-Public-Key header required")
+    if not identity.is_owner and identity.recipient_id is None:
+        raise HTTPException(403, "Valid federated signature required")
 
     db = request.app.state.db
-
-    # Verify sender is a known contact by their public key
-    row = db.execute(
-        "SELECT 1 FROM users WHERE public_key = ? AND relationship = 'contact'",
-        (pub_key,)
-    ).fetchone()
-    if not row:
-        # Fall back to URL match (for contacts added without public key)
-        row = db.execute(
-            "SELECT 1 FROM users WHERE server_url = ? AND relationship = 'contact'",
-            (body.sender_url,)
-        ).fetchone()
-    if not row:
-        raise HTTPException(403, "Sender is not a known contact")
 
     # Deduplicate
     if db.execute("SELECT 1 FROM dm_messages WHERE id = ?", (body.id,)).fetchone():
@@ -251,6 +238,7 @@ async def send_message(payload: SendBody, request: Request, _: OwnerDep):
         app.state.private_key, "POST", "/dm/receive", push_body_bytes
     )
     fed_headers["Content-Type"] = "application/json"
+    fed_headers["X-Origin-Server"] = my_url
     try:
         async with httpx.AsyncClient() as hc:
             r = await hc.post(payload.peer_url.rstrip("/") + "/dm/receive",
