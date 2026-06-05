@@ -854,7 +854,7 @@ docker compose up -d --build</code></pre>
 <tr><td><code>node-N-me</code></td><td>28443+N</td><td>Owns identity, posts, assets. Encrypted SQLCipher DB + AES-256-GCM files.</td></tr>
 <tr><td><code>node-N-them</code></td><td>18443+N</td><td>Aggregates contacts' feeds. Proxies API calls to <em>me</em>.</td></tr>
 <tr><td><code>web-N</code></td><td>16443+N</td><td>Static UI + reverse proxy to <em>them</em>.</td></tr>
-<tr><td><code>registry</code></td><td>9532</td><td>Shared handle→URL directory. Run by the host operator.</td></tr>
+<tr><td><code>registry</code></td><td>9532</td><td>Shared user→node URL directory. Run by the host operator.</td></tr>
 <tr><td><code>caddy</code></td><td>—</td><td>TLS termination. Routes 8443+N → <em>them</em>, 6443+N → <em>web</em>.</td></tr>
 </table>
 <p>All external traffic enters through <em>them</em>, which proxies to <em>me</em> via an internal token. Caddy has no path-based routing rules.</p>
@@ -1057,7 +1057,7 @@ blockquote p { color: #888; font-style: italic; }
 <div>
 <h2>How it all connects</h2>
 <div class="diagram">  <em>Registry</em> ──────────────────────────────────────┐
-  │  handles → URLs        identity escrow        │
+  │  users → node URLs     identity escrow        │
   │  Tang keys             Google OAuth           │
   └───────────────────────────────────────────────┘
         ▲ heartbeat                ▲ Tang unlock
