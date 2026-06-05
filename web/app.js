@@ -981,6 +981,18 @@ function reactionBarHtml(reactions, postId, serverUrl, commentId) {
   return `<div class="reaction-bar" data-post-id="${esc(postId)}" data-server="${esc(serverUrl)}" data-comment-id="${esc(cid)}">${btns}${add}</div>`;
 }
 
+function _trackEmojiUsed(emoji) {
+  const key = 'contacc_emoji_freq';
+  const freq = JSON.parse(localStorage.getItem(key) || '{}');
+  freq[emoji] = (freq[emoji] || 0) + 1;
+  localStorage.setItem(key, JSON.stringify(freq));
+}
+
+function _topEmoji(n = 6) {
+  const freq = JSON.parse(localStorage.getItem('contacc_emoji_freq') || '{}');
+  return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, n).map(([e]) => e);
+}
+
 async function showEmojiPicker(event, postId, serverUrl, commentId) {
   const bar = event.target.closest('.reaction-bar');
   if (!bar) return;
@@ -988,6 +1000,25 @@ async function showEmojiPicker(event, postId, serverUrl, commentId) {
   document.querySelectorAll('.emoji-picker').forEach(p => p.remove());
   const picker = document.createElement('div');
   picker.className = 'emoji-picker';
+
+  // Frequently used row
+  const topEmoji = _topEmoji();
+  if (topEmoji.length) {
+    const freqRow = document.createElement('div');
+    freqRow.className = 'emoji-freq-row';
+    for (const emoji of topEmoji) {
+      const b = document.createElement('button');
+      b.className = 'emoji-pick-btn';
+      b.textContent = emoji;
+      b.title = 'Recently used';
+      b.onclick = e => { e.stopPropagation(); picker.remove(); _trackEmojiUsed(emoji); toggleReaction(postId, serverUrl, emoji, commentId, null); };
+      freqRow.appendChild(b);
+    }
+    picker.appendChild(freqRow);
+    const sep = document.createElement('div');
+    sep.style.cssText = 'border-top:1px solid #333;margin:0.25rem 0';
+    picker.appendChild(sep);
+  }
 
   // Search input
   const search = document.createElement('input');
@@ -1010,7 +1041,7 @@ async function showEmojiPicker(event, postId, serverUrl, commentId) {
       const b = document.createElement('button');
       b.className = 'emoji-pick-btn';
       b.textContent = emoji;
-      b.onclick = e => { e.stopPropagation(); picker.remove(); toggleReaction(postId, serverUrl, emoji, commentId, null); };
+      b.onclick = e => { e.stopPropagation(); picker.remove(); _trackEmojiUsed(emoji); toggleReaction(postId, serverUrl, emoji, commentId, null); };
       grid.appendChild(b);
     }
   }
