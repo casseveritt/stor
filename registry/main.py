@@ -1085,9 +1085,23 @@ blockquote p { color: #888; font-style: italic; }
         return _ROADMAP_HTML
 
     @app.get("/go")
-    def go_me(request: Request):
+    def go_me(request: Request, proxy_token: str = None):
         """Redirect to the signed-in user's primary node."""
         identity = _get_session(request)
+        response = None
+        if not identity and proxy_token:
+            # Exchange proxy_token for a session and set cookie
+            row = con.execute(
+                "SELECT identity, created_at FROM proxy_tokens WHERE token = ?", (proxy_token,)
+            ).fetchone()
+            if row and time.time_ns() - row[1] <= 300 * NS:
+                identity = row[0]
+                con.execute("DELETE FROM proxy_tokens WHERE token = ?", (proxy_token,))
+                con.commit()
+                session_token = secrets.token_urlsafe(32)
+                _reg_sessions[session_token] = (identity, time.time() + REG_SESSION_TTL)
+                # We'll set the cookie on the response below
+                response = "set_cookie"
         if not identity:
             return RedirectResponse("/auth/start?return_to=/go", status_code=302)
         rows = con.execute(
@@ -1095,11 +1109,12 @@ blockquote p { color: #888; font-style: italic; }
             "WHERE google_identity = ? ORDER BY is_primary DESC, updated_at DESC",
             (identity,)
         ).fetchall()
-        if not rows:
-            return RedirectResponse("/", status_code=302)
-        # Prefer is_primary=1, else most recently updated
-        dest = rows[0][1] or rows[0][0]
-        return RedirectResponse(dest, status_code=302)
+        dest = (rows[0][1] or rows[0][0]) if rows else "/"
+        r = RedirectResponse(dest, status_code=302)
+        if response == "set_cookie":
+            r.set_cookie("reg_session", session_token, httponly=True,
+                         samesite="lax", max_age=REG_SESSION_TTL)
+        return r
 
     @app.post("/nodes/{user_id}/set-primary", status_code=204)
     def set_primary(user_id: str, request: Request):
