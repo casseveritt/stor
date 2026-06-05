@@ -426,27 +426,35 @@ def create_app(config_path: str | Path) -> FastAPI:
         node_address = (os.environ.get("CONTACC_NODE_ADDRESS") or _cfg.node_address or "").rstrip("/")
         if not registry_url or not node_address:
             return
+        # Try node_id first, fall back to owner_id/user_id (Tang keys may be filed under either)
+        _tang_ids = list(dict.fromkeys(filter(None, [
+            _cfg.node_id, _cfg.owner_id, _cfg.user_id
+        ])))
         for delay in (2, 5, 15):  # try at 2s, 7s, 22s after startup
             await _aio.sleep(delay)
             if app.state.initialized:
-                return  # already unlocked (e.g. manual passphrase entry)
-            nonce = _sec.token_urlsafe(32)
-            app.state.tang_nonce = nonce
-            app.state.tang_nonce_expires = time.time() + 30
-            try:
-                async with _hx.AsyncClient() as hc:
-                    r = await hc.post(f"{registry_url}/tang/exchange", json={
-                        "node_id": _cfg.node_id or _cfg.owner_id or _cfg.user_id,
-                        "C": _cfg.tang_C,
-                        "nonce": nonce,
-                        "callback_url": f"{node_address}/tang/deliver",
-                    }, timeout=15)
-                if r.is_success:
-                    return  # unlock handled in /tang/deliver
-                log.warning("Tang exchange attempt failed (%s), will retry", r.status_code)
-            except Exception as e:
-                log.warning("Tang auto-unlock error: %s", e)
-            app.state.tang_nonce = None
+                return
+            for tang_node_id in _tang_ids:
+                nonce = _sec.token_urlsafe(32)
+                app.state.tang_nonce = nonce
+                app.state.tang_nonce_expires = time.time() + 30
+                try:
+                    async with _hx.AsyncClient() as hc:
+                        r = await hc.post(f"{registry_url}/tang/exchange", json={
+                            "node_id": tang_node_id,
+                            "C": _cfg.tang_C,
+                            "nonce": nonce,
+                            "callback_url": f"{node_address}/tang/deliver",
+                        }, timeout=15)
+                    if r.is_success:
+                        return  # unlock handled in /tang/deliver
+                    if r.status_code != 404:
+                        log.warning("Tang exchange attempt failed (%s), will retry", r.status_code)
+                        break  # non-404 errors don't benefit from trying other IDs
+                except Exception as e:
+                    log.warning("Tang auto-unlock error: %s", e)
+                    break
+                app.state.tang_nonce = None
         log.warning("Tang auto-unlock gave up after 3 attempts")
 
     @app.middleware("http")
