@@ -443,6 +443,21 @@ async function fetchServerProfiles() {
             profile.photo_url = null;
           }
         }
+        // Populate user_id from /node if not already in profile or contact entry
+        if (!profile.user_id && url !== CFG.own_server) {
+          try {
+            const nr = await fetch(url + "/node");
+            if (nr.ok) {
+              const nd = await nr.json();
+              if (nd.user_id) {
+                profile.user_id = nd.user_id;
+                // Also backfill the contact entry so mentions work without re-add
+                const c = (CFG.contacts || []).find(c => c.url === url);
+                if (c && !c.user_id) c.user_id = nd.user_id;
+              }
+            }
+          } catch {}
+        }
         serverProfiles[url] = profile;
         serverStatuses[url] = "ok";
         renderServerList();
@@ -1602,7 +1617,7 @@ function _mentionTag(c) {
 function _expandMentions(text) {
   const tagMap = new Map();
   for (const c of (CFG?.contacts || [])) {
-    const id = c.user_id || c.public_key;
+    const id = c.user_id || (serverProfiles[c.url] || {}).user_id || c.public_key;
     if (!id) continue;
     const tag = _contactTag(c);
     tagMap.set(tag.toLowerCase(), {label: tag, id});
