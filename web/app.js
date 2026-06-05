@@ -1252,11 +1252,19 @@ function _toggleComments(post, cardEl) {
 async function _loadCommentsIntoPanel(post, panel) {
   const params = post._server_url !== CFG.own_server
     ? "?server=" + encodeURIComponent(post._server_url) : "";
+  // Preserve any in-progress comment text before rebuilding
+  const existingInput = panel.querySelector('.comment-input[data-post-id="' + post.id + '"]');
+  const savedDraft = existingInput ? existingInput.value : "";
   const r = await apiFetch("/api/posts/" + post.id + "/comments" + params);
   if (!panel.isConnected || panel.hidden) return;
   if (!r.ok) { panel.innerHTML = ""; return; }
   const data = await r.json();
   _renderCommentsInto(post, data.comments, panel);
+  // Restore draft if panel was rebuilt while user was typing
+  if (savedDraft) {
+    const newInput = panel.querySelector('.comment-input[data-post-id="' + post.id + '"]');
+    if (newInput) newInput.value = savedDraft;
+  }
   // update toggle label with live count
   const toggle = panel.previousElementSibling;
   if (toggle?.classList.contains('comments-toggle')) {
