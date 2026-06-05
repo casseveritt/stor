@@ -1457,6 +1457,9 @@ function _startDetailPoll() {
   _subPollTimer = setInterval(_applySubscribedUpdates, SUB_POLL_MS);
 }
 function _stopDetailPoll() {
+  // Don't stop if DM panel is still open — it also needs the 2s poll
+  const dmPanel = document.getElementById("dm-panel");
+  if (dmPanel && !dmPanel.hidden) return;
   clearInterval(_detailPollTimer); _detailPollTimer = null;
   clearInterval(_subPollTimer); _subPollTimer = null;
 }
@@ -1498,8 +1501,6 @@ async function _applySubscribedUpdates() {
 function _startBgFetch() {
   clearInterval(_bgFetchTimer);
   _bgFetchTimer = setInterval(_runBgFetch, BG_CHECK_MS);
-  // DM background check — runs independently of open post panels
-  setInterval(_applySubscribedUpdates, 30_000);
 }
 
 // ── localStorage feed cache ────────────────────────────────────────────────
@@ -2309,9 +2310,10 @@ async function loadMentions() {
     badge.hidden = unread === 0;
     badge.textContent = unread > 9 ? "9+" : String(unread);
   }
-  // Show DM button alongside mentions
+  // Show DM button alongside mentions; start background DM badge refresh
   const dmWrap = document.getElementById("dm-wrap");
   if (dmWrap) dmWrap.style.display = "";
+  if (!_dmPollTimer) { _dmPollTimer = setInterval(_loadDmThreads, 30_000); _loadDmThreads(); }
 }
 
 function _toggleMentionsPanel() {
@@ -2406,14 +2408,29 @@ let _dmPollTimer = null;
 
 function _toggleDmPanel() {
   const panel = document.getElementById("dm-panel");
-  const hidden = panel.hidden;
-  // Close mentions panel if open
+  const wasHidden = panel.hidden;
   document.getElementById("mentions-panel").hidden = true;
-  panel.hidden = !hidden;
-  if (!hidden) return;
+  panel.hidden = !wasHidden;
+  if (!wasHidden) {
+    if (_openPanels.size === 0) _stopDetailPoll();
+    return;
+  }
+  _startDetailPoll();  // ensure 2s subscribed-updates poll runs while panel is open
   _dmBackToThreads();
-  _loadDmThreads();
-  if (!_dmPollTimer) _dmPollTimer = setInterval(_loadDmThreads, 30_000);
+  _loadDmThreads();  // fresh fetch when panel opens
+  setTimeout(() => document.addEventListener('click', _closeDmPanelOutside, {once: true}), 0);
+}
+
+function _closeDmPanelOutside(e) {
+  const panel = document.getElementById("dm-panel");
+  const btn = document.getElementById("dm-btn");
+  if (!panel || panel.hidden) return;
+  if (panel.contains(e.target) || e.target === btn) {
+    setTimeout(() => document.addEventListener('click', _closeDmPanelOutside, {once: true}), 0);
+    return;
+  }
+  panel.hidden = true;
+  if (_openPanels.size === 0) _stopDetailPoll();
 }
 
 async function _loadDmThreads() {
@@ -2488,15 +2505,19 @@ async function _dmSend() {
 
   let peer_node_id, peer_url;
   if (_dmActiveThread.startsWith("__new__:")) {
-    // New thread — look up peer's node_id from their /node endpoint
     peer_url = _dmActiveThread.slice("__new__:".length);
-    try {
-      const nr = await fetch(peer_url.rstrip ? peer_url : peer_url.replace(/\/$/, '') + "/node");
-      if (!nr.ok) { alert("Could not reach contact's node."); return; }
-      const nd = await nr.json();
-      peer_node_id = nd.node_id || nd.user_id;
-      if (!peer_node_id) { alert("Contact's node doesn't report a node ID."); return; }
-    } catch { alert("Could not reach contact's node."); return; }
+    // Use node_id from contact list if available; otherwise fetch /node
+    const contact = (CFG.contacts || []).find(c => c.url === peer_url);
+    peer_node_id = contact?.node_id;
+    if (!peer_node_id) {
+      try {
+        const nr = await fetch(peer_url.replace(/\/$/, '') + "/node");
+        if (!nr.ok) { alert("Could not reach contact's node."); return; }
+        const nd = await nr.json();
+        peer_node_id = nd.node_id || nd.user_id;
+        if (!peer_node_id) { alert("Contact's node doesn't report a node ID."); return; }
+      } catch { alert("Could not reach contact's node."); return; }
+    }
   } else {
     const thread = _dmThreads.find(t => t.thread_id === _dmActiveThread);
     if (!thread) return;
