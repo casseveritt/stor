@@ -53,6 +53,7 @@ _public_key_b64: str = ""
 _watermark_enabled: bool = False
 _registry_handle: str | None = None
 _user_id: str = ""       # legacy alias; prefer owner_id/node_id
+_dh_public_key: str = ""
 _owner_id: str = ""
 _node_id: str = ""
 
@@ -69,6 +70,11 @@ def setup(node_address: str, private_key: Ed25519PrivateKey, watermark_enabled: 
     _user_id = user_id
     _owner_id = owner_id or user_id
     _node_id = node_id
+
+
+def set_dh_public_key(pub_b64: str) -> None:
+    global _dh_public_key
+    _dh_public_key = pub_b64
 
 
 @router.get("/health")
@@ -126,6 +132,8 @@ def node_metadata(request: Request, identity: OptionalAuthDep):
         result["display_name"] = profile_row[0]
     if profile_row and profile_row[1]:
         result["photo_url"] = f"{_node_address}/profile/photo"
+    if _dh_public_key:
+        result["dh_public_key"] = _dh_public_key
     return result
 
 

@@ -2,7 +2,14 @@
 
 ## Pending
 
-**1. Client API test suite**
+**1. Chat / direct messages — remaining work**
+
+The DM feature is implemented (see Completed). Remaining:
+- Small-group messaging (3+ participants)
+- Asset/photo attachments in DMs
+- Forward secrecy (Double Ratchet) — explicitly deferred, static thread key accepted for v1
+
+**2. Client API test suite**
 Comprehensive pytest suite for every `/api/` route the client exposes to the browser.
 
 **6. Chat / direct messages**
@@ -40,6 +47,7 @@ model.
 - **API versioning (3)**: GET /node includes api_version + extensions; registry GET /meta returns same.
 - **Upload identity escrow from settings (4)**: profile panel "Upload identity escrow" section calls /setup/escrow-identity-key.
 - **Profile photo hover preview (4)**: 100×100 popup on hover over any .post-author-avatar; event delegation, viewport-clamped.
+- **Chat / direct messages (6)**: 1:1 E2E encrypted DMs. X25519 DH key pair generated at setup; thread key = HKDF(DH(my_priv, peer_pub), thread_id). AES-256-GCM per message. Push delivery to peer's /dm/receive with heartbeat retry. Thread list + conversation view in header panel. "Message" button in contact menu. DM events flow through subscribed-updates 2s poll. Static thread key (no ratchet) accepted for v1.
 - **Hybrid push/poll for live post updates**: subscribe to post on remote node; 2s cheap poll for pushed updates; 20s heavy poll replaced.
 - **Reaction emoji + emoji picker**: 1800+ emoji from CDN, search, recently used row.
 - **@mention notifications**: @ bell in header, dropdown, click-to-jump-to-post.

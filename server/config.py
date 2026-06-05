@@ -30,6 +30,7 @@ class NodeConfig:
     tang_url: str | None = None              # registry Tang endpoint base URL
     tang_C: str | None = None               # base64 ephemeral X25519 public key
     tang_E: str | None = None               # base64 AES-GCM encrypted passphrase
+    encrypted_dh_private_key: str | None = None  # base64 AES-GCM; X25519 key for DM thread key derivation
 
     @classmethod
     def load(cls, path: str | Path) -> "NodeConfig":

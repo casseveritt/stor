@@ -156,6 +156,19 @@ def _verify_share_token(token: str) -> TokenIdentity | None:
         return None
 
 
+def sign_federated_request(private_key, method: str = "POST", path: str = "", body_bytes: bytes = b"") -> dict:
+    """Return headers for an outgoing federated request signed with our node key."""
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    ts = str(int(time.time()))
+    body_hash = hashlib.sha256(body_bytes).hexdigest()
+    canonical = f"{method}\n{path}\n{ts}\n{body_hash}"
+    sig = base64.b64encode(private_key.sign(canonical.encode())).decode()
+    pub_b64 = base64.b64encode(
+        private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    ).decode()
+    return {"X-Public-Key": pub_b64, "X-Timestamp": ts, "X-Signature": sig}
+
+
 # ── FastAPI dependencies ──────────────────────────────────────────────────────
 
 _GUEST = TokenIdentity(is_owner=False)

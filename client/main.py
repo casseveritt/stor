@@ -835,6 +835,14 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def get_subscribed_updates():
         updates = list(_pending_post_updates)
         _pending_post_updates.clear()
+        # Also pull any inbound DM updates from server
+        try:
+            async with httpx.AsyncClient() as hc:
+                r = await hc.get(_server + "/dm/updates", headers=_internal_headers(), timeout=3)
+            if r.is_success:
+                updates.extend(r.json().get("updates", []))
+        except Exception:
+            pass
         return {"updates": updates}
 
     @api.post("/posts/{post_id}/subscribe")
@@ -1138,6 +1146,45 @@ def create_app(config_path: str | Path) -> FastAPI:
                     timeout=10.0,
                 )
         return {"ok": True}
+
+    # ── DM proxy endpoints ─────────────────────────────────────────────────────
+
+    @api.get("/dm/threads")
+    async def api_dm_threads():
+        async with httpx.AsyncClient() as hc:
+            r = await hc.get(_server + "/dm/threads", headers=_internal_headers(), timeout=10)
+        return r.json() if r.is_success else {"threads": []}
+
+    class DmSendBody(BaseModel):
+        peer_node_id: str
+        peer_url: str
+        body: str
+
+    @api.post("/dm/send", status_code=201)
+    async def api_dm_send(payload: DmSendBody):
+        async with httpx.AsyncClient() as hc:
+            r = await hc.post(_server + "/dm/send",
+                              json={"peer_node_id": payload.peer_node_id,
+                                    "peer_url": payload.peer_url,
+                                    "body": payload.body},
+                              headers=_internal_headers(), timeout=15)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+    @api.get("/dm/messages/{thread_id}")
+    async def api_dm_messages(thread_id: str, since: int = 0, limit: int = 50):
+        async with httpx.AsyncClient() as hc:
+            r = await hc.get(_server + f"/dm/messages/{thread_id}",
+                             params={"since": since, "limit": limit},
+                             headers=_internal_headers(), timeout=10)
+        return r.json() if r.is_success else {"messages": []}
+
+    @api.post("/dm/threads/{thread_id}/seen", status_code=204)
+    async def api_dm_seen(thread_id: str):
+        async with httpx.AsyncClient() as hc:
+            await hc.post(_server + f"/dm/threads/{thread_id}/seen",
+                          headers=_internal_headers(), timeout=5)
 
     app.include_router(api)
 

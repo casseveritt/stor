@@ -337,4 +337,26 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             seen         INTEGER NOT NULL DEFAULT 0
         )
     """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS dm_threads (
+            thread_id    TEXT PRIMARY KEY,
+            peer_node_id TEXT NOT NULL,
+            peer_url     TEXT NOT NULL,
+            peer_name    TEXT,
+            peer_dh_pub  TEXT,
+            last_msg_at  INTEGER NOT NULL DEFAULT 0,
+            unread_count INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS dm_messages (
+            id           TEXT PRIMARY KEY,
+            thread_id    TEXT NOT NULL,
+            direction    TEXT NOT NULL CHECK (direction IN ('in', 'out')),
+            body_enc     TEXT NOT NULL,
+            created_at   INTEGER NOT NULL,
+            delivered_at INTEGER,
+            seen_at      INTEGER
+        )
+    """)
     con.commit()

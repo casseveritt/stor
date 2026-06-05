@@ -356,12 +356,16 @@ function openContactMenu(e, url, tag, description, category) {
   const popup = document.createElement('div');
   popup.className = 'post-menu-popup';
 
+  const msgBtn = document.createElement('button');
+  msgBtn.textContent = 'Message';
+  msgBtn.onclick = () => { closeAllPostMenus(); _dmStartNew(url); };
   const tagBtn = document.createElement('button');
   tagBtn.textContent = 'Set @tag';
   tagBtn.onclick = () => { closeAllPostMenus(); setContactTag(url, tag); };
   const descBtn = document.createElement('button');
   descBtn.textContent = 'Edit description';
   descBtn.onclick = () => { closeAllPostMenus(); editContactDescription(url, description); };
+  popup.appendChild(msgBtn);
   popup.appendChild(tagBtn);
   popup.appendChild(descBtn);
 
@@ -1457,11 +1461,19 @@ function _stopDetailPoll() {
   clearInterval(_subPollTimer); _subPollTimer = null;
 }
 async function _applySubscribedUpdates() {
-  if (_openPanels.size === 0) return;
   const r = await apiFetch('/api/subscribed-updates').catch(() => null);
   if (!r || !r.ok) return;
   const { updates } = await r.json();
   for (const upd of updates) {
+    // DM event — refresh thread list and active conversation
+    if (upd.type === 'dm') {
+      _loadDmThreads();
+      if (_dmActiveThread && upd.thread_id === _dmActiveThread) {
+        _loadDmMessages(_dmActiveThread);
+      }
+      continue;
+    }
+    if (_openPanels.size === 0) continue;
     const post = _openPanels.get(upd.post_id);
     if (!post) continue;
     if (upd.event === 'comment') {
@@ -1486,6 +1498,8 @@ async function _applySubscribedUpdates() {
 function _startBgFetch() {
   clearInterval(_bgFetchTimer);
   _bgFetchTimer = setInterval(_runBgFetch, BG_CHECK_MS);
+  // DM background check — runs independently of open post panels
+  setInterval(_applySubscribedUpdates, 30_000);
 }
 
 // ── localStorage feed cache ────────────────────────────────────────────────
@@ -2295,6 +2309,9 @@ async function loadMentions() {
     badge.hidden = unread === 0;
     badge.textContent = unread > 9 ? "9+" : String(unread);
   }
+  // Show DM button alongside mentions
+  const dmWrap = document.getElementById("dm-wrap");
+  if (dmWrap) dmWrap.style.display = "";
 }
 
 function _toggleMentionsPanel() {
@@ -2379,6 +2396,161 @@ async function _jumpToMention(postId, serverUrl) {
     const toggle = card.querySelector(".comments-toggle");
     if (toggle && card.querySelector(".comments-panel")?.hidden !== false) toggle.click();
   }
+}
+
+// ── DMs ───────────────────────────────────────────────────────────────────────
+let _dmThreads = [];
+let _dmActiveThread = null;
+let _dmMessages = [];
+let _dmPollTimer = null;
+
+function _toggleDmPanel() {
+  const panel = document.getElementById("dm-panel");
+  const hidden = panel.hidden;
+  // Close mentions panel if open
+  document.getElementById("mentions-panel").hidden = true;
+  panel.hidden = !hidden;
+  if (!hidden) return;
+  _dmBackToThreads();
+  _loadDmThreads();
+  if (!_dmPollTimer) _dmPollTimer = setInterval(_loadDmThreads, 30_000);
+}
+
+async function _loadDmThreads() {
+  const r = await apiFetch("/api/dm/threads");
+  if (!r.ok) return;
+  const d = await r.json();
+  _dmThreads = d.threads || [];
+  _renderDmThreads();
+  // Update badge
+  const unread = _dmThreads.reduce((s, t) => s + (t.unread_count || 0), 0);
+  const badge = document.getElementById("dm-badge");
+  if (badge) { badge.hidden = unread === 0; badge.textContent = unread > 9 ? "9+" : unread; }
+}
+
+function _renderDmThreads() {
+  const list = document.getElementById("dm-threads-list");
+  if (!list) return;
+  if (!_dmThreads.length) {
+    list.innerHTML = '<div style="padding:0.75rem;font-size:0.82rem;color:#555">No messages yet.</div>';
+    return;
+  }
+  list.innerHTML = _dmThreads.map(t => {
+    const name = esc(t.peer_name || t.peer_url);
+    const unread = t.unread_count || 0;
+    return `<div onclick="_dmOpenThread(${JSON.stringify(t.thread_id)},${JSON.stringify(t.peer_name||t.peer_url||'')})"
+      style="padding:0.5rem 0.75rem;cursor:pointer;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid #1a1a1a"
+      onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
+      <span style="flex:1;font-size:0.88rem;color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</span>
+      ${unread ? `<span style="background:#4285f4;color:#fff;border-radius:10px;padding:0.1rem 0.4rem;font-size:0.7rem;font-weight:600">${unread}</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function _dmOpenThread(threadId, peerName) {
+  _dmActiveThread = threadId;
+  document.getElementById("dm-conv-name").textContent = peerName;
+  document.getElementById("dm-thread-list-view").hidden = true;
+  document.getElementById("dm-conversation-view").hidden = false;
+  await _loadDmMessages(threadId);
+  await apiFetch("/api/dm/threads/" + threadId + "/seen", {method: "POST"});
+  await _loadDmThreads();
+}
+
+async function _loadDmMessages(threadId) {
+  const r = await apiFetch("/api/dm/messages/" + threadId + "?limit=100");
+  if (!r.ok) return;
+  const d = await r.json();
+  _dmMessages = d.messages || [];
+  _renderDmMessages();
+}
+
+function _renderDmMessages() {
+  const list = document.getElementById("dm-messages-list");
+  if (!list) return;
+  list.innerHTML = _dmMessages.map(m => {
+    const out = m.direction === 'out';
+    const time = m.created_at ? new Date(m.created_at / 1_000_000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '';
+    const delivered = out ? (m.delivered_at ? '' : ' style="opacity:0.5"') : '';
+    return `<div style="display:flex;flex-direction:column;align-items:${out?'flex-end':'flex-start'}"${delivered}>
+      <div style="max-width:80%;background:${out?'#1a3360':'#252525'};border-radius:8px;padding:0.4rem 0.65rem;font-size:0.88rem;color:#e0e0e0;word-break:break-word">${esc(m.body)}</div>
+      <span style="font-size:0.65rem;color:#555;margin-top:0.15rem">${esc(time)}${out&&!m.delivered_at?' ·':''}</span>
+    </div>`;
+  }).join('');
+  list.scrollTop = list.scrollHeight;
+}
+
+async function _dmSend() {
+  if (!_dmActiveThread) return;
+  const ta = document.getElementById("dm-compose");
+  const body = ta.value.trim();
+  if (!body) return;
+
+  let peer_node_id, peer_url;
+  if (_dmActiveThread.startsWith("__new__:")) {
+    // New thread — look up peer's node_id from their /node endpoint
+    peer_url = _dmActiveThread.slice("__new__:".length);
+    try {
+      const nr = await fetch(peer_url.rstrip ? peer_url : peer_url.replace(/\/$/, '') + "/node");
+      if (!nr.ok) { alert("Could not reach contact's node."); return; }
+      const nd = await nr.json();
+      peer_node_id = nd.node_id || nd.user_id;
+      if (!peer_node_id) { alert("Contact's node doesn't report a node ID."); return; }
+    } catch { alert("Could not reach contact's node."); return; }
+  } else {
+    const thread = _dmThreads.find(t => t.thread_id === _dmActiveThread);
+    if (!thread) return;
+    peer_node_id = thread.peer_node_id;
+    peer_url = thread.peer_url;
+  }
+
+  ta.value = ""; ta.style.height = "";
+  const r = await apiFetch("/api/dm/send", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({peer_node_id, peer_url, body}),
+  });
+  if (!r.ok) { ta.value = body; return; }
+  // After first message, update active thread to real thread_id
+  const d = await r.json();
+  if (_dmActiveThread.startsWith("__new__:")) {
+    _dmActiveThread = d.thread_id;
+  }
+  await _loadDmThreads();
+  await _loadDmMessages(_dmActiveThread);
+}
+
+async function _dmStartNew(peerUrl) {
+  // Open the DM panel; find existing thread for this contact or prepare a new one
+  const panel = document.getElementById("dm-panel");
+  document.getElementById("mentions-panel").hidden = true;
+  panel.hidden = false;
+  if (!_dmPollTimer) _dmPollTimer = setInterval(_loadDmThreads, 30_000);
+  await _loadDmThreads();
+  // Look for existing thread by peer URL
+  const contact = (CFG.contacts || []).find(c => c.url === peerUrl);
+  const thread = _dmThreads.find(t => t.peer_url === peerUrl);
+  if (thread) {
+    await _dmOpenThread(thread.thread_id, thread.peer_name || (contact && contact.name) || peerUrl);
+  } else {
+    // Show thread list; user can see they need to send the first message
+    // Prepare a new-thread placeholder in the compose view
+    _dmActiveThread = "__new__:" + peerUrl;
+    const name = (contact && contact.name) || peerUrl;
+    document.getElementById("dm-conv-name").textContent = name;
+    document.getElementById("dm-thread-list-view").hidden = true;
+    document.getElementById("dm-conversation-view").hidden = false;
+    document.getElementById("dm-messages-list").innerHTML =
+      '<div style="text-align:center;color:#555;font-size:0.82rem;padding:1rem">Start of your conversation</div>';
+    document.getElementById("dm-compose").focus();
+  }
+}
+
+function _dmBackToThreads() {
+  _dmActiveThread = null;
+  document.getElementById("dm-thread-list-view").hidden = false;
+  document.getElementById("dm-conversation-view").hidden = true;
+  _renderDmThreads();
 }
 
 async function checkDefaultPassphrase() {

@@ -16,7 +16,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
 from .config import NodeConfig
-from .crypto import derive_master_key, derive_subkeys, decrypt_bytes
+from .crypto import derive_master_key, derive_subkeys, decrypt_bytes, encrypt_bytes
 from .db import open_db, init_schema, WrongPassphraseError
 from . import node as node_module
 from . import auth as auth_module
@@ -33,6 +33,7 @@ from . import profile as profile_module
 from . import contacts as contacts_module
 from . import reactions as reactions_module
 from . import debug as debug_module
+from . import dm as dm_module
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("contacc")
@@ -252,6 +253,7 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
     }
     app.state.sso_exchange_google = sso_module.exchange_google_code
     app.state.user_id = config.owner_id or config.user_id or ""
+    app.state.node_id = config.node_id or ""
 
     node_module.setup(node_address, private_key, config.watermark_enabled, config.registry_handle,
                       user_id=config.owner_id or config.user_id,
@@ -261,6 +263,28 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
 
     app.state.private_key = private_key
     app.state.internal_token = config.internal_token
+
+    # Load or generate X25519 DH key for DM thread key derivation
+    import json as _json_dh
+    _config_data_dh = _json_dh.loads(config_path.read_text())
+    from .crypto import generate_dh_key, load_dh_key, dh_public_key_b64 as _dh_pub_b64
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding as _Edh, PrivateFormat as _PFdh, NoEncryption as _NEdh,
+    )
+    if config.encrypted_dh_private_key:
+        dh_priv = load_dh_key(config.encrypted_dh_private_key, master_key)
+    else:
+        dh_priv, _ = generate_dh_key()
+        dh_raw = dh_priv.private_bytes(_Edh.Raw, _PFdh.Raw, _NEdh())
+        _config_data_dh["encrypted_dh_private_key"] = base64.b64encode(
+            encrypt_bytes(dh_raw, master_key)
+        ).decode()
+        config_path.write_text(_json_dh.dumps(_config_data_dh, indent=2))
+        log.info("Generated DH key for DM encryption")
+    app.state.dh_private_key = dh_priv
+    app.state.dh_public_key = _dh_pub_b64(dh_priv)
+    node_module.set_dh_public_key(app.state.dh_public_key)
+
     app.state.initialized = True
     log.info("Node %s ready.", node_address)
 
@@ -292,11 +316,53 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
                 import time as _time
                 while True:
                     trigger()
+                    _retry_undelivered_dms(app)
                     _time.sleep(HEARTBEAT_INTERVAL)
 
             trigger_fn = _make_trigger(private_key, node_address, config.registry_handle, registry_url, db_con, app.state.web_address, config_path)
             app.state.trigger_heartbeat = trigger_fn
             threading.Thread(target=_heartbeat_loop, args=(trigger_fn,), daemon=True).start()
+
+
+def _retry_undelivered_dms(app) -> None:
+    """Retry pushing undelivered outgoing DMs. Runs in heartbeat thread."""
+    try:
+        from .crypto import dh_public_key_b64 as _dhpub, derive_thread_key, encrypt_dm
+        from .auth import sign_federated_request
+        import json as _j
+        db = app.state.db
+        cutoff = app.state.db.execute("SELECT (strftime('%s','now') * 1000000000 - 7*86400*1000000000)").fetchone()[0]
+        rows = db.execute("""
+            SELECT m.id, m.thread_id, m.body_enc, t.peer_url, t.peer_node_id
+            FROM dm_messages m JOIN dm_threads t ON m.thread_id = t.thread_id
+            WHERE m.direction = 'out' AND m.delivered_at IS NULL AND m.created_at > ?
+            LIMIT 20
+        """, (cutoff,)).fetchall()
+        if not rows:
+            return
+        from .db import now_ns
+        for msg_id, thread_id, body_enc, peer_url, peer_node_id in rows:
+            push = {
+                "id": msg_id, "thread_id": thread_id,
+                "sender_node_id": app.state.node_id,
+                "sender_url": app.state.node_address,
+                "sender_dh_pub": app.state.dh_public_key,
+                "body_enc": body_enc,
+                "created_at": db.execute("SELECT created_at FROM dm_messages WHERE id=?", (msg_id,)).fetchone()[0],
+            }
+            push_bytes = _j.dumps(push).encode()
+            headers = sign_federated_request(app.state.private_key, "POST", "/dm/receive", push_bytes)
+            headers["Content-Type"] = "application/json"
+            try:
+                r = httpx.post(peer_url.rstrip("/") + "/dm/receive",
+                               content=push_bytes, headers=headers, timeout=8)
+                if r.is_success:
+                    db.execute("UPDATE dm_messages SET delivered_at=? WHERE id=?", (now_ns(), msg_id))
+                    db.commit()
+            except Exception:
+                pass
+    except Exception as e:
+        log.debug("DM retry error: %s", e)
 
 
 def create_app(config_path: str | Path) -> FastAPI:
@@ -341,6 +407,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     app.include_router(contacts_module.router)
     app.include_router(reactions_module.router)
     app.include_router(debug_module.router)
+    app.include_router(dm_module.router)
 
     @app.post("/notifications/mention", status_code=204)
     async def receive_mention(request: Request):

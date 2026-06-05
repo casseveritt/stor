@@ -534,6 +534,13 @@ def change_passphrase(body: ChangePassphraseBody, request: Request):
     config_data["argon2_memory_cost"] = ARGON2_MEMORY_COST
     config_data["argon2_parallelism"] = ARGON2_PARALLELISM
     config_data["encrypted_private_key"] = base64.b64encode(encrypt_bytes(privkey_bytes, new_master_key)).decode()
+    # Re-encrypt DH key if present
+    if config_data.get("encrypted_dh_private_key"):
+        try:
+            dh_raw = decrypt_bytes(base64.b64decode(config_data["encrypted_dh_private_key"]), old_master_key)
+            config_data["encrypted_dh_private_key"] = base64.b64encode(encrypt_bytes(dh_raw, new_master_key)).decode()
+        except Exception:
+            pass  # non-fatal; DH key will be regenerated at next startup
     config_path.write_text(_json.dumps(config_data, indent=2))
 
     # Update running state
@@ -709,6 +716,13 @@ def _create_node_config(
         # identity private key is NOT stored — returned once to caller for safekeeping
         "tang_enabled": tang_enabled,
     }
+
+    # Generate X25519 DH key pair for DM thread key derivation
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey as _X25519
+    from cryptography.hazmat.primitives.serialization import PrivateFormat as _PrF2, NoEncryption as _NE2
+    dh_priv = _X25519.generate()
+    dh_priv_bytes = dh_priv.private_bytes(Encoding.Raw, _PrF2.Raw, _NE2())
+    config["encrypted_dh_private_key"] = base64.b64encode(encrypt_bytes(dh_priv_bytes, master_key)).decode()
 
     # Tang network-bound unlock (opt-in, default True)
     tang_C = tang_E = tang_url_stored = None
