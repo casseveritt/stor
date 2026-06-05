@@ -2,237 +2,97 @@
 
 ## Pending
 
-**0. Permanent user identity (UUID + identity key)**
+**0a. Node identity (node_id) separate from person identity (user_id)**
 
-A stable, portable user identity that survives server moves and key rotation.
-
-*Design:*
-- **UUID** — randomly generated at setup, the permanent public user ID. Opaque and stable
-  forever. Separate from the handle (human-readable, changeable) and the node key (rotatable).
-  A user on multiple nodes shares one UUID.
-- **Identity key** — a second Ed25519 pair generated at setup alongside the node key. Signs
-  delegation certificates: *"UUID X authorises node key Y."* Kept more securely than the node
-  key (rarely used; suitable for offline/paper backup).
-- **Registry escrow for recovery** — at registration the user uploads a passphrase-encrypted
-  copy of the identity private key to the registry (same Argon2 + AES-GCM scheme used for
-  node keys). Recovery: present passphrase → registry returns encrypted blob → decrypt locally.
-  **Warning: compromising either the recovery passphrase OR the unencrypted identity private
-  key is sufficient to permanently lose the identity — an attacker with both can re-register.
-  The registry escrow passphrase should be distinct from the node passphrase so that a node
-  compromise alone does not enable identity theft.** The registry cannot read the key.
-- **Node key** — the current operational key (existing). Rotatable: present a new delegation
-  signed by the identity key.
-
-*What needs building:*
-1. `setup.py` — generate UUID + identity key pair at setup alongside node key; store
-   `user_id` (UUID) and `encrypted_identity_private_key` in `node_config.json`.
-2. Registry schema — add `user_id TEXT`, `identity_public_key TEXT`, `delegation_sig TEXT`,
-   `encrypted_identity_key TEXT` columns; `/go/{uuid}` route alongside `/go/{handle}`.
-3. Registry escrow endpoints — `PUT /identity-key/{uuid}` (upload Argon2+AES-GCM encrypted
-   identity key at registration, authenticated by identity key signature);
-   `POST /identity-key/{uuid}/recover` (present passphrase → registry returns encrypted blob
-   for local decryption). Rate-limited; requires proof of UUID ownership or passphrase.
-4. Heartbeat — include UUID + current delegation cert when registering/updating.
-5. Migration — existing nodes generate UUID + identity key on first startup with new code
-   (no backward proof of continuity, but none existed before either).
-6. Key rotation flow — UI + API to generate new node key, sign delegation with identity key,
-   push updated delegation to registry.
-7. Setup UI — prompt for a separate identity recovery passphrase (distinct from node
-   passphrase) with explicit warning about consequences of losing both.
-
-**0a. Node identity (node_id) — separate from person identity (user_id)**
-
-Each node deployment needs its own stable identifier (`node_id`, a UUID) distinct from the
-person's `user_id`. This is required for key rotation and server moves to work cleanly.
-
-*Three-level hierarchy:*
-- `user_id` — identifies the **person**. Permanent. Shared across all their nodes.
-- `node_id` — identifies a **specific node deployment**. Permanent. Survives key rotation
-  and server moves. Generated at setup alongside `user_id`.
-- `public_key` — the **current signing key** for this node. Rotatable.
-
-*Delegation cert binds `user_id + node_id → public_key`:*
-The cert does NOT include the server URL. The chain of proof is:
-  identity key → node_key (via delegation cert) → server_url (via heartbeat signature).
-Only the location (heartbeat) changes on server moves. The identity key stays offline.
-This mirrors how TLS works: the CA certifies the server key; the server key proves it
-controls the domain. The CA is not involved when the domain's IP changes.
-
-*Registry schema change:*
-- `node_id TEXT PRIMARY KEY` — stable node identifier (replaces `user_id` as PK)
-- `user_id TEXT` — person identifier, non-unique (multiple rows per person)
-- `public_key TEXT` — current node key (changes on rotation)
-
-*What needs building:*
-1. Generate `node_id` UUID at setup (separate from `user_id`); store in `node_config.json`.
-2. Registry: change PK from `user_id` to `node_id`; `user_id` becomes a repeatable field.
-3. Delegation cert: include `node_id` alongside `user_id` and `public_key`.
-4. "Link to existing identity" setup path: user provides `user_id` + identity private key →
-   system generates new node_id, signs delegation for new node key, registers separately.
+Currently `user_id` serves as both the person identifier and the node identifier (1:1).
+For proper key rotation and multi-node support, these need to be separate UUIDs.
 
 **0b. Multiple nodes per identity (1:n)**
 
-A person can have more than one node under a single UUID — e.g. a personal node and a
-professional node. The contact model remains node-centric: a contact is a specific node
-endpoint, chosen deliberately. If you follow both of someone's nodes you have two separate
-contacts with separate feeds, ACLs, and relationship contexts.
-
-The UUID is informational: it tells you "these two contacts belong to the same person."
-The registry exposes all nodes for a UUID so you can choose which to add as contacts.
-
-*What needs building:*
-1. Registry: composite primary key `(user_id, public_key)` so multiple nodes can share a UUID.
-   Registry search by UUID returns the list of nodes for that person.
-2. Setup wizard: "Link to existing identity" path — user provides UUID + identity private key
-   hex; system generates new node key, signs a new delegation cert under the existing UUID,
-   registers as an additional node entry.
-3. Contact picker: when searching by UUID or handle, show all nodes for that person so the
-   user can select which to add.
-
-*Contact model is unchanged:* contacts are node endpoints, not people. The distinction
-between a person's professional and personal nodes is preserved exactly as intended.
-
-*Future extension — invite-only nodes:* a node can simply omit itself from the registry
-(or mark itself as unlisted) and remain fully functional for anyone who has the explicit
-URL. Since the registry is a discovery mechanism, not a participation requirement, this
-adds no protocol changes — just a configuration option at setup time.
+A person should be able to run more than one node under a single identity — e.g. a personal
+node and a work node. Requires a "link to existing identity" setup path where the user
+provides their identity private key to sign a delegation cert for a new node.
 
 **1. Contact description**
-Add a `description TEXT` field to the `contacts` table. Natural language, potentially long.
-User-editable via the UI (contact edit modal); also curated by the agent based on aggregated
-information about the contact. Intended to give agents rich context about who a contact is.
-Requires: DB migration, server PATCH /contacts, client API PATCH /api/contacts, edit modal in sidebar.
+Add a `description TEXT` field to the `contacts` table — natural language, editable via the
+contact edit modal, eventually curated by an agent.
 
-**2. Contact "goes by" short name for @mentions**
-Each contact entry can have an owner-defined short name used for `@`-mention autocomplete and
-insertion. Defaults to the contact's first name (or handle if set). Example: "Michael Toksvig"
-goes by "Tox" — owner sets this locally; it doesn't need to be in the contact's profile.
-The contact could also add an alias in their own profile that other nodes pick up.
-Requires: `goes_by` field on `ContactEntry` (client-only), profile API field for self-declared
-alias, UI in contact edit flow, `_mentionTag()` updated to prefer `goes_by`.
+**2. Contact tags**
+Tag contacts (e.g. "family", "work") to use as additional visibility/comment_access targets.
+Requires `tags` column on contacts, dynamic dropdowns in compose/edit UI, tag-based check
+in `_passes()`.
 
-**3. Contact tags**
-Each contact entry can be assigned a list of tags (e.g. "family", "work"). Tags will appear
-as visibility/comment_access options alongside the built-in levels. Boolean expressions like
-`contacts - (work + church)` are a longer-term goal; start with simple named tags as extra
-visibility predicates. Requires: `contacts` table `tags` column (JSON), dynamic dropdowns in
-compose/edit UI, tag-based check in `_passes()` in posts.py.
+**3. Upload identity escrow from settings**
+Users who set up before the automatic escrow flow can upload their identity key escrow after
+the fact from the profile/settings UI (requires them to have their identity private key).
 
-**3. Identity portability / `export_identity.py`**
-Package just key material (encrypted private key + argon2 salt/params) separately from the
-full backup bundle. Lets a user reclaim their username on a fresh instance without a full
-restore — copy the key file, start up, data-less but identity intact.
-
-**4. Registry profile fields**
-Decide what (if anything) belongs in the registry beyond `{server_url, client_url, public_key, ttl}`.
-Display name and photo_url are already being pushed by the heartbeat. Mostly a policy question now.
+**4. Profile photo preview on hover**
+Show a larger version of a contact's photo when hovering over their avatar in post cards,
+the contact list, etc.
 
 **5. Client API test suite**
-Comprehensive pytest suite covering every endpoint the client exposes to the browser. Goals:
-catch regressions early (e.g. missing `_internal_headers()` on profile GET), and document
-the contract between frontend and client layer.
+Comprehensive pytest suite for every `/api/` route the client exposes to the browser.
 
-Scope — one test per client `/api/` route, plus the special-cased routes:
-
-*Auth & session*
-- `GET /client/login-url` → returns `{auth_url}`
-- `POST /client/session` with valid server token → issues session token
-- `POST /client/session` with bad token → 401
-- `GET /auth/callback` with query params → proxies to server and follows redirect
-- `GET /auth/callback` without query params → serves `callback.html`
-- `GET /api/auth/me` → returns role/identity from server
-
-*Config*
-- `GET /api/config` → own_server, servers list, contacts
-
-*Posts & feed*
-- `GET /api/feed` (own + contacts)
-- `GET /posts?limit=N` passthrough
-- `POST /api/posts` (owner only)
-- `PATCH /api/posts/{id}`
-- `DELETE /api/posts/{id}`
-- `GET /api/posts/{id}/comments`
-- `POST /api/posts/{id}/comments`
-
-*Profile*
-- `GET /api/profile` → proxied to server with internal token (regression: was missing headers)
-- `PUT /api/profile` → requires owner token
-- `PUT /api/profile/photo` → multipart, requires owner token
-
-*Assets*
-- `GET /api/assets/{id}/thumb`
-- `GET /api/assets/{id}`
-
-*Contacts*
-- `GET /api/contacts/lookup?handle=`
-- `POST /api/contacts`
-- `DELETE /api/contacts?url=`
-
-*Backup/restore*
-- `GET /api/backup` → zip with client_config appended
-- `POST /api/restore`
-
-*Admin*
-- `GET /api/admin/...` (whatever admin routes are exposed)
-
-*Setup intercepts*
-- `POST /setup/new` → captures `node_key` + `internal_token` into `client_config.json`
-- `POST /setup/restore` → same
-
-Test approach: spin up a real server + client pair with `httpx.AsyncClient` against ASGI
-(no Docker required). Use a temp directory for data, short argon2 params for speed. Mock
-the identity proxy / Google SSO exchange only at the boundary. Run with `pytest -x`.
-
-**6. Fresh VM end-to-end test**
-Validate the full flow (Caddy TLS, Google SSO via identity proxy, setup wizard, backup/restore)
-on a clean cloud VM — not the Pi. The identity proxy means zero Google Console setup for new
-users; worth confirming end-to-end.
-
-**6. Reaction emoji on posts and comments**
-Allow users to react to posts and comments with emoji (👍 ❤️ 😂 etc.). Reactions are stored
-server-side, attributed to the reactor's identity (owner or contact node). Display as counts
-grouped by emoji below each post/comment.
+**6. Reaction emoji**
+Allow users to react to posts and comments with emoji. Stored server-side, attributed to
+the reactor. Display as grouped counts below each post/comment.
 
 **7. @mention notifications**
-When a post or comment contains `@handle`, the sender's server should push a notification to
-the tagged contact's server (a lightweight federated ping: post ID + sender). The contact's
-client can then surface an "unread mentions" count/badge and a mentions feed. Requires: parse
-@mentions on post/comment create, fan-out ping to tagged servers, mentions table on receiving
-server, badge in client header.
+When a post or comment contains `@handle`, push a lightweight ping to the tagged contact's
+server. Surface an unread-mentions count/badge and mentions feed in the client.
 
 **8. Chat / direct messages**
-Real-time or near-real-time 1:1 and small-group messaging between contacts. Messages are
-encrypted end-to-end (sender encrypts to recipient's public key), stored on the sender's
-node, and pushed or polled by the recipient's node. Key open questions: push vs. poll
-delivery, read receipts, group key management, and how chat threads relate to the existing
-post/comment data model. Likely a distinct `messages` table and a separate UI panel rather
-than shoehorning into posts.
+1:1 and small-group messaging. End-to-end encrypted, stored on sender's node, pushed or
+polled by recipient. Likely a separate `messages` table and UI panel.
 
-**9. Profile photo preview on hover/click**
-When clicking or hovering over a contact's profile photo (in post cards, comment authors,
-contact list, reactors panel), show a larger version of the photo in a tooltip or small
-lightbox. The photo URL is `server_url + "/profile/photo"` — the same endpoint already
-used for thumbnails in search results and the reactors panel.
-
-**10. Plaintext metadata hardening**
-Some metadata (post timestamps, asset filenames) is stored or transmitted in plaintext.
-Assess what leaks and whether it matters for the threat model.
+**9. Plaintext metadata hardening**
+Assess what post timestamps and asset filenames leak and whether it matters for the threat
+model.
 
 ---
 
 ## Completed
 
-- **Registry heartbeat + auto-register**: server signs and pushes to registry on startup and every hour
-- **Aggregate feed**: client fetches all contacts in parallel, merges by `created_at`; "All" button in sidebar
-- **Add/remove contacts by handle**: lookup via registry, handle stored in `ContactEntry`; ✕ button in sidebar
-- **Contact URL auto-refresh**: on fetch failure, look up handle in registry, update stored URL, retry
-- **Backup/restore bundle**: client augments server zip with `client_config.json`; restore proxy extracts and applies contacts
-- **Search expansion**: matches handle, display name (returns all posts), post body, and comment bodies
-- **Author display on posts**: profile photo/initials + display name on every post card, handle on hover
-- **Header redesign**: contacc logo top-left, profile avatar, @handle clickable to filter own posts
-- **Server-side contacts table**: synced from client on add/remove; used to authorize inbound comments via X-Origin-Server
-- **Contact-based comment auth**: contacts can comment on contacts-visible posts; X-Origin-Server identifies the node
-- **Visibility/comment_access system**: replaces `is_public` boolean with `visibility` enum and `comment_access` field
-  - Levels: `private` (owner only) | `contacts` | `authenticated` (any node with X-Origin-Server) | `public`
-  - Intersection rule: both visibility and comment_access must pass independently
-  - UI: compose and edit modals have dropdowns for both fields; post cards show 🔒/👥/🔑/🌐 icon
+**Identity and security**
+- **Permanent user identity**: UUID + Ed25519 identity key generated at setup. Identity key
+  never stored on node. Delegation cert links identity key → node key (1 year validity).
+- **Registry escrow**: identity private key encrypted with recovery passphrase (= node
+  passphrase by default), uploaded to registry at setup. Recoverable via Google auth +
+  passphrase at the registry landing page.
+- **Tang network-bound unlock**: registry holds a per-node X25519 key. On startup the node
+  sends its ephemeral public key C to the registry; registry computes S = X25519(t_priv, C)
+  and delivers it to the node's registered URL — the delivery address is the implicit location
+  proof. Node derives its passphrase from S and unlocks without user interaction.
+  Auto-registers when a node changes its passphrase for the first time.
+- **Tang retry**: attempts at 2s, 7s, 22s after startup; bails if already unlocked manually.
+- **Default passphrase banner**: red banner prompts users still on "foobar" to set a real
+  passphrase. Also updates registry escrow if escrow passphrase is also "foobar".
+- **Non-unique handles**: registry primary key is `user_id`; handles can repeat across users.
+
+**Setup flow**
+- **Setup wizard**: email, full name, handle, passphrase — all in one form.
+- **Automatic escrow + Tang + registry registration**: all happen server-side during
+  `/setup/new`; no extra screens shown to the user.
+- **Full name at setup**: stored in profile table, picked up by heartbeat, searchable in
+  registry.
+
+**Feed and contacts**
+- **Registry heartbeat + auto-register**: node signs and pushes to registry on startup and
+  hourly.
+- **Aggregate feed**: client fetches all contacts in parallel, merges by `created_at`.
+- **Add/remove contacts by handle**: lookup via registry; contact URL auto-refreshed on
+  failure.
+- **Backup/restore bundle**: client augments server zip with `client_config.json`.
+- **Search**: matches handle, display name, post body, comment bodies.
+- **Author display**: profile photo/initials + display name on every post card.
+- **Visibility/comment_access system**: `private` | `contacts` | `authenticated` | `public`;
+  both must pass independently. UI dropdowns in compose/edit.
+- **Inline mention editing**: `[pubkey|disptext]` format, shared compose/edit overlay.
+
+**Infrastructure**
+- **Multi-slot deployment**: up to 10 node slots per host (ports 8443–8452 / 6443–6452).
+- **Web layer**: independent Caddy container per slot; static files + proxy to `them`.
+- **Routing**: Caddy routes all external traffic to `them`; `them` proxies to `me` via
+  catch-all with internal token. No path-based Caddy rules.
+- **Registry landing page**: Google auth, node list, passphrase recovery, change recovery
+  passphrase.
