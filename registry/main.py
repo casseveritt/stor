@@ -1047,8 +1047,8 @@ blockquote p { color: #888; font-style: italic; }
 <h2>Sharing and visibility</h2>
 <p>Every post has two independent controls:</p>
 <ul>
-  <li><strong>Visibility</strong> — who can see the post at all: just you, your contacts, any authenticated node, or the public.</li>
-  <li><strong>Comment access</strong> — who can comment on it, with the same four levels.</li>
+  <li><strong>Visibility</strong> — who can see the post at all: just you, your contacts, any authenticated node, the public, or an arbitrary filter based on user-defined contact categories.</li>
+  <li><strong>Comment access</strong> — who can comment on it, with the same options.</li>
 </ul>
 <p>Both must pass independently. A post visible to contacts can still restrict comments to just you.</p>
 <p>Contacts are node endpoints — you add a specific node, not a person. If someone runs two nodes (personal and professional), you choose which to follow. What you see is what they explicitly shared with you, nothing else.</p>
