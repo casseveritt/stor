@@ -185,7 +185,7 @@ def create_app(db_path: str) -> FastAPI:
     registry_public_url = os.environ.get("CONTACC_REGISTRY_URL", "").rstrip("/")
     proxy_enabled = bool(proxy_client_id and proxy_client_secret and registry_public_url)
 
-    app = FastAPI(title="contacc registry")
+    app = FastAPI(title="contacc registry", docs_url=None, redoc_url=None)
 
     # ── registry sessions ─────────────────────────────────────────────────────
     _reg_sessions: dict[str, tuple[str, float]] = {}  # token → (identity, expires_at)
