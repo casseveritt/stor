@@ -231,7 +231,7 @@
     <div id="compose-body-wrap">
       <div id="compose-highlight" aria-hidden="true"></div>
       <textarea id="compose-body" placeholder="What's on your mind?"
-                oninput="onComposeInput()" onkeydown="onComposeKeydown(event)"
+                oninput="_mentionCtx=COMPOSE_CTX;onComposeInput()" onkeydown="_mentionCtx=COMPOSE_CTX;onComposeKeydown(event)"
                 onscroll="_updateHighlight()"
                 onblur="setTimeout(hideMentionDropdown,150)"></textarea>
       <div id="compose-mention-dropdown" class="mention-dropdown" hidden></div>
