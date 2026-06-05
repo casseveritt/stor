@@ -127,24 +127,47 @@ function _showMentionPopup(event, span) {
     const prof = serverProfiles[contact.url] || {};
     const name = prof.display_name || contact.name || '';
     const handle = contact.handle ? '@' + contact.handle : '';
-    const photoUrl = cachedPhotos.has(contact.url)
-      ? '/api/contacts/photo?url=' + encodeURIComponent(contact.url)
-      : null;
     const initials = (name[0] || '?').toUpperCase();
     const imgSize = 'calc(3em * 1.4)';
+    const avatarStyle = `width:${imgSize};height:${imgSize};border-radius:50%;flex-shrink:0`;
 
     const popup = document.createElement('div');
     popup.className = 'mention-popup';
     popup.onmouseenter = () => clearTimeout(_mentionPopupTimer);
     popup.onmouseleave = () => _hideMentionPopup();
-    popup.innerHTML =
-      `<div style="display:flex;gap:0.65rem;align-items:center">` +
-      (photoUrl
-        ? `<img src="${esc(photoUrl)}" style="width:${imgSize};height:${imgSize};border-radius:50%;object-fit:cover;flex-shrink:0">`
-        : `<div style="width:${imgSize};height:${imgSize};border-radius:50%;background:var(--avatar-bg);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--avatar-text);flex-shrink:0">${esc(initials)}</div>`) +
-      `<div style="min-width:0"><div style="font-size:0.95rem;font-weight:500;color:#e0e0e0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)}</div>` +
-      (handle ? `<div style="font-size:0.8rem;color:#666">${esc(handle)}</div>` : '') +
-      `</div></div>`;
+
+    // Build layout
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;gap:0.65rem;align-items:center';
+
+    // Avatar — try photo, fall back to initials on error
+    const makeInitials = () => {
+      const d = document.createElement('div');
+      d.style.cssText = avatarStyle + ';background:var(--avatar-bg);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--avatar-text)';
+      d.textContent = initials;
+      return d;
+    };
+    const photoUrl = '/api/contacts/photo?url=' + encodeURIComponent(contact.url);
+    const img = document.createElement('img');
+    img.src = photoUrl;
+    img.style.cssText = avatarStyle + ';object-fit:cover';
+    img.onerror = () => img.replaceWith(makeInitials());
+    row.appendChild(img);
+
+    const info = document.createElement('div');
+    info.style.minWidth = '0';
+    const nameEl = document.createElement('div');
+    nameEl.style.cssText = 'font-size:0.95rem;font-weight:500;color:#e0e0e0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+    nameEl.textContent = name;
+    info.appendChild(nameEl);
+    if (handle) {
+      const hEl = document.createElement('div');
+      hEl.style.cssText = 'font-size:0.8rem;color:#666';
+      hEl.textContent = handle;
+      info.appendChild(hEl);
+    }
+    row.appendChild(info);
+    popup.appendChild(row);
 
     document.body.appendChild(popup);
     const sr = span.getBoundingClientRect();
