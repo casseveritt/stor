@@ -13,13 +13,17 @@ class _UserBody(BaseModel):
     handle: str | None = None
     public_key: str | None = None
     relationship: str = "contact"
+    weight: float | None = None  # [0,1] derived from contact category
 
 
 @router.get("/users")
 def list_users(request: Request, _: OwnerDep):
     db = request.app.state.db
-    rows = db.execute("SELECT server_url, name, handle, public_key, relationship FROM users ORDER BY id").fetchall()
-    return {"users": [{"server_url": r[0], "name": r[1], "handle": r[2], "public_key": r[3], "relationship": r[4]} for r in rows]}
+    rows = db.execute(
+        "SELECT server_url, name, handle, public_key, relationship, weight FROM users ORDER BY id"
+    ).fetchall()
+    return {"users": [{"server_url": r[0], "name": r[1], "handle": r[2],
+                       "public_key": r[3], "relationship": r[4], "weight": r[5]} for r in rows]}
 
 
 @router.post("/users", status_code=201)
@@ -27,8 +31,8 @@ def add_user(payload: _UserBody, request: Request, _: OwnerDep):
     db = request.app.state.db
     try:
         db.execute(
-            "INSERT INTO users (server_url, name, handle, public_key, relationship) VALUES (?, ?, ?, ?, ?)",
-            (payload.server_url, payload.name, payload.handle, payload.public_key, payload.relationship),
+            "INSERT INTO users (server_url, name, handle, public_key, relationship, weight) VALUES (?, ?, ?, ?, ?, ?)",
+            (payload.server_url, payload.name, payload.handle, payload.public_key, payload.relationship, payload.weight),
         )
         db.commit()
     except Exception:
@@ -39,8 +43,14 @@ def add_user(payload: _UserBody, request: Request, _: OwnerDep):
 @router.patch("/users", status_code=200)
 def update_user(server_url: str, payload: _UserBody, request: Request, _: OwnerDep):
     db = request.app.state.db
+    updates, params = [], []
     if payload.name is not None:
-        db.execute("UPDATE users SET name = ? WHERE server_url = ?", (payload.name, server_url))
+        updates.append("name = ?"); params.append(payload.name)
+    if payload.weight is not None:
+        updates.append("weight = ?"); params.append(payload.weight)
+    if updates:
+        params.append(server_url)
+        db.execute(f"UPDATE users SET {', '.join(updates)} WHERE server_url = ?", params)
         db.commit()
     return {"ok": True}
 

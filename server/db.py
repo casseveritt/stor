@@ -320,12 +320,13 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         con.execute("INSERT OR IGNORE INTO schema_version VALUES (10)")
         con.commit()
 
-    # Add user_id to users table and notifications table
-    try:
-        con.execute("ALTER TABLE users ADD COLUMN user_id TEXT")
-        con.commit()
-    except Exception:
-        pass
+    # Add user_id and weight to users table
+    for _col in ["user_id TEXT", "weight REAL"]:
+        try:
+            con.execute(f"ALTER TABLE users ADD COLUMN {_col}")
+            con.commit()
+        except Exception:
+            pass
     con.execute("""
         CREATE TABLE IF NOT EXISTS mention_notifications (
             id           TEXT PRIMARY KEY,

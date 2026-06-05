@@ -1051,6 +1051,19 @@ def create_app(config_path: str | Path) -> FastAPI:
             dirty = True
         if dirty:
             config.save(config_path)
+            # Sync weight to server so it can make nuanced data-sharing decisions
+            if contact.poll_weight is not None and _token(config.own_server):
+                try:
+                    async with httpx.AsyncClient() as hc:
+                        await hc.patch(
+                            _server + "/users",
+                            params={"server_url": body.url},
+                            json={"server_url": body.url, "weight": contact.poll_weight},
+                            headers=_headers(config.own_server),
+                            timeout=5.0,
+                        )
+                except Exception:
+                    pass  # non-fatal; weight will sync on next contact add
         return {"ok": True, "poll_weight": contact.poll_weight}
 
     # ── dev / debug ───────────────────────────────────────────────────────

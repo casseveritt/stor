@@ -3,8 +3,48 @@ from fastapi import APIRouter, Request
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
-from .auth import OwnerDep
+from .auth import OwnerDep, OptionalAuthDep, TokenIdentity, _GUEST
 from .db import NS, now_ns
+
+_DAY_NS  = 86_400 * NS
+_WEEK_NS = 7 * _DAY_NS
+
+
+def _floor_to_day(ts_ns: int) -> int:
+    return (ts_ns // _DAY_NS) * _DAY_NS
+
+
+def _floor_to_week(ts_ns: int) -> int:
+    return (ts_ns // _WEEK_NS) * _WEEK_NS
+
+
+def _activity_tier(request: Request, identity: TokenIdentity) -> str:
+    """Return granularity tier for last_activity_at based on who's asking.
+
+    Tiers:
+      'owner'        → exact nanoseconds
+      'close_contact'→ exact (weight ≥ 0.8, i.e. family / close_friends)
+      'contact'      → floor to day (any contact with assigned weight)
+      'authenticated'→ floor to week (has a valid token but not a known contact)
+      'public'       → omit entirely
+    """
+    if identity.is_owner:
+        return "owner"
+    # Federated request from a contact carrying X-Public-Key
+    pub_key = request.headers.get("X-Public-Key", "")
+    if pub_key:
+        db = request.app.state.db
+        row = db.execute(
+            "SELECT weight, relationship FROM users WHERE public_key = ?", (pub_key,)
+        ).fetchone()
+        if row and row[1] == "contact":
+            w = row[0]
+            return "close_contact" if (w is not None and w >= 0.8) else "contact"
+        return "authenticated"
+    # Bearer / query-param token that verified but isn't owner or federated
+    if identity.recipient_id is not None or identity.share_identity is not None:
+        return "authenticated"
+    return "public"
 
 router = APIRouter()
 
@@ -37,8 +77,7 @@ def health():
 
 
 @router.get("/node")
-def node_metadata(request: Request):
-    import time as _time
+def node_metadata(request: Request, identity: OptionalAuthDep):
     db = request.app.state.db
     public_posts = db.execute("SELECT COUNT(*) FROM posts WHERE is_public = 1 AND deleted = 0").fetchone()[0]
     public_assets = db.execute("SELECT COUNT(*) FROM assets WHERE is_public = 1 AND deleted = 0").fetchone()[0]
@@ -48,9 +87,13 @@ def node_metadata(request: Request):
     week_ago = now_ns() - 7 * 86400 * NS
     posts_7d = db.execute("SELECT COUNT(*) FROM posts WHERE created_at > ? AND deleted = 0", (week_ago,)).fetchone()[0]
     comments_7d = db.execute("SELECT COUNT(*) FROM comments WHERE created_at > ? AND deleted = 0", (week_ago,)).fetchone()[0]
-    last_post = db.execute("SELECT MAX(created_at) FROM posts WHERE deleted = 0").fetchone()[0] or 0
+    last_post    = db.execute("SELECT MAX(created_at) FROM posts WHERE deleted = 0").fetchone()[0] or 0
     last_comment = db.execute("SELECT MAX(created_at) FROM comments WHERE deleted = 0").fetchone()[0] or 0
     last_reaction = db.execute("SELECT MAX(created_at) FROM reactions").fetchone()[0] or 0
+    last_activity = max(last_post, last_comment, last_reaction)
+
+    tier = _activity_tier(request, identity)
+
     result = {
         "api_version": 1,
         "extensions": ["reactions", "mention_notifications", "push_subscriptions"],
@@ -61,8 +104,16 @@ def node_metadata(request: Request):
         "public_assets": public_assets,
         "posts_7d": posts_7d,
         "comments_7d": comments_7d,
-        "last_activity_at": max(last_post, last_comment, last_reaction),
     }
+    # last_activity_at granularity depends on how well the owner knows the requester
+    if tier in ("owner", "close_contact"):
+        result["last_activity_at"] = last_activity
+    elif tier == "contact":
+        result["last_activity_at"] = _floor_to_day(last_activity) if last_activity else 0
+    elif tier == "authenticated":
+        result["last_activity_at"] = _floor_to_week(last_activity) if last_activity else 0
+    # "public" → omit last_activity_at entirely
+
     if _registry_handle:
         result["handle"] = _registry_handle
     if _owner_id:
