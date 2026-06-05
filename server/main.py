@@ -101,8 +101,8 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
         raise WrongPassphraseError("Wrong passphrase: private key decryption failed")
     private_key = Ed25519PrivateKey.from_private_bytes(privkey_bytes)
 
-    # Migration: generate permanent user identity if missing
-    if not config.user_id:
+    # Migration: generate permanent identity if missing, and ensure owner_id/node_id are separate
+    if not config.user_id and not config.owner_id:
         import uuid as _uuid
         import json as _json
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _EK
@@ -111,21 +111,42 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
         )
         from .identity import make_delegation_cert as _mkdel
         new_id_key = _EK.generate()
-        new_user_id = str(_uuid.uuid4())
+        new_owner_id = str(_uuid.uuid4())
+        new_node_id = str(_uuid.uuid4())
         id_pub_bytes = new_id_key.public_key().public_bytes(_E.Raw, _PuF.Raw)
         node_pub_b64 = base64.b64encode(
             private_key.public_key().public_bytes(_E.Raw, _PuF.Raw)
         ).decode()
-        delegation_cert = _mkdel(new_id_key, new_user_id, node_pub_b64)
+        delegation_cert = _mkdel(new_id_key, new_owner_id, node_pub_b64, node_id=new_node_id)
         config_data = _json.loads(config_path.read_text())
-        config_data["user_id"] = new_user_id
+        config_data["owner_id"] = new_owner_id
+        config_data["node_id"] = new_node_id
         config_data["identity_public_key"] = base64.b64encode(id_pub_bytes).decode()
         config_data["identity_delegation"] = _json.dumps(delegation_cert)
-        # Remove legacy encrypted key if present
         config_data.pop("encrypted_identity_private_key", None)
         config_path.write_text(_json.dumps(config_data, indent=2))
         config = NodeConfig.load(config_path)
-        log.info("Generated permanent user identity: %s (identity private key NOT stored — save it from settings)", new_user_id)
+        log.info("Generated identity: owner_id=%s node_id=%s (identity private key NOT stored)", new_owner_id, new_node_id)
+    elif config.user_id and not config.owner_id:
+        # Migration: existing node has user_id but not owner_id/node_id — promote user_id to
+        # owner_id and generate a fresh node_id so they are distinct UUIDs
+        import uuid as _uuid, json as _json
+        new_node_id = str(_uuid.uuid4())
+        config_data = _json.loads(config_path.read_text())
+        config_data["owner_id"] = config.user_id
+        config_data["node_id"] = new_node_id
+        # Update delegation cert to include node_id
+        if config.identity_delegation:
+            try:
+                cert = _json.loads(config.identity_delegation)
+                cert["owner_id"] = config.user_id
+                cert["node_id"] = new_node_id
+                config_data["identity_delegation"] = _json.dumps(cert)
+            except Exception:
+                pass
+        config_path.write_text(_json.dumps(config_data, indent=2))
+        config = NodeConfig.load(config_path)
+        log.info("Migrated identity: owner_id=%s node_id=%s (was user_id, fresh node_id generated)", config.user_id, new_node_id)
 
     # Migration: if legacy encrypted_identity_private_key exists, convert to delegation cert
     import json as _json2
@@ -143,7 +164,7 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
             node_pub_b64 = base64.b64encode(
                 private_key.public_key().public_bytes(_E2.Raw, _PuF2.Raw)
             ).decode()
-            delegation_cert = _mkdel2(id_key, config.user_id, node_pub_b64)
+            delegation_cert = _mkdel2(id_key, config.owner_id or config.user_id, node_pub_b64)
             _raw_config["identity_delegation"] = _json2.dumps(delegation_cert)
             del _raw_config["encrypted_identity_private_key"]
             config_path.write_text(_json2.dumps(_raw_config, indent=2))
@@ -155,13 +176,13 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
                 from .crypto import (derive_master_key as _dmk2, encrypt_bytes as _enc2,
                                      ARGON2_TIME_COST as _TC, ARGON2_MEMORY_COST as _MC, ARGON2_PARALLELISM as _PA)
                 _reg_url = (_raw_config.get("registry_url") or _raw_config.get("identity_proxy_url") or "").rstrip("/")
-                if _reg_url and config.user_id:
+                if _reg_url and (config.owner_id or config.user_id):
                     _rec_salt = os.urandom(16)
                     _rec_key = _dmk2("foobar", _rec_salt)
                     _enc_id = _enc2(id_priv, _rec_key)
                     _ts = int(time.time())
                     _escrow_sig = base64.b64encode(id_key.sign(
-                        f"contacc:escrow:{config.user_id}:{_ts}".encode()
+                        f"contacc:escrow:{config.owner_id or config.user_id}:{_ts}".encode()
                     )).decode()
                     _escrow_body = {
                         "encrypted_identity_key": base64.b64encode(_enc_id).decode(),
@@ -169,7 +190,7 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
                         "argon2_time_cost": _TC, "argon2_memory_cost": _MC, "argon2_parallelism": _PA,
                         "signature": _escrow_sig, "timestamp": _ts,
                     }
-                    httpx.put(f"{_reg_url}/identity-key/{config.user_id}", json=_escrow_body, timeout=10)
+                    httpx.put(f"{_reg_url}/identity-key/{config.owner_id or config.user_id}", json=_escrow_body, timeout=10)
                     log.warning("Identity key migrated. Recovery passphrase is currently 'foobar'. "
                                 "Change it in settings → Identity Security.")
             except Exception as _e2:
@@ -196,9 +217,9 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
         "google_client_secret": config.sso_google_client_secret,
     }
     app.state.sso_exchange_google = sso_module.exchange_google_code
-    app.state.user_id = config.user_id or ""
+    app.state.user_id = config.owner_id or config.user_id or ""
 
-    node_module.setup(node_address, private_key, config.watermark_enabled, config.registry_handle, user_id=config.user_id)
+    node_module.setup(node_address, private_key, config.watermark_enabled, config.registry_handle, user_id=config.owner_id or config.user_id)
     auth_module.setup(private_key)
 
     app.state.private_key = private_key
@@ -384,7 +405,7 @@ def create_app(config_path: str | Path) -> FastAPI:
             try:
                 async with _hx.AsyncClient() as hc:
                     r = await hc.post(f"{registry_url}/tang/exchange", json={
-                        "node_id": _cfg.user_id,
+                        "node_id": _cfg.node_id or _cfg.owner_id or _cfg.user_id,
                         "C": _cfg.tang_C,
                         "nonce": nonce,
                         "callback_url": f"{node_address}/tang/deliver",

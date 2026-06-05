@@ -156,7 +156,7 @@ def setup_new(body: NewBody, request: Request):
             )
             _node_key = _Ed.from_private_bytes(_node_priv_bytes)
             _node_pub_b64 = base64.b64encode(_node_key.public_key().public_bytes(_Enc.Raw, _PuF.Raw)).decode()
-            _uid = key_material["user_id"]
+            _uid = key_material.get("owner_id") or key_material.get("user_id")
             _dcert = _json_e.loads(Path(config_path).read_text()).get("identity_delegation")
 
             # Register node with registry
@@ -361,7 +361,7 @@ def change_passphrase(body: ChangePassphraseBody, request: Request):
     # Re-bind (or clear) Tang with the new passphrase
     import json as _json2
     config_data2 = _json2.loads(config_path.read_text())
-    if body.tang_enabled and not config.tang_C and config.user_id and app.state.private_key:
+    if body.tang_enabled and not config.tang_C and (config.node_id or config.user_id) and app.state.private_key:
         # First-time Tang registration for this node
         try:
             from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey as _X25519PK2, X25519PublicKey as _X25519Pub2
@@ -375,10 +375,10 @@ def change_passphrase(body: ChangePassphraseBody, request: Request):
                 node_pub_b64_reg = base64.b64encode(
                     app.state.private_key.public_key().public_bytes(_E4.Raw, _PF4.Raw)
                 ).decode()
-                reg_msg = f"contacc:tang:register:{config.user_id}:{ts3}"
+                reg_msg = f"contacc:tang:register:{(config.node_id or config.user_id)}:{ts3}"
                 reg_sig = base64.b64encode(app.state.private_key.sign(reg_msg.encode())).decode()
                 r_reg = _hx3.post(f"{registry_url}/tang/register", json={
-                    "node_id": config.user_id, "identity_public_key": node_pub_b64_reg,
+                    "node_id": (config.node_id or config.user_id), "identity_public_key": node_pub_b64_reg,
                     "timestamp": ts3, "signature": reg_sig,
                 }, timeout=10)
                 if r_reg.is_success:
@@ -397,7 +397,7 @@ def change_passphrase(body: ChangePassphraseBody, request: Request):
                     log.info("Tang registered for existing node during passphrase change")
         except Exception as _te:
             log.warning("Could not register Tang during passphrase change: %s", _te)
-    elif body.tang_enabled and config.tang_C and config.user_id and app.state.private_key:
+    elif body.tang_enabled and config.tang_C and (config.node_id or config.user_id) and app.state.private_key:
         try:
             from cryptography.hazmat.primitives.serialization import Encoding as _E3, PublicFormat as _PF3
             from cryptography.hazmat.primitives.kdf.hkdf import HKDF as _HKDF3
@@ -410,10 +410,10 @@ def change_passphrase(body: ChangePassphraseBody, request: Request):
                 node_pub_b64 = base64.b64encode(
                     app.state.private_key.public_key().public_bytes(_E3.Raw, _PF3.Raw)
                 ).decode()
-                sig_msg = f"contacc:tang:direct:{config.user_id}:{config.tang_C}:{ts2}"
+                sig_msg = f"contacc:tang:direct:{(config.node_id or config.user_id)}:{config.tang_C}:{ts2}"
                 sig = base64.b64encode(app.state.private_key.sign(sig_msg.encode())).decode()
                 r = _hx2.post(f"{registry_url}/tang/exchange-direct", json={
-                    "node_id": config.user_id, "C": config.tang_C,
+                    "node_id": (config.node_id or config.user_id), "C": config.tang_C,
                     "node_public_key": node_pub_b64,
                     "timestamp": ts2, "signature": sig,
                 }, timeout=10)
@@ -490,13 +490,15 @@ def _create_node_config(
     # Generate identity key pair — private key is NEVER stored on the node
     identity_key = Ed25519PrivateKey.generate()
     identity_pubkey_bytes = identity_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-    user_id = str(_uuid.uuid4())
+    # owner_id identifies the person (permanent, registry); node_id identifies this deployment
+    owner_id = str(_uuid.uuid4())
+    node_id = str(_uuid.uuid4())
 
     # Sign delegation cert (1 year validity) — this is what lives on the node
     node_pub_b64 = base64.b64encode(
         private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
     ).decode()
-    delegation_cert = make_delegation_cert(identity_key, user_id, node_pub_b64)
+    delegation_cert = make_delegation_cert(identity_key, owner_id, node_pub_b64, node_id=node_id)
 
     db_con = open_db(str(store_path / "db"), db_key)
     init_schema(db_con)
@@ -519,7 +521,8 @@ def _create_node_config(
         "identity_proxy_url": identity_proxy_url,
         "registry_handle": handle,
         "internal_token": internal_token,
-        "user_id": user_id,
+        "owner_id": owner_id,
+        "node_id": node_id,
         "identity_public_key": base64.b64encode(identity_pubkey_bytes).decode(),
         "identity_delegation": json.dumps(delegation_cert),
         # identity private key is NOT stored — returned once to caller for safekeeping
@@ -538,12 +541,12 @@ def _create_node_config(
             from cryptography.hazmat.primitives.hashes import SHA256 as _SHA256
             # Register with Tang — authenticate with identity key
             ts = int(_time.time())
-            tang_msg = f"contacc:tang:register:{user_id}:{ts}"
+            tang_msg = f"contacc:tang:register:{node_id}:{ts}"
             tang_sig = base64.b64encode(identity_key.sign(tang_msg.encode())).decode()
             id_pub_b64 = base64.b64encode(identity_pubkey_bytes).decode()
             import httpx as _httpx
             r = _httpx.post(f"{registry_url.rstrip('/')}/tang/register", json={
-                "node_id": user_id, "identity_public_key": id_pub_b64,
+                "node_id": node_id, "identity_public_key": id_pub_b64,
                 "timestamp": ts, "signature": tang_sig,
             }, timeout=10)
             if r.is_success:
@@ -577,7 +580,8 @@ def _create_node_config(
         "argon2_parallelism": ARGON2_PARALLELISM,
         "encrypted_private_key": base64.b64encode(encrypted_privkey).decode(),
         "internal_token": internal_token,
-        "user_id": user_id,
+        "owner_id": owner_id,
+        "node_id": node_id,
         "_identity_key_hex": identity_key_to_hex(identity_key),  # internal only — not sent to client
         "_registry_url": registry_url,
     }
@@ -598,7 +602,7 @@ def escrow_identity_key(body: EscrowBody, request: Request):
 
     config_path = Path(app.state.config_path)
     config = NodeConfig.load(config_path)
-    if not config.user_id or not config.identity_public_key:
+    if not (config.owner_id or config.user_id) or not config.identity_public_key:
         raise HTTPException(400, "No identity configured on this node")
 
     # Verify the provided key matches the stored public key
@@ -632,7 +636,7 @@ def escrow_identity_key(body: EscrowBody, request: Request):
 
     import time as _time
     timestamp = int(_time.time())
-    sign_msg = f"contacc:escrow:{config.user_id}:{timestamp}"
+    sign_msg = f"contacc:escrow:{(config.owner_id or config.user_id)}:{timestamp}"
     sig = base64.b64encode(identity_private_key.sign(sign_msg.encode())).decode()
 
     registry_url = config.registry_url or config.identity_proxy_url or ""
@@ -641,7 +645,7 @@ def escrow_identity_key(body: EscrowBody, request: Request):
 
     import httpx as _httpx
     put_body = {**escrow_payload, "signature": sig, "timestamp": timestamp}
-    r = _httpx.put(f"{registry_url.rstrip('/')}/identity-key/{config.user_id}", json=put_body, timeout=10)
+    r = _httpx.put(f"{registry_url.rstrip('/')}/identity-key/{(config.owner_id or config.user_id)}", json=put_body, timeout=10)
     if not r.is_success:
         raise HTTPException(502, f"Registry escrow failed: {r.status_code} {r.text}")
 
@@ -661,7 +665,7 @@ def redelegate(body: RedelegateBody, request: Request):
 
     config_path = Path(app.state.config_path)
     config = NodeConfig.load(config_path)
-    if not config.user_id or not config.identity_public_key:
+    if not (config.owner_id or config.user_id) or not config.identity_public_key:
         raise HTTPException(400, "No identity configured on this node")
 
     try:
@@ -683,7 +687,7 @@ def redelegate(body: RedelegateBody, request: Request):
             __import__('cryptography.hazmat.primitives.serialization', fromlist=['Encoding', 'PublicFormat']).PublicFormat.Raw,
         )
     ).decode()
-    delegation_cert = make_delegation_cert(identity_private_key, config.user_id, node_pub_b64)
+    delegation_cert = make_delegation_cert(identity_private_key, (config.owner_id or config.user_id), node_pub_b64)
 
     import json as _json
     config_data = _json.loads(config_path.read_text())
@@ -715,7 +719,7 @@ def change_identity_passphrase(body: ChangeIdentityPassphraseBody, request: Requ
 
     config_path = Path(app.state.config_path)
     config = NodeConfig.load(config_path)
-    if not config.user_id:
+    if not (config.owner_id or config.user_id):
         raise HTTPException(400, "No identity configured on this node")
 
     registry_url = (config.registry_url or config.identity_proxy_url or "").rstrip("/")
@@ -724,7 +728,7 @@ def change_identity_passphrase(body: ChangeIdentityPassphraseBody, request: Requ
 
     # Fetch escrow from registry
     import httpx as _httpx
-    r = _httpx.post(f"{registry_url}/identity-key/{config.user_id}/recover", timeout=10)
+    r = _httpx.post(f"{registry_url}/identity-key/{(config.owner_id or config.user_id)}/recover", timeout=10)
     if not r.is_success:
         raise HTTPException(502, "Could not fetch identity key from registry")
     escrow = r.json()
@@ -759,7 +763,7 @@ def change_identity_passphrase(body: ChangeIdentityPassphraseBody, request: Requ
         identity_private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption()), new_key
     )
     timestamp = int(__import__("time").time())
-    sign_msg = f"contacc:escrow:{config.user_id}:{timestamp}"
+    sign_msg = f"contacc:escrow:{(config.owner_id or config.user_id)}:{timestamp}"
     sig = base64.b64encode(identity_private_key.sign(sign_msg.encode())).decode()
     put_body = {
         "encrypted_identity_key": base64.b64encode(new_encrypted).decode(),
@@ -770,7 +774,7 @@ def change_identity_passphrase(body: ChangeIdentityPassphraseBody, request: Requ
         "signature": sig,
         "timestamp": timestamp,
     }
-    r2 = _httpx.put(f"{registry_url}/identity-key/{config.user_id}", json=put_body, timeout=10)
+    r2 = _httpx.put(f"{registry_url}/identity-key/{(config.owner_id or config.user_id)}", json=put_body, timeout=10)
     if not r2.is_success:
         raise HTTPException(502, f"Registry update failed: {r2.status_code}")
 

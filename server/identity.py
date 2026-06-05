@@ -13,21 +13,26 @@ DELEGATION_TTL_NS = 365 * 24 * 3600 * NS  # 1 year
 
 
 def make_delegation_cert(identity_private_key: Ed25519PrivateKey,
-                         user_id: str,
+                         owner_id: str,
                          node_pub_b64: str,
-                         ttl_ns: int = DELEGATION_TTL_NS) -> dict:
-    """Sign and return a delegation cert granting node_pub_b64 authority under user_id."""
+                         ttl_ns: int = DELEGATION_TTL_NS,
+                         node_id: str | None = None) -> dict:
+    """Sign and return a delegation cert binding owner_id → node_id → node_pub_b64."""
     id_pub_bytes = identity_private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
     expires_at = time.time_ns() + ttl_ns
-    canonical = f"contacc:delegate:{user_id}:{node_pub_b64}:{expires_at}"
+    canonical = f"contacc:delegate:{owner_id}:{node_pub_b64}:{expires_at}"
     sig = identity_private_key.sign(canonical.encode())
-    return {
-        "user_id": user_id,
+    cert = {
+        "owner_id": owner_id,
+        "user_id": owner_id,           # legacy alias — kept for registry compat during transition
         "node_public_key": node_pub_b64,
         "identity_public_key": base64.b64encode(id_pub_bytes).decode(),
         "expires_at": expires_at,
         "signature": base64.b64encode(sig).decode(),
     }
+    if node_id:
+        cert["node_id"] = node_id
+    return cert
 
 
 def verify_delegation_cert(cert: dict, node_pub_b64: str) -> bool:
@@ -39,7 +44,7 @@ def verify_delegation_cert(cert: dict, node_pub_b64: str) -> bool:
             return False
         id_pub = Ed25519PublicKey.from_public_bytes(
             base64.b64decode(cert["identity_public_key"] + "=="))
-        canonical = (f"contacc:delegate:{cert['user_id']}:"
+        canonical = (f"contacc:delegate:{cert.get('owner_id') or cert['user_id']}:"
                      f"{cert['node_public_key']}:{cert['expires_at']}")
         id_pub.verify(base64.b64decode(cert["signature"] + "=="), canonical.encode())
         return True
