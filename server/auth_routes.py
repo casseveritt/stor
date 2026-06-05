@@ -83,10 +83,7 @@ def callback(request: Request, code: str = None, state: str = None, proxy_token:
                 request.app.state.owner_display_name = display_name
             token = auth_module.issue_token(ttl_seconds=86400 * 30)
         else:
-            try:
-                token = sso_module.complete_callback(db, identity)
-            except UnknownIdentityError as e:
-                raise HTTPException(status_code=403, detail=str(e))
+            raise HTTPException(status_code=403, detail="This node belongs to a different account")
 
         dest = return_to.rstrip("/") + "#token=" + token if return_to else _web_callback_uri(request) + "#token=" + token
         return RedirectResponse(url=dest, status_code=302)
