@@ -971,7 +971,7 @@ blockquote p { color: #888; font-style: italic; }
 
 <div>
 <h2>The basic idea</h2>
-<p>contacc is a personal server for your photos, videos, and writing. You share things directly with specific people, who read them from your server. No intermediary, no algorithm, no copy of your content sitting on someone else's infrastructure.</p>
+<p>contacc is a personal server for your photos, videos, and writing — typically running on a Raspberry Pi or small VPS. You share things directly with specific people, who read them from your server. No intermediary, no algorithm, no copy of your content sitting on someone else's infrastructure.</p>
 <p>It works in both directions. Your client connects to the servers of people you follow and pulls their feeds directly from their hardware. What you see is exactly what they chose to share with you — nothing more, nothing less.</p>
 </div>
 
