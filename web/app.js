@@ -2522,6 +2522,7 @@ async function _dmStartNew(peerUrl) {
   const panel = document.getElementById("dm-panel");
   document.getElementById("mentions-panel").hidden = true;
   panel.hidden = false;
+  setTimeout(() => document.addEventListener('click', _closeDmPanelOutside, {once: true}), 0);
   if (!_dmPollTimer) _dmPollTimer = setInterval(_loadDmThreads, 30_000);
   await _loadDmThreads();
   // Look for existing thread by peer URL
