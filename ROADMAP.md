@@ -2,60 +2,7 @@
 
 ## Pending
 
-**0c. Restore-from-backup: supersede old node from registry UI**
-
-Registry schema and UI now support marking a node as superseded (HTTP 410 for subsequent
-heartbeats). Still needed: client-side UI to trigger supersession as part of the restore
-flow, and optional shutdown signal to the old node (if reachable).
-
-**1. Contact description**
-Add a `description TEXT` field to the `contacts` table — natural language, editable via the
-contact edit modal, eventually curated by an agent.
-
-**2. Contact categories, weights, and adaptive aggregation**
-
-A two-level system: predefined global categories (`family`, `close_friends`, `friends`,
-`colleagues`, `acquaintances`) plus user-defined tags. Each contact gets a scalar weight
-`[0,1]` derived from their categories but overridable.
-
-*me side* holds the full category graph including private annotations. Sharing decisions
-use weight thresholds — "visible to contacts with weight ≥ 0.6" — refining the current
-`contacts` visibility tier without replacing it.
-
-*them side* only sees a `poll_weight` float projected from the me-side model. This drives
-adaptive aggregation: `poll_interval = base_ms / weight` so high-weight contacts are
-polled more frequently and low-weight contacts less so.
-
-Weight propagation: since me and them share a data volume, me writes `poll_weight` into
-`client_config.json` alongside the contact entry when categories change; them reads from it.
-
-Predefined category defaults: family=1.0, close_friends=0.8, friends=0.6,
-colleagues=0.5, acquaintances=0.3. Custom tags start neutral and can be tuned.
-
-**3. API versioning and capability negotiation**
-
-Both the node API and the registry API need a version number and a mechanism to declare
-optional extension support. Nodes and registries implement a core set of capabilities
-guaranteed to be present everywhere, plus optional extensions that may or may not be
-available on a given instance.
-
-Design:
-- `GET /node` (already exists) should include `api_version` and `extensions: [string]`
-- `GET /` on the registry returns `api_version` and `extensions`
-- Core is what every conforming node/registry implements. Extensions are named capabilities
-  (e.g. `tang`, `reactions`, `mention_notifications`, `contact_categories`)
-- Clients check for extension support before calling optional endpoints
-- Popular extensions graduate into core over time
-
-**4. Upload identity escrow from settings**
-Users who set up before the automatic escrow flow can upload their identity key escrow after
-the fact from the profile/settings UI (requires them to have their identity private key).
-
-**4. Profile photo preview on hover**
-Show a larger version of a contact's photo when hovering over their avatar in post cards,
-the contact list, etc.
-
-**5. Client API test suite**
+**1. Client API test suite**
 Comprehensive pytest suite for every `/api/` route the client exposes to the browser.
 
 **6. Chat / direct messages**
@@ -87,7 +34,12 @@ model.
 - **Non-unique handles**: registry primary key is `node_id`; handles can repeat across owners.
 - **owner_id / node_id separation (0a)**: two distinct UUIDs — `owner_id` is permanent person identity, `node_id` is deployment-specific. Registry v3 schema uses `node_id` as PK.
 - **1:n nodes per owner — registry (0b)**: registry now allows multiple node rows per `owner_id`. "Existing owner" setup path implemented server-side. Tang endpoints fixed to use `node_id` column.
-- **Supersede endpoint (partial 0c)**: `POST /nodes/{node_id}/supersede` marks a node as replaced; superseded nodes get HTTP 410 on heartbeat. UI button in registry landing page.
+- **Supersede endpoint (0c)**: `POST /nodes/{node_id}/supersede` marks a node as replaced; superseded nodes get HTTP 410 on heartbeat. UI button in registry landing page. Client-side restore flow integration remains TODO.
+- **Contact description (1)**: per-contact notes field in client_config.json, editable from contact menu.
+- **Contact categories + adaptive polling (2)**: family/close_friends/friends/colleagues/acquaintances with weights [1.0–0.3]; poll_interval = base_ms / weight; category picker in contact menu.
+- **API versioning (3)**: GET /node includes api_version + extensions; registry GET /meta returns same.
+- **Upload identity escrow from settings (4)**: profile panel "Upload identity escrow" section calls /setup/escrow-identity-key.
+- **Profile photo hover preview (4)**: 100×100 popup on hover over any .post-author-avatar; event delegation, viewport-clamped.
 - **Hybrid push/poll for live post updates**: subscribe to post on remote node; 2s cheap poll for pushed updates; 20s heavy poll replaced.
 - **Reaction emoji + emoji picker**: 1800+ emoji from CDN, search, recently used row.
 - **@mention notifications**: @ bell in header, dropdown, click-to-jump-to-post.
