@@ -17,10 +17,25 @@ provides their identity private key to sign a delegation cert for a new node.
 Add a `description TEXT` field to the `contacts` table — natural language, editable via the
 contact edit modal, eventually curated by an agent.
 
-**2. Contact tags**
-Tag contacts (e.g. "family", "work") to use as additional visibility/comment_access targets.
-Requires `tags` column on contacts, dynamic dropdowns in compose/edit UI, tag-based check
-in `_passes()`.
+**2. Contact categories, weights, and adaptive aggregation**
+
+A two-level system: predefined global categories (`family`, `close_friends`, `friends`,
+`colleagues`, `acquaintances`) plus user-defined tags. Each contact gets a scalar weight
+`[0,1]` derived from their categories but overridable.
+
+*me side* holds the full category graph including private annotations. Sharing decisions
+use weight thresholds — "visible to contacts with weight ≥ 0.6" — refining the current
+`contacts` visibility tier without replacing it.
+
+*them side* only sees a `poll_weight` float projected from the me-side model. This drives
+adaptive aggregation: `poll_interval = base_ms / weight` so high-weight contacts are
+polled more frequently and low-weight contacts less so.
+
+Weight propagation: since me and them share a data volume, me writes `poll_weight` into
+`client_config.json` alongside the contact entry when categories change; them reads from it.
+
+Predefined category defaults: family=1.0, close_friends=0.8, friends=0.6,
+colleagues=0.5, acquaintances=0.3. Custom tags start neutral and can be tuned.
 
 **3. Upload identity escrow from settings**
 Users who set up before the automatic escrow flow can upload their identity key escrow after
