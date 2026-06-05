@@ -982,10 +982,10 @@ function reactionBarHtml(reactions, postId, serverUrl, commentId) {
 }
 
 async function showEmojiPicker(event, postId, serverUrl, commentId) {
-  await _loadEmojiList();
-  document.querySelectorAll('.emoji-picker').forEach(p => p.remove());
   const bar = event.target.closest('.reaction-bar');
   if (!bar) return;
+  await _loadEmojiList();
+  document.querySelectorAll('.emoji-picker').forEach(p => p.remove());
   const picker = document.createElement('div');
   picker.className = 'emoji-picker';
 
