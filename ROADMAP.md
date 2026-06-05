@@ -10,16 +10,24 @@ update the registry with the new server URL, and notify the old node (if reachab
 it has been replaced and should shut itself down. Any heartbeat from the superseded node
 should be rejected by the registry with a "superseded" status.
 
-**0a. Node identity (node_id) separate from person identity (user_id)**
+**0a. Separate owner_id (person) from node_id (node deployment)**
 
-Currently `user_id` serves as both the person identifier and the node identifier (1:1).
-For proper key rotation and multi-node support, these need to be separate UUIDs.
+Canonical terminology:
+- `owner_id` — identifies a **person**. Permanent, stable, lives in the registry.
+  In the registry, a "user" is identified by owner_id.
+- `node_id`  — identifies a **node deployment**. Tied to a specific server instance
+  and key pair. In the context of a node, a "user" is identified by node_id.
 
-**0b. Multiple nodes per identity (1:n)**
+Currently both are the same UUID (1:1), so the field is called `user_id` throughout.
+When we implement 1:n, `user_id` in the registry schema becomes `owner_id`, and each
+node gets its own distinct `node_id`. Delegation certs bind `owner_id → node_id → public_key`.
+All new code should use `owner_id`/`node_id` as the canonical names.
 
-A person should be able to run more than one node under a single identity — e.g. a personal
-node and a work node. Requires a "link to existing identity" setup path where the user
-provides their identity private key to sign a delegation cert for a new node.
+**0b. Multiple nodes per owner (1:n)**
+
+One owner_id can control multiple node_ids — e.g. a personal node and a work node.
+Requires a "link to existing identity" setup path where the user provides their identity
+private key to sign a delegation cert for a new node under the same owner_id.
 
 **1. Contact description**
 Add a `description TEXT` field to the `contacts` table — natural language, editable via the

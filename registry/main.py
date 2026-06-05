@@ -849,7 +849,7 @@ docker compose up -d --build</code></pre>
 <div>
 <h2>Security model</h2>
 <h3>Identity key</h3>
-<p>An Ed25519 key pair generated at setup. The private key is never stored on the node. It signs delegation certificates that link your permanent UUID to your node's operational key.</p>
+<p>An Ed25519 key pair generated at setup. The private key is never stored on the node. It signs delegation certificates that bind your <strong>owner ID</strong> (who you are) to a <strong>node ID</strong> (a specific node deployment) to a <strong>node key</strong> (the current operational key for that node).</p>
 <h3>Node key</h3>
 <p>The day-to-day Ed25519 signing key, stored encrypted in <code>node_config.json</code> using Argon2id + AES-256-GCM with your passphrase.</p>
 <h3>Registry escrow</h3>
@@ -898,7 +898,7 @@ docker compose down                     # stop everything</code></pre>
 <h2>Pending</h2>
 
 <h3><span class="badge badge-pending">planned</span> Separate node_id from user_id</h3>
-<p>Currently <code>user_id</code> serves as both the person identifier and the node identifier (1:1). Separate UUIDs are needed for key rotation and multi-node support.</p>
+<p>Currently <code>owner_id</code> and <code>node_id</code> are the same UUID (1:1), stored as <code>user_id</code> in the current schema. Separating them enables key rotation and multiple nodes per person.</p>
 
 <h3><span class="badge badge-pending">planned</span> Multiple nodes per identity (1:n)</h3>
 <p>A person should be able to run more than one node under a single identity. Requires a "link to existing identity" setup path where the user provides their identity private key to sign a delegation cert for a new node.</p>
@@ -1014,7 +1014,7 @@ blockquote p { color: #888; font-style: italic; }
   <li><strong>Identity key</strong> — an Ed25519 key pair generated once at setup. The private key is never stored on your node. It signs <em>delegation certificates</em> that say "this node key speaks for me." Think of it as your master key, kept offline.</li>
   <li><strong>Node key</strong> — the day-to-day signing key, stored encrypted on your node. Used for heartbeats, federation, and request signing. Can be rotated by presenting a new delegation signed by the identity key.</li>
 </ul>
-<p>Your permanent identifier is a UUID generated at setup. Your <strong>handle</strong> (like a username) is human-readable and changeable — it's just a name, not your identity. Two people can have the same handle; the UUID is what distinguishes them.</p>
+<p>Your permanent identifier is an <strong>owner ID</strong> — a UUID generated at setup that lives in the registry and identifies you as a person across all your nodes. Your <strong>handle</strong> is human-readable and changeable — just a name, not your identity. Two people can have the same handle; the owner ID is what distinguishes them. Each node you run has its own <strong>node ID</strong> identifying that specific deployment.</p>
 <p>All your data is encrypted at rest. Your passphrase is never stored — it's used to derive the encryption keys when the node starts up.</p>
 </div>
 
