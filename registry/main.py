@@ -1210,6 +1210,14 @@ blockquote p { color: #888; font-style: italic; }
     def health():
         return {"status": "ok", "proxy": proxy_enabled}
 
+    @app.get("/meta")
+    def registry_meta():
+        return {
+            "api_version": 1,
+            "extensions": ["tang", "identity_escrow"] + (["google_oauth_proxy"] if proxy_enabled else []),
+            "name": "contacc registry",
+        }
+
     # ── handle directory ──────────────────────────────────────────────────────
 
     @app.get("/search")

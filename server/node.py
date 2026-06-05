@@ -52,6 +52,8 @@ def node_metadata(request: Request):
     last_comment = db.execute("SELECT MAX(created_at) FROM comments WHERE deleted = 0").fetchone()[0] or 0
     last_reaction = db.execute("SELECT MAX(created_at) FROM reactions").fetchone()[0] or 0
     result = {
+        "api_version": 1,
+        "extensions": ["reactions", "mention_notifications", "push_subscriptions"],
         "node": _node_address,
         "public_key": _public_key_b64,
         "watermark_policy": "enabled" if _watermark_enabled else "disabled",
