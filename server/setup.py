@@ -170,6 +170,7 @@ def setup_new(body: NewBody, request: Request):
                 "display_name": body.display_name or None,
                 "web_url": web_address or None,
                 "delegation_cert": _json_e.loads(_dcert) if _dcert else None,
+                "google_identity": body.owner_identity,
             }, timeout=10)
 
             # Upload escrow now that the handles entry exists
