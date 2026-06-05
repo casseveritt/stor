@@ -1028,7 +1028,7 @@ blockquote p { color: #888; font-style: italic; }
   <li>The registry computes the secret and delivers it <em>to your node's registered URL</em> — not back to whoever asked.</li>
   <li>Your node uses the secret to derive its passphrase and unlock.</li>
 </ol>
-<p>The security property: the registry only delivers the secret to the address it has on file for your node. If someone steals your disk and tries to unlock it elsewhere, the registry delivers to your real node — not theirs. The stolen disk stays locked.</p>
+<p>The security property: the registry only delivers the secret to the address it has on file for your node. If someone steals your disk and tries to unlock it elsewhere, the registry delivers to your real node — not theirs. The stolen disk stays locked. And even without the network secret, the data is encrypted with a key derived via Argon2id, making brute-force password attacks impractical.</p>
 </div>
 
 <div>
