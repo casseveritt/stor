@@ -377,6 +377,17 @@ def create_app(db_path: str) -> FastAPI:
         handle: str | None = None
         display_name: str | None = None
 
+    @app.get("/nodes/{user_id}")
+    def get_node(user_id: str):
+        row = con.execute(
+            "SELECT server_url, web_url, username, display_name FROM handles WHERE user_id = ?",
+            (user_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Node not found")
+        return {"user_id": user_id, "server_url": row[0], "web_url": row[1],
+                "handle": row[2], "display_name": row[3]}
+
     @app.patch("/nodes/{user_id}", status_code=204)
     def update_node(user_id: str, body: UpdateNodeBody, request: Request):
         _require_node_ownership(request, user_id)

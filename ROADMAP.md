@@ -2,6 +2,14 @@
 
 ## Pending
 
+**0c. Restore-from-backup: revoke old node, update registry, shut down superseded instance**
+
+When a user restores from a backup bundle onto a new node, the old node should be
+superseded: revoke its delegation cert (or issue a new one invalidating the old node key),
+update the registry with the new server URL, and notify the old node (if reachable) that
+it has been replaced and should shut itself down. Any heartbeat from the superseded node
+should be rejected by the registry with a "superseded" status.
+
 **0a. Node identity (node_id) separate from person identity (user_id)**
 
 Currently `user_id` serves as both the person identifier and the node identifier (1:1).

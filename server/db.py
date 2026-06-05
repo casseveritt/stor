@@ -319,3 +319,21 @@ def init_schema(con: sqlcipher3.Connection) -> None:
                 pass
         con.execute("INSERT OR IGNORE INTO schema_version VALUES (10)")
         con.commit()
+
+    # Add user_id to users table and notifications table
+    try:
+        con.execute("ALTER TABLE users ADD COLUMN user_id TEXT")
+        con.commit()
+    except Exception:
+        pass
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS mention_notifications (
+            id           TEXT PRIMARY KEY,
+            post_id      TEXT NOT NULL,
+            author_server TEXT NOT NULL,
+            author_handle TEXT,
+            received_at  INTEGER NOT NULL,
+            seen         INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    con.commit()

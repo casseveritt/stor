@@ -16,6 +16,62 @@ from .db import now_ns
 router = APIRouter()
 
 _ASSET_REF = re.compile(r"\[asset:([0-9a-f-]+)\]")
+_MENTION_RE = re.compile(r"\[([^\|\]]+)\|([^\]]+)\]")
+
+
+def _notify_mentions(body: str, post_id: str, app) -> None:
+    """Best-effort federated notification to any nodes mentioned in body."""
+    import threading
+    mentions = _MENTION_RE.findall(body)
+    if not mentions:
+        return
+    config = app.state.config if hasattr(app.state, "config") else None
+    node_address = getattr(app.state, "node_address", "") or ""
+    registry_url = ""
+    handle = ""
+    if config:
+        try:
+            from .config import NodeConfig
+            cfg = NodeConfig.load(app.state.config_path)
+            registry_url = (cfg.registry_url or cfg.identity_proxy_url or "").rstrip("/")
+            handle = cfg.registry_handle or ""
+        except Exception:
+            pass
+
+    def _send():
+        import httpx as _hx, time as _t, base64 as _b64
+        priv = getattr(app.state, "private_key", None)
+        for user_id, _label in mentions:
+            try:
+                # Look up the mentioned node's server URL via registry
+                target_url = None
+                if registry_url:
+                    r = _hx.get(f"{registry_url}/nodes/{user_id}", timeout=5)
+                    if r.is_success:
+                        d = r.json()
+                        target_url = d.get("web_url") or d.get("server_url")
+
+                if not target_url:
+                    continue
+
+                payload = {
+                    "post_id": post_id,
+                    "author_server": node_address,
+                    "author_handle": handle,
+                    "timestamp": int(_t.time()),
+                }
+                headers = {"Content-Type": "application/json"}
+                if priv:
+                    ts = str(payload["timestamp"])
+                    sig = _b64.b64encode(priv.sign(f"contacc:mention:{post_id}:{ts}".encode())).decode()
+                    headers["X-Timestamp"] = ts
+                    headers["X-Mention-Sig"] = sig
+                _hx.post(f"{target_url.rstrip('/')}/notifications/mention",
+                         json=payload, headers=headers, timeout=5)
+            except Exception:
+                pass
+
+    threading.Thread(target=_send, daemon=True).start()
 
 
 def _asset_ids_in_order(body: str) -> list[str]:
@@ -177,6 +233,7 @@ async def create_post(
     row = db.execute(
         f"SELECT {_POST_COLS_NO_ALIAS} FROM posts WHERE id = ?", (post_id,)
     ).fetchone()
+    _notify_mentions(body, post_id, request.app)
     return _post_dict(row, db)
 
 
@@ -503,6 +560,7 @@ async def post_comment(post_id: str, payload: _CommentBody, request: Request, id
     )
     db.commit()
 
+    _notify_mentions(payload.body, post_id, request.app)
     return {
         "id": comment_id, "content_hash": content_hash,
         "post_id": post_id, "parent_id": payload.parent_id,

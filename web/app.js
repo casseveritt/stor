@@ -115,6 +115,58 @@ async function loginGoogle() {
 }
 
 
+let _mentionPopupTimer = null;
+
+function _showMentionPopup(event, span) {
+  clearTimeout(_mentionPopupTimer);
+  _mentionPopupTimer = setTimeout(() => {
+    document.querySelectorAll('.mention-popup').forEach(p => p.remove());
+    const id = span.dataset.mentionId;
+    const contact = (CFG?.contacts || []).find(c => c.user_id === id || c.public_key === id);
+    if (!contact) return;
+    const prof = serverProfiles[contact.url] || {};
+    const name = prof.display_name || contact.name || '';
+    const handle = contact.handle ? '@' + contact.handle : '';
+    const photoUrl = cachedPhotos.has(contact.url)
+      ? '/api/contacts/photo?url=' + encodeURIComponent(contact.url)
+      : null;
+    const initials = (name[0] || '?').toUpperCase();
+    const imgSize = 'calc(3em * 1.4)';
+
+    const popup = document.createElement('div');
+    popup.className = 'mention-popup';
+    popup.onmouseenter = () => clearTimeout(_mentionPopupTimer);
+    popup.onmouseleave = () => _hideMentionPopup();
+    popup.innerHTML =
+      `<div style="display:flex;gap:0.65rem;align-items:center">` +
+      (photoUrl
+        ? `<img src="${esc(photoUrl)}" style="width:${imgSize};height:${imgSize};border-radius:50%;object-fit:cover;flex-shrink:0">`
+        : `<div style="width:${imgSize};height:${imgSize};border-radius:50%;background:var(--avatar-bg);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--avatar-text);flex-shrink:0">${esc(initials)}</div>`) +
+      `<div style="min-width:0"><div style="font-size:0.95rem;font-weight:500;color:#e0e0e0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)}</div>` +
+      (handle ? `<div style="font-size:0.8rem;color:#666">${esc(handle)}</div>` : '') +
+      `</div></div>`;
+
+    document.body.appendChild(popup);
+    const sr = span.getBoundingClientRect();
+    popup.style.visibility = 'hidden';
+    requestAnimationFrame(() => {
+      const pw = popup.offsetWidth;
+      const top = sr.bottom + 6 + window.scrollY;
+      const left = Math.min(sr.left + window.scrollX, window.innerWidth - pw - 8);
+      popup.style.top = top + 'px';
+      popup.style.left = Math.max(4, left) + 'px';
+      popup.style.visibility = '';
+    });
+  }, 200);
+}
+
+function _hideMentionPopup(event) {
+  clearTimeout(_mentionPopupTimer);
+  _mentionPopupTimer = setTimeout(() => {
+    document.querySelectorAll('.mention-popup').forEach(p => p.remove());
+  }, 100);
+}
+
 function _toggleSidebar() {
   const body = document.getElementById("sidebar-body");
   const arrow = document.getElementById("sidebar-toggle-arrow");
@@ -1574,10 +1626,7 @@ function _renderMentions(text) {
     const m = part.match(/^\[([^|\]]+)\|([^\]]+)\]$/);
     if (!m) return esc(part);
     const id = m[1], disptext = m[2];
-    const contact = (CFG?.contacts || []).find(c => c.user_id === id || c.public_key === id);
-    const prof = contact ? (serverProfiles[contact.url] || {}) : {};
-    const tooltip = prof.display_name || (contact ? contact.name : disptext);
-    return `<span class="mention-tag" title="${esc(tooltip)}">${esc(disptext)}</span>`;
+    return `<span class="mention-tag" data-mention-id="${esc(id)}" onmouseenter="_showMentionPopup(event,this)" onmouseleave="_hideMentionPopup(event)">${esc(disptext)}</span>`;
   }).join('');
 }
 

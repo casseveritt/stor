@@ -284,6 +284,46 @@ def create_app(config_path: str | Path) -> FastAPI:
     app.include_router(reactions_module.router)
     app.include_router(debug_module.router)
 
+    @app.post("/notifications/mention", status_code=204)
+    async def receive_mention(request: Request):
+        """Receive a mention notification from another node."""
+        try:
+            body = await request.json()
+            post_id = body.get("post_id", "")
+            author_server = body.get("author_server", "")
+            author_handle = body.get("author_handle", "")
+            if not post_id or not author_server:
+                return JSONResponse({"detail": "missing fields"}, status_code=400)
+            db = app.state.db
+            notif_id = str(__import__("uuid").uuid4())
+            db.execute(
+                "INSERT OR IGNORE INTO mention_notifications (id, post_id, author_server, author_handle, received_at) VALUES (?, ?, ?, ?, ?)",
+                (notif_id, post_id, author_server, author_handle, int(time.time_ns()))
+            )
+            db.commit()
+        except Exception:
+            pass
+
+    @app.get("/api/notifications/mentions")
+    def get_mention_notifications(request: Request):
+        """Return recent mention notifications for the owner."""
+        db = app.state.db
+        rows = db.execute(
+            "SELECT id, post_id, author_server, author_handle, received_at, seen "
+            "FROM mention_notifications ORDER BY received_at DESC LIMIT 50"
+        ).fetchall()
+        return {"notifications": [
+            {"id": r[0], "post_id": r[1], "author_server": r[2],
+             "author_handle": r[3], "received_at": r[4], "seen": bool(r[5])}
+            for r in rows
+        ]}
+
+    @app.post("/api/notifications/mentions/mark-seen", status_code=204)
+    def mark_mentions_seen(request: Request):
+        db = app.state.db
+        db.execute("UPDATE mention_notifications SET seen = 1 WHERE seen = 0")
+        db.commit()
+
     @app.post("/tang/deliver")
     async def tang_deliver(request: Request):
         """Receive Tang S value from registry; derive passphrase and unlock."""
@@ -361,7 +401,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def init_guard(request: Request, call_next):
         path = request.url.path
         is_setup_path = path.startswith("/setup") or path == "/tang/deliver"
-        is_public_path = path == "/profile/photo" or path.startswith("/node")
+        is_public_path = path == "/profile/photo" or path.startswith("/node") or path == "/notifications/mention"
         if not app.state.initialized and not is_setup_path:
             state = "locked" if config_path.exists() else "uninitialized"
             return JSONResponse({"detail": "Server not ready", "state": state}, status_code=503)
