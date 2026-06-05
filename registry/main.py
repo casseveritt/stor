@@ -491,6 +491,10 @@ def create_app(db_path: str) -> FastAPI:
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="114.1085 98.626948 11.98291 9.7358322" style="height:2.2rem;width:auto"><path style="fill:#4285f4;stroke-width:0.199817" d="m 125.34474,104.96592 0.74667,1.9637 -0.10218,0.12403 c -0.0734,-0.11943 -0.13361,-0.17915 -0.18077,-0.17915 -0.0472,0 -0.17946,0.11024 -0.39691,0.33073 -0.45062,0.45475 -0.8305,0.76252 -1.13965,0.92329 -0.30652,0.15617 -0.67199,0.23426 -1.09641,0.23426 -0.84623,0 -1.54049,-0.3514 -2.08281,-1.0542 -0.31962,-0.40881 -0.50719,-0.82671 -0.69058,-1.43305 -0.19942,-1.14201 -0.14909,-1.18922 -0.15208,-2.72041 -0.003,-1.67715 -0.007,-1.74466 0.33965,-2.63337 0.44703,-1.145722 1.43438,-1.894801 2.58975,-1.894801 0.42442,0 0.78858,0.07809 1.09248,0.234267 0.30391,0.156177 0.68379,0.463939 1.13965,0.923285 0.21745,0.215889 0.34975,0.323839 0.39691,0.323839 0.0472,0 0.10742,-0.0597 0.18077,-0.179145 l 0.10218,0.124025 -0.74667,1.9637 -0.1061,-0.12402 c 0.005,-0.0735 0.008,-0.13551 0.008,-0.18604 0,-0.13321 -0.0327,-0.25723 -0.0983,-0.37207 -0.0655,-0.11943 -0.18208,-0.26182 -0.34975,-0.42719 -0.46372,-0.45935 -0.95495,-0.68902 -1.47368,-0.68902 -0.61305,0 -1.10166,0.26872 -1.46582,0.80615 -0.42966,0.62931 -0.64449,1.45154 -0.64449,2.46669 0,1.01515 0.21483,1.83738 0.64449,2.46669 0.36416,0.53743 0.85277,0.80615 1.46582,0.80615 0.51873,0 1.00996,-0.22967 1.47368,-0.68902 0.16767,-0.16537 0.28426,-0.30547 0.34975,-0.4203 0.0655,-0.11943 0.0983,-0.24575 0.0983,-0.37896 0,-0.0505 -0.003,-0.11025 -0.008,-0.17915 z"/><path style="fill:#4285f4;stroke-width:0.199817" d="m 114.85517,104.96592 -0.74667,1.9637 0.10218,0.12403 c 0.0734,-0.11943 0.13361,-0.17915 0.18077,-0.17915 0.0472,0 0.17946,0.11024 0.39691,0.33073 0.45062,0.45475 0.8305,0.76252 1.13965,0.92329 0.30652,0.15617 0.67199,0.23426 1.09641,0.23426 0.84623,0 1.54049,-0.3514 2.08281,-1.0542 0.31962,-0.40881 0.50719,-0.82671 0.69058,-1.43305 0.19942,-1.14201 0.14909,-1.18922 0.15208,-2.72041 0.003,-1.67715 0.007,-1.74466 -0.33965,-2.63337 -0.44703,-1.145723 -1.43438,-1.894802 -2.58975,-1.894802 -0.42442,0 -0.78858,0.07809 -1.09248,0.234267 -0.30391,0.156177 -0.68379,0.463939 -1.13965,0.923285 -0.21745,0.21589 -0.34975,0.32384 -0.39691,0.32384 -0.0472,0 -0.10742,-0.0597 -0.18077,-0.179146 l -0.10218,0.124026 0.74667,1.9637 0.1061,-0.12402 c -0.005,-0.0735 -0.008,-0.13551 -0.008,-0.18604 0,-0.13321 0.0327,-0.25723 0.0982,-0.37207 0.0655,-0.11943 0.18208,-0.26182 0.34975,-0.42719 0.46372,-0.45935 0.95495,-0.68902 1.47368,-0.68902 0.61305,0 1.10166,0.26872 1.46582,0.80615 0.42966,0.62931 0.64449,1.45154 0.64449,2.46669 0,1.01515 -0.21483,1.83738 -0.64449,2.46669 -0.36416,0.53743 -0.85277,0.80615 -1.46582,0.80615 -0.51873,0 -1.00996,-0.22967 -1.47368,-0.68902 -0.16767,-0.16537 -0.28426,-0.30547 -0.34975,-0.4203 -0.0655,-0.11943 -0.0982,-0.24575 -0.0982,-0.37896 0,-0.0505 0.003,-0.11025 0.008,-0.17915 z"/></svg>
     <span>contacc</span><small>registry</small>
   </div>
+  <div style="display:flex;gap:1rem;font-size:0.82rem">
+    <a href="/docs" style="color:#4285f4;text-decoration:none">Getting started</a>
+    <a href="/docs/roadmap" style="color:#4285f4;text-decoration:none">Roadmap</a>
+  </div>
 
   <!-- Auth gate — shown when not signed in -->
   <div id="auth-gate" class="auth-gate-box" hidden>
@@ -755,9 +759,195 @@ def create_app(db_path: str) -> FastAPI:
 </body>
 </html>"""
 
+    _DOC_STYLE = """
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #111; color: #e0e0e0;
+           min-height: 100vh; padding: 2rem 1rem; }
+    .page { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem; }
+    .logo { display: flex; align-items: center; gap: 0.6rem; }
+    .logo span { font-size: 1.8rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; }
+    .logo small { font-size: 0.8rem; color: #555; margin-left: 0.25rem; align-self: flex-end; margin-bottom: 0.2rem; }
+    nav { display: flex; gap: 1rem; font-size: 0.82rem; }
+    nav a { color: #4285f4; text-decoration: none; }
+    nav a:hover { text-decoration: underline; }
+    h1 { font-size: 1.4rem; font-weight: 500; color: #fff; margin-bottom: 0.25rem; }
+    h2 { font-size: 1.05rem; font-weight: 500; color: #ccc; margin: 1.75rem 0 0.5rem; border-bottom: 1px solid #222; padding-bottom: 0.3rem; }
+    h3 { font-size: 0.92rem; font-weight: 600; color: #aaa; margin: 1.25rem 0 0.35rem; }
+    p { font-size: 0.88rem; color: #bbb; line-height: 1.6; margin-bottom: 0.6rem; }
+    ul, ol { padding-left: 1.4rem; margin-bottom: 0.6rem; }
+    li { font-size: 0.88rem; color: #bbb; line-height: 1.6; margin-bottom: 0.2rem; }
+    code { font-family: monospace; background: #1e1e1e; border: 1px solid #2a2a2a;
+           border-radius: 3px; padding: 0.1em 0.35em; font-size: 0.82rem; color: #a8d8a8; }
+    pre { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px;
+          padding: 0.85rem 1rem; overflow-x: auto; margin-bottom: 0.75rem; }
+    pre code { background: none; border: none; padding: 0; font-size: 0.82rem; color: #a8d8a8; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.84rem; margin-bottom: 0.75rem; }
+    th { text-align: left; color: #888; font-weight: 500; padding: 0.35rem 0.6rem;
+         border-bottom: 1px solid #2a2a2a; }
+    td { padding: 0.3rem 0.6rem; color: #bbb; border-bottom: 1px solid #1e1e1e; vertical-align: top; }
+    .badge { display: inline-block; background: #1e3a1e; color: #6cbe6c; border-radius: 3px;
+             padding: 0.1em 0.4em; font-size: 0.75rem; font-weight: 600; margin-right: 0.3rem; }
+    .badge-pending { background: #2a2a1e; color: #c8b86c; }
+    strong { color: #ddd; }
+    a { color: #4285f4; }
+    """
+
+    _README_HTML = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>contacc — getting started</title>
+<style>""" + _DOC_STYLE + """</style></head>
+<body><div class="page">
+<div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="114.1085 98.626948 11.98291 9.7358322" style="height:2.2rem;width:auto"><path style="fill:#4285f4" d="m 125.34474,104.96592 0.74667,1.9637 -0.10218,0.12403 c -0.0734,-0.11943 -0.13361,-0.17915 -0.18077,-0.17915 -0.0472,0 -0.17946,0.11024 -0.39691,0.33073 -0.45062,0.45475 -0.8305,0.76252 -1.13965,0.92329 -0.30652,0.15617 -0.67199,0.23426 -1.09641,0.23426 -0.84623,0 -1.54049,-0.3514 -2.08281,-1.0542 -0.31962,-0.40881 -0.50719,-0.82671 -0.69058,-1.43305 -0.19942,-1.14201 -0.14909,-1.18922 -0.15208,-2.72041 -0.003,-1.67715 -0.007,-1.74466 0.33965,-2.63337 0.44703,-1.145722 1.43438,-1.894801 2.58975,-1.894801 0.42442,0 0.78858,0.07809 1.09248,0.234267 0.30391,0.156177 0.68379,0.463939 1.13965,0.923285 0.21745,0.215889 0.34975,0.323839 0.39691,0.323839 0.0472,0 0.10742,-0.0597 0.18077,-0.179145 l 0.10218,0.124025 -0.74667,1.9637 -0.1061,-0.12402 c 0.005,-0.0735 0.008,-0.13551 0.008,-0.18604 0,-0.13321 -0.0327,-0.25723 -0.0983,-0.37207 -0.0655,-0.11943 -0.18208,-0.26182 -0.34975,-0.42719 -0.46372,-0.45935 -0.95495,-0.68902 -1.47368,-0.68902 -0.61305,0 -1.10166,0.26872 -1.46582,0.80615 -0.42966,0.62931 -0.64449,1.45154 -0.64449,2.46669 0,1.01515 0.21483,1.83738 0.64449,2.46669 0.36416,0.53743 0.85277,0.80615 1.46582,0.80615 0.51873,0 1.00996,-0.22967 1.47368,-0.68902 0.16767,-0.16537 0.28426,-0.30547 0.34975,-0.4203 0.0655,-0.11943 0.0983,-0.24575 0.0983,-0.37896 0,-0.0505 -0.003,-0.11025 -0.008,-0.17915 z"/><path style="fill:#4285f4" d="m 114.85517,104.96592 -0.74667,1.9637 0.10218,0.12403 c 0.0734,-0.11943 0.13361,-0.17915 0.18077,-0.17915 0.0472,0 0.17946,0.11024 0.39691,0.33073 0.45062,0.45475 0.8305,0.76252 1.13965,0.92329 0.30652,0.15617 0.67199,0.23426 1.09641,0.23426 0.84623,0 1.54049,-0.3514 2.08281,-1.0542 0.31962,-0.40881 0.50719,-0.82671 0.69058,-1.43305 0.19942,-1.14201 0.14909,-1.18922 0.15208,-2.72041 0.003,-1.67715 0.007,-1.74466 -0.33965,-2.63337 -0.44703,-1.145723 -1.43438,-1.894802 -2.58975,-1.894802 -0.42442,0 -0.78858,0.07809 -1.09248,0.234267 -0.30391,0.156177 -0.68379,0.463939 -1.13965,0.923285 -0.21745,0.21589 -0.34975,0.32384 -0.39691,0.32384 -0.0472,0 -0.10742,-0.0597 -0.18077,-0.179146 l -0.10218,0.124026 0.74667,1.9637 0.1061,-0.12402 c -0.005,-0.0735 -0.008,-0.13551 -0.008,-0.18604 0,-0.13321 0.0327,-0.25723 0.0982,-0.37207 0.0655,-0.11943 0.18208,-0.26182 0.34975,-0.42719 0.46372,-0.45935 0.95495,-0.68902 1.47368,-0.68902 0.61305,0 1.10166,0.26872 1.46582,0.80615 0.42966,0.62931 0.64449,1.45154 0.64449,2.46669 0,1.01515 -0.21483,1.83738 -0.64449,2.46669 -0.36416,0.53743 -0.85277,0.80615 -1.46582,0.80615 -0.51873,0 -1.00996,-0.22967 -1.47368,-0.68902 -0.16767,-0.16537 -0.28426,-0.30547 -0.34975,-0.4203 -0.0655,-0.11943 -0.0982,-0.24575 -0.0982,-0.37896 0,-0.0505 0.003,-0.11025 0.008,-0.17915 z"/></svg>
+<span>contacc</span><small>docs</small></div>
+<nav><a href="/">Registry</a><a href="/docs">Getting started</a><a href="/docs/roadmap">Roadmap</a></nav>
+
+<div>
+<h1>Getting started</h1>
+<p>contacc is a personal data store and social feed. You own your data; you choose who sees what.</p>
+</div>
+
+<div>
+<h2>What you need</h2>
+<ul>
+  <li>A Raspberry Pi or any Linux server running 24/7</li>
+  <li><strong>Docker</strong> — <code>curl -fsSL https://get.docker.com | sh</code></li>
+  <li><strong>A domain name</strong> pointed at your server's public IP (<a href="https://www.duckdns.org" target="_blank">DuckDNS</a> is free and works well on a Pi)</li>
+  <li><strong>Ports open</strong> in your router: <code>80</code> (TLS), <code>8443–8452</code> (node APIs), <code>6443–6452</code> (web UIs)</li>
+  <li>A setup token and web URL from your registry operator</li>
+</ul>
+<p>No Google Cloud Console setup required — Google OAuth is handled by the registry.</p>
+</div>
+
+<div>
+<h2>Setup</h2>
+<pre><code>git clone https://github.com/casseveritt/stor
+cd stor
+cp .env.example .env    # set CONTACC_DOMAIN and CONTACC_DATA_DIR
+docker compose up -d --build</code></pre>
+<p>Open the web UI URL your registry operator gave you, enter your setup token, fill in your name, handle, and a passphrase, and click <strong>Create Identity</strong>.</p>
+<p>That's it. Your node is registered, network-bound unlock (Tang) is configured, and your identity key is escrowed — all automatically. You only need to remember your passphrase.</p>
+</div>
+
+<div>
+<h2>Security model</h2>
+<h3>Identity key</h3>
+<p>An Ed25519 key pair generated at setup. The private key is never stored on the node. It signs delegation certificates that link your permanent UUID to your node's operational key.</p>
+<h3>Node key</h3>
+<p>The day-to-day Ed25519 signing key, stored encrypted in <code>node_config.json</code> using Argon2id + AES-256-GCM with your passphrase.</p>
+<h3>Registry escrow</h3>
+<p>Your identity private key is encrypted with your passphrase and uploaded to the registry at setup. To recover it: visit the registry, sign in with Google, enter your passphrase.</p>
+<h3>Tang network-bound unlock</h3>
+<p>The registry holds a per-node X25519 key. On startup your node asks the registry to compute a shared secret and deliver it to your node's registered URL. The registry only delivers to the address on file — so your node can only unlock if it's actually running at its registered location. No passphrase entry needed on restart.</p>
+</div>
+
+<div>
+<h2>Architecture</h2>
+<table>
+<tr><th>Container</th><th>Internal port</th><th>Role</th></tr>
+<tr><td><code>node-N-me</code></td><td>28443+N</td><td>Owns identity, posts, assets. Encrypted SQLCipher DB + AES-256-GCM files.</td></tr>
+<tr><td><code>node-N-them</code></td><td>18443+N</td><td>Aggregates contacts' feeds. Proxies API calls to <em>me</em>.</td></tr>
+<tr><td><code>web-N</code></td><td>16443+N</td><td>Static UI + reverse proxy to <em>them</em>.</td></tr>
+<tr><td><code>registry</code></td><td>9532</td><td>Shared handle→URL directory. Run by the host operator.</td></tr>
+<tr><td><code>caddy</code></td><td>—</td><td>TLS termination. Routes 8443+N → <em>them</em>, 6443+N → <em>web</em>.</td></tr>
+</table>
+<p>All external traffic enters through <em>them</em>, which proxies to <em>me</em> via an internal token. Caddy has no path-based routing rules.</p>
+</div>
+
+<div>
+<h2>Day-to-day operations</h2>
+<pre><code>docker compose logs -f                  # tail all logs
+docker compose up -d                    # start everything
+docker compose down                     # stop everything</code></pre>
+<p>Use the <strong>Backup</strong> button in the web UI to download your data. To restore, use the <strong>Restore Backup</strong> tab in the setup wizard on a fresh node.</p>
+</div>
+
+</div></body></html>"""
+
+    _ROADMAP_HTML = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>contacc — roadmap</title>
+<style>""" + _DOC_STYLE + """</style></head>
+<body><div class="page">
+<div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="114.1085 98.626948 11.98291 9.7358322" style="height:2.2rem;width:auto"><path style="fill:#4285f4" d="m 125.34474,104.96592 0.74667,1.9637 -0.10218,0.12403 c -0.0734,-0.11943 -0.13361,-0.17915 -0.18077,-0.17915 -0.0472,0 -0.17946,0.11024 -0.39691,0.33073 -0.45062,0.45475 -0.8305,0.76252 -1.13965,0.92329 -0.30652,0.15617 -0.67199,0.23426 -1.09641,0.23426 -0.84623,0 -1.54049,-0.3514 -2.08281,-1.0542 -0.31962,-0.40881 -0.50719,-0.82671 -0.69058,-1.43305 -0.19942,-1.14201 -0.14909,-1.18922 -0.15208,-2.72041 -0.003,-1.67715 -0.007,-1.74466 0.33965,-2.63337 0.44703,-1.145722 1.43438,-1.894801 2.58975,-1.894801 0.42442,0 0.78858,0.07809 1.09248,0.234267 0.30391,0.156177 0.68379,0.463939 1.13965,0.923285 0.21745,0.215889 0.34975,0.323839 0.39691,0.323839 0.0472,0 0.10742,-0.0597 0.18077,-0.179145 l 0.10218,0.124025 -0.74667,1.9637 -0.1061,-0.12402 c 0.005,-0.0735 0.008,-0.13551 0.008,-0.18604 0,-0.13321 -0.0327,-0.25723 -0.0983,-0.37207 -0.0655,-0.11943 -0.18208,-0.26182 -0.34975,-0.42719 -0.46372,-0.45935 -0.95495,-0.68902 -1.47368,-0.68902 -0.61305,0 -1.10166,0.26872 -1.46582,0.80615 -0.42966,0.62931 -0.64449,1.45154 -0.64449,2.46669 0,1.01515 0.21483,1.83738 0.64449,2.46669 0.36416,0.53743 0.85277,0.80615 1.46582,0.80615 0.51873,0 1.00996,-0.22967 1.47368,-0.68902 0.16767,-0.16537 0.28426,-0.30547 0.34975,-0.4203 0.0655,-0.11943 0.0983,-0.24575 0.0983,-0.37896 0,-0.0505 -0.003,-0.11025 -0.008,-0.17915 z"/><path style="fill:#4285f4" d="m 114.85517,104.96592 -0.74667,1.9637 0.10218,0.12403 c 0.0734,-0.11943 0.13361,-0.17915 0.18077,-0.17915 0.0472,0 0.17946,0.11024 0.39691,0.33073 0.45062,0.45475 0.8305,0.76252 1.13965,0.92329 0.30652,0.15617 0.67199,0.23426 1.09641,0.23426 0.84623,0 1.54049,-0.3514 2.08281,-1.0542 0.31962,-0.40881 0.50719,-0.82671 0.69058,-1.43305 0.19942,-1.14201 0.14909,-1.18922 0.15208,-2.72041 0.003,-1.67715 0.007,-1.74466 -0.33965,-2.63337 -0.44703,-1.145723 -1.43438,-1.894802 -2.58975,-1.894802 -0.42442,0 -0.78858,0.07809 -1.09248,0.234267 -0.30391,0.156177 -0.68379,0.463939 -1.13965,0.923285 -0.21745,0.21589 -0.34975,0.32384 -0.39691,0.32384 -0.0472,0 -0.10742,-0.0597 -0.18077,-0.179146 l -0.10218,0.124026 0.74667,1.9637 0.1061,-0.12402 c -0.005,-0.0735 -0.008,-0.13551 -0.008,-0.18604 0,-0.13321 0.0327,-0.25723 0.0982,-0.37207 0.0655,-0.11943 0.18208,-0.26182 0.34975,-0.42719 0.46372,-0.45935 0.95495,-0.68902 1.47368,-0.68902 0.61305,0 1.10166,0.26872 1.46582,0.80615 0.42966,0.62931 0.64449,1.45154 0.64449,2.46669 0,1.01515 -0.21483,1.83738 -0.64449,2.46669 -0.36416,0.53743 -0.85277,0.80615 -1.46582,0.80615 -0.51873,0 -1.00996,-0.22967 -1.47368,-0.68902 -0.16767,-0.16537 -0.28426,-0.30547 -0.34975,-0.4203 -0.0655,-0.11943 -0.0982,-0.24575 -0.0982,-0.37896 0,-0.0505 0.003,-0.11025 0.008,-0.17915 z"/></svg>
+<span>contacc</span><small>docs</small></div>
+<nav><a href="/">Registry</a><a href="/docs">Getting started</a><a href="/docs/roadmap">Roadmap</a></nav>
+
+<div>
+<h1>Roadmap</h1>
+</div>
+
+<div>
+<h2>Pending</h2>
+
+<h3><span class="badge badge-pending">planned</span> Separate node_id from user_id</h3>
+<p>Currently <code>user_id</code> serves as both the person identifier and the node identifier (1:1). Separate UUIDs are needed for key rotation and multi-node support.</p>
+
+<h3><span class="badge badge-pending">planned</span> Multiple nodes per identity (1:n)</h3>
+<p>A person should be able to run more than one node under a single identity. Requires a "link to existing identity" setup path where the user provides their identity private key to sign a delegation cert for a new node.</p>
+
+<h3><span class="badge badge-pending">planned</span> Upload identity escrow from settings</h3>
+<p>Users who set up before the automatic escrow flow can upload their identity key escrow from the profile/settings UI (requires their identity private key).</p>
+
+<h3><span class="badge badge-pending">planned</span> Profile photo preview on hover</h3>
+<p>Show a larger version of a contact's photo when hovering over their avatar.</p>
+
+<h3><span class="badge badge-pending">planned</span> Reaction emoji</h3>
+<p>React to posts and comments with emoji. Stored server-side, attributed to the reactor, displayed as grouped counts.</p>
+
+<h3><span class="badge badge-pending">planned</span> @mention notifications</h3>
+<p>When a post contains <code>@handle</code>, push a lightweight ping to the tagged contact's server. Surface an unread-mentions badge and mentions feed.</p>
+
+<h3><span class="badge badge-pending">planned</span> Chat / direct messages</h3>
+<p>1:1 and small-group messaging. End-to-end encrypted, stored on sender's node, pushed or polled by recipient.</p>
+</div>
+
+<div>
+<h2>Completed</h2>
+
+<h3><span class="badge">done</span> Permanent identity (UUID + identity key)</h3>
+<p>UUID + Ed25519 identity key generated at setup. Identity key never stored on node. Delegation cert links identity key → node key.</p>
+
+<h3><span class="badge">done</span> Registry escrow</h3>
+<p>Identity private key encrypted with recovery passphrase, uploaded to registry at setup. Recoverable via Google auth + passphrase at the registry landing page.</p>
+
+<h3><span class="badge">done</span> Tang network-bound unlock</h3>
+<p>Registry holds a per-node X25519 key. On startup the node sends its ephemeral public key to the registry; registry computes a shared secret and delivers it to the node's registered URL — the node can only unlock if it's actually at its registered address. Auto-registers when a node changes its passphrase for the first time. Retries at 2s, 7s, 22s after startup.</p>
+
+<h3><span class="badge">done</span> Automatic setup flow</h3>
+<p>Registration, Tang, and escrow all happen server-side during setup. No extra screens. User only needs to remember their passphrase.</p>
+
+<h3><span class="badge">done</span> Full name at setup</h3>
+<p>Stored in the profile table at setup, sent to the registry via heartbeat, searchable when adding contacts.</p>
+
+<h3><span class="badge">done</span> Default passphrase banner</h3>
+<p>Red banner prompts users still on the default passphrase to set a real one. Also updates registry escrow if escrow passphrase is also the default.</p>
+
+<h3><span class="badge">done</span> Aggregate feed + contacts</h3>
+<p>Client fetches all contacts in parallel and merges by timestamp. Add/remove contacts by handle via registry lookup. Contact URL auto-refreshed on failure.</p>
+
+<h3><span class="badge">done</span> Visibility system</h3>
+<p><code>private</code> | <code>contacts</code> | <code>authenticated</code> | <code>public</code> for both post visibility and comment access. Both must pass independently.</p>
+
+<h3><span class="badge">done</span> Multi-slot deployment</h3>
+<p>Up to 10 node slots per host (ports 8443–8452 / 6443–6452). Independent web layer per slot. All external traffic routes through <em>them</em>; path-based routing decisions live in code, not Caddy.</p>
+
+<h3><span class="badge">done</span> Registry landing page</h3>
+<p>Google auth, node list, passphrase recovery, change recovery passphrase.</p>
+</div>
+
+</div></body></html>"""
+
     @app.get("/", response_class=HTMLResponse)
     def index():
         return _INDEX_HTML
+
+    @app.get("/docs", response_class=HTMLResponse)
+    def docs_readme():
+        return _README_HTML
+
+    @app.get("/docs/roadmap", response_class=HTMLResponse)
+    def docs_roadmap():
+        return _ROADMAP_HTML
 
     @app.get("/go/{username}")
     def go(username: str):
