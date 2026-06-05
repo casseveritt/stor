@@ -492,6 +492,7 @@ def create_app(db_path: str) -> FastAPI:
     <span>contacc</span><small>registry</small>
   </div>
   <div style="display:flex;gap:1rem;font-size:0.82rem">
+    <a href="/docs/overview" style="color:#4285f4;text-decoration:none">Overview</a>
     <a href="/docs" style="color:#4285f4;text-decoration:none">Getting started</a>
     <a href="/docs/roadmap" style="color:#4285f4;text-decoration:none">Roadmap</a>
   </div>
@@ -799,7 +800,7 @@ def create_app(db_path: str) -> FastAPI:
 <body><div class="page">
 <div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="114.1085 98.626948 11.98291 9.7358322" style="height:2.2rem;width:auto"><path style="fill:#4285f4" d="m 125.34474,104.96592 0.74667,1.9637 -0.10218,0.12403 c -0.0734,-0.11943 -0.13361,-0.17915 -0.18077,-0.17915 -0.0472,0 -0.17946,0.11024 -0.39691,0.33073 -0.45062,0.45475 -0.8305,0.76252 -1.13965,0.92329 -0.30652,0.15617 -0.67199,0.23426 -1.09641,0.23426 -0.84623,0 -1.54049,-0.3514 -2.08281,-1.0542 -0.31962,-0.40881 -0.50719,-0.82671 -0.69058,-1.43305 -0.19942,-1.14201 -0.14909,-1.18922 -0.15208,-2.72041 -0.003,-1.67715 -0.007,-1.74466 0.33965,-2.63337 0.44703,-1.145722 1.43438,-1.894801 2.58975,-1.894801 0.42442,0 0.78858,0.07809 1.09248,0.234267 0.30391,0.156177 0.68379,0.463939 1.13965,0.923285 0.21745,0.215889 0.34975,0.323839 0.39691,0.323839 0.0472,0 0.10742,-0.0597 0.18077,-0.179145 l 0.10218,0.124025 -0.74667,1.9637 -0.1061,-0.12402 c 0.005,-0.0735 0.008,-0.13551 0.008,-0.18604 0,-0.13321 -0.0327,-0.25723 -0.0983,-0.37207 -0.0655,-0.11943 -0.18208,-0.26182 -0.34975,-0.42719 -0.46372,-0.45935 -0.95495,-0.68902 -1.47368,-0.68902 -0.61305,0 -1.10166,0.26872 -1.46582,0.80615 -0.42966,0.62931 -0.64449,1.45154 -0.64449,2.46669 0,1.01515 0.21483,1.83738 0.64449,2.46669 0.36416,0.53743 0.85277,0.80615 1.46582,0.80615 0.51873,0 1.00996,-0.22967 1.47368,-0.68902 0.16767,-0.16537 0.28426,-0.30547 0.34975,-0.4203 0.0655,-0.11943 0.0983,-0.24575 0.0983,-0.37896 0,-0.0505 -0.003,-0.11025 -0.008,-0.17915 z"/><path style="fill:#4285f4" d="m 114.85517,104.96592 -0.74667,1.9637 0.10218,0.12403 c 0.0734,-0.11943 0.13361,-0.17915 0.18077,-0.17915 0.0472,0 0.17946,0.11024 0.39691,0.33073 0.45062,0.45475 0.8305,0.76252 1.13965,0.92329 0.30652,0.15617 0.67199,0.23426 1.09641,0.23426 0.84623,0 1.54049,-0.3514 2.08281,-1.0542 0.31962,-0.40881 0.50719,-0.82671 0.69058,-1.43305 0.19942,-1.14201 0.14909,-1.18922 0.15208,-2.72041 0.003,-1.67715 0.007,-1.74466 -0.33965,-2.63337 -0.44703,-1.145723 -1.43438,-1.894802 -2.58975,-1.894802 -0.42442,0 -0.78858,0.07809 -1.09248,0.234267 -0.30391,0.156177 -0.68379,0.463939 -1.13965,0.923285 -0.21745,0.21589 -0.34975,0.32384 -0.39691,0.32384 -0.0472,0 -0.10742,-0.0597 -0.18077,-0.179146 l -0.10218,0.124026 0.74667,1.9637 0.1061,-0.12402 c -0.005,-0.0735 -0.008,-0.13551 -0.008,-0.18604 0,-0.13321 0.0327,-0.25723 0.0982,-0.37207 0.0655,-0.11943 0.18208,-0.26182 0.34975,-0.42719 0.46372,-0.45935 0.95495,-0.68902 1.47368,-0.68902 0.61305,0 1.10166,0.26872 1.46582,0.80615 0.42966,0.62931 0.64449,1.45154 0.64449,2.46669 0,1.01515 -0.21483,1.83738 -0.64449,2.46669 -0.36416,0.53743 -0.85277,0.80615 -1.46582,0.80615 -0.51873,0 -1.00996,-0.22967 -1.47368,-0.68902 -0.16767,-0.16537 -0.28426,-0.30547 -0.34975,-0.4203 -0.0655,-0.11943 -0.0982,-0.24575 -0.0982,-0.37896 0,-0.0505 0.003,-0.11025 0.008,-0.17915 z"/></svg>
 <span>contacc</span><small>docs</small></div>
-<nav><a href="/">Registry</a><a href="/docs">Getting started</a><a href="/docs/roadmap">Roadmap</a></nav>
+<nav><a href="/">Registry</a><a href="/docs/overview">Overview</a><a href="/docs">Getting started</a><a href="/docs/roadmap">Roadmap</a></nav>
 
 <div>
 <h1>Getting started</h1>
@@ -870,7 +871,7 @@ docker compose down                     # stop everything</code></pre>
 <body><div class="page">
 <div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="114.1085 98.626948 11.98291 9.7358322" style="height:2.2rem;width:auto"><path style="fill:#4285f4" d="m 125.34474,104.96592 0.74667,1.9637 -0.10218,0.12403 c -0.0734,-0.11943 -0.13361,-0.17915 -0.18077,-0.17915 -0.0472,0 -0.17946,0.11024 -0.39691,0.33073 -0.45062,0.45475 -0.8305,0.76252 -1.13965,0.92329 -0.30652,0.15617 -0.67199,0.23426 -1.09641,0.23426 -0.84623,0 -1.54049,-0.3514 -2.08281,-1.0542 -0.31962,-0.40881 -0.50719,-0.82671 -0.69058,-1.43305 -0.19942,-1.14201 -0.14909,-1.18922 -0.15208,-2.72041 -0.003,-1.67715 -0.007,-1.74466 0.33965,-2.63337 0.44703,-1.145722 1.43438,-1.894801 2.58975,-1.894801 0.42442,0 0.78858,0.07809 1.09248,0.234267 0.30391,0.156177 0.68379,0.463939 1.13965,0.923285 0.21745,0.215889 0.34975,0.323839 0.39691,0.323839 0.0472,0 0.10742,-0.0597 0.18077,-0.179145 l 0.10218,0.124025 -0.74667,1.9637 -0.1061,-0.12402 c 0.005,-0.0735 0.008,-0.13551 0.008,-0.18604 0,-0.13321 -0.0327,-0.25723 -0.0983,-0.37207 -0.0655,-0.11943 -0.18208,-0.26182 -0.34975,-0.42719 -0.46372,-0.45935 -0.95495,-0.68902 -1.47368,-0.68902 -0.61305,0 -1.10166,0.26872 -1.46582,0.80615 -0.42966,0.62931 -0.64449,1.45154 -0.64449,2.46669 0,1.01515 0.21483,1.83738 0.64449,2.46669 0.36416,0.53743 0.85277,0.80615 1.46582,0.80615 0.51873,0 1.00996,-0.22967 1.47368,-0.68902 0.16767,-0.16537 0.28426,-0.30547 0.34975,-0.4203 0.0655,-0.11943 0.0983,-0.24575 0.0983,-0.37896 0,-0.0505 -0.003,-0.11025 -0.008,-0.17915 z"/><path style="fill:#4285f4" d="m 114.85517,104.96592 -0.74667,1.9637 0.10218,0.12403 c 0.0734,-0.11943 0.13361,-0.17915 0.18077,-0.17915 0.0472,0 0.17946,0.11024 0.39691,0.33073 0.45062,0.45475 0.8305,0.76252 1.13965,0.92329 0.30652,0.15617 0.67199,0.23426 1.09641,0.23426 0.84623,0 1.54049,-0.3514 2.08281,-1.0542 0.31962,-0.40881 0.50719,-0.82671 0.69058,-1.43305 0.19942,-1.14201 0.14909,-1.18922 0.15208,-2.72041 0.003,-1.67715 0.007,-1.74466 -0.33965,-2.63337 -0.44703,-1.145723 -1.43438,-1.894802 -2.58975,-1.894802 -0.42442,0 -0.78858,0.07809 -1.09248,0.234267 -0.30391,0.156177 -0.68379,0.463939 -1.13965,0.923285 -0.21745,0.21589 -0.34975,0.32384 -0.39691,0.32384 -0.0472,0 -0.10742,-0.0597 -0.18077,-0.179146 l -0.10218,0.124026 0.74667,1.9637 0.1061,-0.12402 c -0.005,-0.0735 -0.008,-0.13551 -0.008,-0.18604 0,-0.13321 0.0327,-0.25723 0.0982,-0.37207 0.0655,-0.11943 0.18208,-0.26182 0.34975,-0.42719 0.46372,-0.45935 0.95495,-0.68902 1.47368,-0.68902 0.61305,0 1.10166,0.26872 1.46582,0.80615 0.42966,0.62931 0.64449,1.45154 0.64449,2.46669 0,1.01515 -0.21483,1.83738 -0.64449,2.46669 -0.36416,0.53743 -0.85277,0.80615 -1.46582,0.80615 -0.51873,0 -1.00996,-0.22967 -1.47368,-0.68902 -0.16767,-0.16537 -0.28426,-0.30547 -0.34975,-0.4203 -0.0655,-0.11943 -0.0982,-0.24575 -0.0982,-0.37896 0,-0.0505 0.003,-0.11025 0.008,-0.17915 z"/></svg>
 <span>contacc</span><small>docs</small></div>
-<nav><a href="/">Registry</a><a href="/docs">Getting started</a><a href="/docs/roadmap">Roadmap</a></nav>
+<nav><a href="/">Registry</a><a href="/docs/overview">Overview</a><a href="/docs">Getting started</a><a href="/docs/roadmap">Roadmap</a></nav>
 
 <div>
 <h1>Roadmap</h1>
@@ -941,9 +942,137 @@ docker compose down                     # stop everything</code></pre>
     def index():
         return _INDEX_HTML
 
+    _OVERVIEW_HTML = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>contacc — overview</title>
+<style>""" + _DOC_STYLE + """
+blockquote { border-left: 3px solid #2a2a2a; margin: 0.75rem 0; padding: 0.5rem 1rem; }
+blockquote p { color: #888; font-style: italic; }
+.diagram { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px;
+           padding: 1rem 1.25rem; font-family: monospace; font-size: 0.8rem;
+           color: #888; line-height: 1.7; overflow-x: auto; white-space: pre; }
+.diagram em { color: #4285f4; font-style: normal; }
+</style></head>
+<body><div class="page">
+<div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="114.1085 98.626948 11.98291 9.7358322" style="height:2.2rem;width:auto"><path style="fill:#4285f4" d="m 125.34474,104.96592 0.74667,1.9637 -0.10218,0.12403 c -0.0734,-0.11943 -0.13361,-0.17915 -0.18077,-0.17915 -0.0472,0 -0.17946,0.11024 -0.39691,0.33073 -0.45062,0.45475 -0.8305,0.76252 -1.13965,0.92329 -0.30652,0.15617 -0.67199,0.23426 -1.09641,0.23426 -0.84623,0 -1.54049,-0.3514 -2.08281,-1.0542 -0.31962,-0.40881 -0.50719,-0.82671 -0.69058,-1.43305 -0.19942,-1.14201 -0.14909,-1.18922 -0.15208,-2.72041 -0.003,-1.67715 -0.007,-1.74466 0.33965,-2.63337 0.44703,-1.145722 1.43438,-1.894801 2.58975,-1.894801 0.42442,0 0.78858,0.07809 1.09248,0.234267 0.30391,0.156177 0.68379,0.463939 1.13965,0.923285 0.21745,0.215889 0.34975,0.323839 0.39691,0.323839 0.0472,0 0.10742,-0.0597 0.18077,-0.179145 l 0.10218,0.124025 -0.74667,1.9637 -0.1061,-0.12402 c 0.005,-0.0735 0.008,-0.13551 0.008,-0.18604 0,-0.13321 -0.0327,-0.25723 -0.0983,-0.37207 -0.0655,-0.11943 -0.18208,-0.26182 -0.34975,-0.42719 -0.46372,-0.45935 -0.95495,-0.68902 -1.47368,-0.68902 -0.61305,0 -1.10166,0.26872 -1.46582,0.80615 -0.42966,0.62931 -0.64449,1.45154 -0.64449,2.46669 0,1.01515 0.21483,1.83738 0.64449,2.46669 0.36416,0.53743 0.85277,0.80615 1.46582,0.80615 0.51873,0 1.00996,-0.22967 1.47368,-0.68902 0.16767,-0.16537 0.28426,-0.30547 0.34975,-0.4203 0.0655,-0.11943 0.0983,-0.24575 0.0983,-0.37896 0,-0.0505 -0.003,-0.11025 -0.008,-0.17915 z"/><path style="fill:#4285f4" d="m 114.85517,104.96592 -0.74667,1.9637 0.10218,0.12403 c 0.0734,-0.11943 0.13361,-0.17915 0.18077,-0.17915 0.0472,0 0.17946,0.11024 0.39691,0.33073 0.45062,0.45475 0.8305,0.76252 1.13965,0.92329 0.30652,0.15617 0.67199,0.23426 1.09641,0.23426 0.84623,0 1.54049,-0.3514 2.08281,-1.0542 0.31962,-0.40881 0.50719,-0.82671 0.69058,-1.43305 0.19942,-1.14201 0.14909,-1.18922 0.15208,-2.72041 0.003,-1.67715 0.007,-1.74466 -0.33965,-2.63337 -0.44703,-1.145723 -1.43438,-1.894802 -2.58975,-1.894802 -0.42442,0 -0.78858,0.07809 -1.09248,0.234267 -0.30391,0.156177 -0.68379,0.463939 -1.13965,0.923285 -0.21745,0.21589 -0.34975,0.32384 -0.39691,0.32384 -0.0472,0 -0.10742,-0.0597 -0.18077,-0.179146 l -0.10218,0.124026 0.74667,1.9637 0.1061,-0.12402 c -0.005,-0.0735 -0.008,-0.13551 -0.008,-0.18604 0,-0.13321 0.0327,-0.25723 0.0982,-0.37207 0.0655,-0.11943 0.18208,-0.26182 0.34975,-0.42719 0.46372,-0.45935 0.95495,-0.68902 1.47368,-0.68902 0.61305,0 1.10166,0.26872 1.46582,0.80615 0.42966,0.62931 0.64449,1.45154 0.64449,2.46669 0,1.01515 -0.21483,1.83738 -0.64449,2.46669 -0.36416,0.53743 -0.85277,0.80615 -1.46582,0.80615 -0.51873,0 -1.00996,-0.22967 -1.47368,-0.68902 -0.16767,-0.16537 -0.28426,-0.30547 -0.34975,-0.4203 -0.0655,-0.11943 -0.0982,-0.24575 -0.0982,-0.37896 0,-0.0505 0.003,-0.11025 0.008,-0.17915 z"/></svg>
+<span>contacc</span><small>docs</small></div>
+<nav><a href="/">Registry</a><a href="/docs/overview">Overview</a><a href="/docs">Getting started</a><a href="/docs/roadmap">Roadmap</a></nav>
+
+<div>
+<h1>Overview</h1>
+<blockquote><p>Most of what we share online is shaped by the question "who will see this?" — and that invisible pressure changes what we say, how we say it, and what we leave out entirely. contacc starts from a different premise: your data should belong to you, live on hardware you control, and be shared only when and how you decide.</p></blockquote>
+</div>
+
+<div>
+<h2>The basic idea</h2>
+<p>contacc is a personal server for your photos, videos, and writing. You share things directly with specific people, who read them from your server. No intermediary, no algorithm, no copy of your content sitting on someone else's infrastructure.</p>
+<p>It works in both directions. Your client connects to the servers of people you follow and pulls their feeds directly from their hardware. What you see is exactly what they chose to share with you — nothing more, nothing less.</p>
+</div>
+
+<div>
+<h2>Nodes</h2>
+<p>Every person runs a <strong>node</strong> — a small server, typically on a Raspberry Pi, that stores their data and serves it to authorized contacts. A node is the authoritative source for everything its owner posts. Content is never copied to a central server; it lives on your hardware.</p>
+<p>Each node has two sides that work together:</p>
+<ul>
+  <li><strong>me</strong> — the private side. Owns your identity, stores your posts and assets, enforces your access rules. Only you can write to it. Other people's nodes read from it.</li>
+  <li><strong>them</strong> — the outward-facing side. Aggregates feeds from your contacts' nodes and presents them to your browser. Proxies your requests to <em>me</em>.</li>
+</ul>
+<p>A third container, <strong>web</strong>, serves the browser UI and routes requests to <em>them</em>. These three containers run together as a unit for each person on the host.</p>
+<div class="diagram">  Browser
+     │
+     ▼
+  <em>web</em>  ─────────── static files (HTML/CSS/JS)
+     │
+     ▼ (everything else)
+  <em>them</em> ─────────── your contacts' nodes (reads their feeds)
+     │
+     ▼ (your own data)
+  <em>me</em>   ─────────── your posts, assets, identity</div>
+</div>
+
+<div>
+<h2>Identity</h2>
+<p>Your identity is built from two layers:</p>
+<ul>
+  <li><strong>Identity key</strong> — an Ed25519 key pair generated once at setup. The private key is never stored on your node. It signs <em>delegation certificates</em> that say "this node key speaks for me." Think of it as your master key, kept offline.</li>
+  <li><strong>Node key</strong> — the day-to-day signing key, stored encrypted on your node. Used for heartbeats, federation, and request signing. Can be rotated by presenting a new delegation signed by the identity key.</li>
+</ul>
+<p>Your permanent identifier is a UUID generated at setup. Your <strong>handle</strong> (like a username) is human-readable and changeable — it's just a name, not your identity. Two people can have the same handle; the UUID is what distinguishes them.</p>
+<p>All your data is encrypted at rest. Your passphrase is never stored — it's used to derive the encryption keys when the node starts up.</p>
+</div>
+
+<div>
+<h2>The registry</h2>
+<p>The <strong>registry</strong> is a shared directory that maps handles to node URLs. It's how contacts find each other: search by name, get a URL, add them. The registry also brokers Google sign-in so individual node operators don't need to set up OAuth credentials.</p>
+<p>The registry doesn't store your content — it only knows your handle, your node's URL, and your identity public key. It's a phonebook, not a platform.</p>
+<div class="diagram">  Registry
+  ├── cass  →  https://strk.xyzw.us:8443
+  ├── cindy →  https://strk.xyzw.us:8445
+  └── lucas →  https://strk.xyzw.us:8446</div>
+<p>Nodes send a signed heartbeat to the registry every hour to keep their entry current. If you move your node to a new address, the registry updates automatically on the next heartbeat.</p>
+</div>
+
+<div>
+<h2>Automatic unlock (Tang)</h2>
+<p>Your node encrypts everything with your passphrase. Normally you'd need to enter it every time the server restarts — inconvenient for a device that reboots occasionally.</p>
+<p>contacc uses a protocol called <strong>Tang</strong> (named after the astronaut drink, because it's network-bound) to unlock automatically. Here's how it works:</p>
+<ol>
+  <li>The registry holds a secret key specific to your node.</li>
+  <li>When your node starts, it sends a request to the registry to compute a shared secret.</li>
+  <li>The registry computes the secret and delivers it <em>to your node's registered URL</em> — not back to whoever asked.</li>
+  <li>Your node uses the secret to derive its passphrase and unlock.</li>
+</ol>
+<p>The security property: the registry only delivers the secret to the address it has on file for your node. If someone steals your disk and tries to unlock it elsewhere, the registry delivers to your real node — not theirs. The stolen disk stays locked.</p>
+</div>
+
+<div>
+<h2>Recovery</h2>
+<p>At setup, your identity private key is encrypted with your passphrase and stored in the registry. If you ever lose access to your node, you can recover it:</p>
+<ol>
+  <li>Visit the registry and sign in with Google.</li>
+  <li>Enter your passphrase.</li>
+  <li>The registry returns your encrypted identity key; your browser decrypts it locally.</li>
+  <li>Use the key to set up a new node and prove it belongs to your identity.</li>
+</ol>
+<p>The registry never sees your identity private key in plaintext — it's encrypted before upload and decrypted in your browser.</p>
+</div>
+
+<div>
+<h2>Sharing and visibility</h2>
+<p>Every post has two independent controls:</p>
+<ul>
+  <li><strong>Visibility</strong> — who can see the post at all: just you, your contacts, any authenticated node, or the public.</li>
+  <li><strong>Comment access</strong> — who can comment on it, with the same four levels.</li>
+</ul>
+<p>Both must pass independently. A post visible to contacts can still restrict comments to just you.</p>
+<p>Contacts are node endpoints — you add a specific node, not a person. If someone runs two nodes (personal and professional), you choose which to follow. What you see is what they explicitly shared with you, nothing else.</p>
+</div>
+
+<div>
+<h2>How it all connects</h2>
+<div class="diagram">  <em>Registry</em> ──────────────────────────────────────┐
+  │  handles → URLs        identity escrow        │
+  │  Tang keys             Google OAuth           │
+  └───────────────────────────────────────────────┘
+        ▲ heartbeat                ▲ Tang unlock
+        │                         │
+  <em>Your node</em> ◄──────────────── <em>Contact's node</em>
+  (me + them + web)    federation    (me + them + web)
+        │
+        ▼
+     Browser</div>
+<p>Your node tells the registry where it lives. The registry helps your contacts find you, unlocks your node on restart, and holds your recovery key. Your node and your contacts' nodes talk directly to each other for content — the registry is not in that path.</p>
+</div>
+
+</div></body></html>"""
+
     @app.get("/docs", response_class=HTMLResponse)
     def docs_readme():
         return _README_HTML
+
+    @app.get("/docs/overview", response_class=HTMLResponse)
+    def docs_overview():
+        return _OVERVIEW_HTML
 
     @app.get("/docs/roadmap", response_class=HTMLResponse)
     def docs_roadmap():
