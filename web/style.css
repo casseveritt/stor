@@ -152,11 +152,11 @@
 
   /* ── reactions ── */
   .reaction-bar { display: flex; flex-wrap: wrap; gap: 0.2rem; margin-top: 0.35rem; align-items: center; justify-content: flex-end; }
-  .reaction-btn { display: inline-flex; align-items: center; gap: 0.18rem; background: var(--surface-3); border: 1px solid #3a3a3a; border-radius: 9px; padding: 1px 6px; font-size: 0.58rem; cursor: pointer; color: var(--text-3); line-height: 1.4; }
-  .reaction-btn:hover { background: #333; border-color: var(--text-dim); }
-  .reaction-btn.reacted { background: var(--accent-surface); border-color: var(--accent); color: var(--accent-light); }
-  .reaction-add { background: none; border: 1px solid var(--border); border-radius: 9px; padding: 1px 6px; font-size: 0.58rem; cursor: pointer; color: var(--text-dim); line-height: 1.4; user-select: none; }
-  .reaction-add:hover { color: var(--text-3); border-color: var(--text-dim); }
+  .reaction-btn { display: inline-flex; align-items: center; gap: 0.2rem; background: none; border: none; border-radius: 4px; padding: 1px 3px; font-size: 0.82rem; cursor: pointer; color: var(--text-3); line-height: 1.4; }
+  .reaction-btn:hover { background: var(--surface-3); }
+  .reaction-btn.reacted { background: var(--accent-surface); color: var(--accent-light); }
+  .reaction-add { background: none; border: none; border-radius: 4px; padding: 1px 4px; font-size: 0.82rem; cursor: pointer; color: var(--text-dim); line-height: 1.4; user-select: none; }
+  .reaction-add:hover { color: var(--text-3); background: var(--surface-3); }
   .reactors-panel { position: fixed; background: var(--surface-1); border: 1px solid #3a3a3a; border-radius: 8px; padding: 0.6rem 0.75rem; z-index: 1000; min-width: 180px; max-width: 280px; max-height: 360px; overflow-y: auto; box-shadow: 0 4px 16px rgba(0,0,0,0.6); }
   .reactors-panel-header { font-size: 0.72rem; color: var(--text-5); display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.4rem; }
   .reactors-panel-close { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 0.9rem; padding: 0; line-height: 1; }
