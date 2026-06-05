@@ -145,17 +145,23 @@
   </header>
   <div id="body-wrap">
     <nav id="sidebar">
-      <div class="sidebar-section">
-        <div class="sidebar-head" style="display:flex;justify-content:space-between;align-items:center">
-          Contacts
-          <button class="btn btn-muted btn-sm" onclick="openAddContact()" style="font-size:0.7rem;padding:0.15rem 0.5rem">+ Add</button>
-        </div>
-        <div id="server-list"></div>
+      <div id="sidebar-toggle" onclick="_toggleSidebar()">
+        <span>Contacts &amp; Tags</span>
+        <span id="sidebar-toggle-arrow">▸</span>
       </div>
-      <div class="sidebar-section">
-        <div class="sidebar-head">Tags</div>
-        <div id="tag-list"></div>
-        <button id="clear-tags-btn" onclick="clearTagFilter()" hidden>Clear filter</button>
+      <div id="sidebar-body">
+        <div class="sidebar-section">
+          <div class="sidebar-head" style="display:flex;justify-content:space-between;align-items:center">
+            Contacts
+            <button class="btn btn-muted btn-sm" onclick="openAddContact()" style="font-size:0.7rem;padding:0.15rem 0.5rem">+ Add</button>
+          </div>
+          <div id="server-list"></div>
+        </div>
+        <div class="sidebar-section">
+          <div class="sidebar-head">Tags</div>
+          <div id="tag-list"></div>
+          <button id="clear-tags-btn" onclick="clearTagFilter()" hidden>Clear filter</button>
+        </div>
       </div>
     </nav>
     <div id="main-area">

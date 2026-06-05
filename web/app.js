@@ -115,6 +115,13 @@ async function loginGoogle() {
 }
 
 
+function _toggleSidebar() {
+  const body = document.getElementById("sidebar-body");
+  const arrow = document.getElementById("sidebar-toggle-arrow");
+  const open = body.classList.toggle("open");
+  arrow.textContent = open ? "▾" : "▸";
+}
+
 async function logout() {
   await apiFetch("/api/auth/token", {method: "DELETE"});
   clearClientToken();
