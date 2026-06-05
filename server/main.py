@@ -72,6 +72,9 @@ def _registry_heartbeat(
             reg_sig = base64.b64encode(private_key.sign(reg_msg.encode())).decode()
             reg_payload = {**payload, "public_key": pub_b64, "signature": reg_sig}
             r = httpx.post(f"{registry_url.rstrip('/')}/register/{handle}", json=reg_payload, timeout=10.0)
+        if r.status_code == 410:
+            log.warning("Registry: this node has been marked superseded — heartbeat rejected")
+            return
         if r.is_success:
             log.info("Registry heartbeat OK: %s → %s", handle, node_address)
         else:

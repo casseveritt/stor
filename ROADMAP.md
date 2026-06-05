@@ -2,32 +2,11 @@
 
 ## Pending
 
-**0c. Restore-from-backup: revoke old node, update registry, shut down superseded instance**
+**0c. Restore-from-backup: supersede old node from registry UI**
 
-When a user restores from a backup bundle onto a new node, the old node should be
-superseded: revoke its delegation cert (or issue a new one invalidating the old node key),
-update the registry with the new server URL, and notify the old node (if reachable) that
-it has been replaced and should shut itself down. Any heartbeat from the superseded node
-should be rejected by the registry with a "superseded" status.
-
-**0a. Separate owner_id (person) from node_id (node deployment)**
-
-Canonical terminology:
-- `owner_id` — identifies a **person**. Permanent, stable, lives in the registry.
-  In the registry, a "user" is identified by owner_id.
-- `node_id`  — identifies a **node deployment**. Tied to a specific server instance
-  and key pair. In the context of a node, a "user" is identified by node_id.
-
-Currently both are the same UUID (1:1), so the field is called `user_id` throughout.
-When we implement 1:n, `user_id` in the registry schema becomes `owner_id`, and each
-node gets its own distinct `node_id`. Delegation certs bind `owner_id → node_id → public_key`.
-All new code should use `owner_id`/`node_id` as the canonical names.
-
-**0b. Multiple nodes per owner (1:n)**
-
-One owner_id can control multiple node_ids — e.g. a personal node and a work node.
-Requires a "link to existing identity" setup path where the user provides their identity
-private key to sign a delegation cert for a new node under the same owner_id.
+Registry schema and UI now support marking a node as superseded (HTTP 410 for subsequent
+heartbeats). Still needed: client-side UI to trigger supersession as part of the restore
+flow, and optional shutdown signal to the old node (if reachable).
 
 **1. Contact description**
 Add a `description TEXT` field to the `contacts` table — natural language, editable via the
@@ -68,19 +47,7 @@ Design:
 - Clients check for extension support before calling optional endpoints
 - Popular extensions graduate into core over time
 
-**4. Hybrid push/poll for live post updates** ← implementing now
-
-Current: every 20s poll for open comment panels. Instead:
-- Opening a post panel subscribes to that post on the remote node for 5 minutes
-  (`POST /posts/{id}/subscribe {callback_url, ttl}`)
-- Remote node pushes updates (comments, reactions, edits) to the subscriber's
-  `/notifications/post-update` endpoint as they happen — no polling during the window
-- Browser polls a cheap in-memory endpoint (`GET /api/subscribed-updates`) every 2s
-  to pick up pushed updates; no remote network call unless the window expired
-- After TTL, subscription lapses; next panel open re-subscribes
-- Background feed poll rate unaffected (already contact-weight-driven in roadmap)
-
-**5 (was 4). Upload identity escrow from settings**
+**4. Upload identity escrow from settings**
 Users who set up before the automatic escrow flow can upload their identity key escrow after
 the fact from the profile/settings UI (requires them to have their identity private key).
 
@@ -91,19 +58,11 @@ the contact list, etc.
 **5. Client API test suite**
 Comprehensive pytest suite for every `/api/` route the client exposes to the browser.
 
-**6. Reaction emoji**
-Allow users to react to posts and comments with emoji. Stored server-side, attributed to
-the reactor. Display as grouped counts below each post/comment.
-
-**7. @mention notifications**
-When a post or comment contains `@handle`, push a lightweight ping to the tagged contact's
-server. Surface an unread-mentions count/badge and mentions feed in the client.
-
-**8. Chat / direct messages**
+**6. Chat / direct messages**
 1:1 and small-group messaging. End-to-end encrypted, stored on sender's node, pushed or
 polled by recipient. Likely a separate `messages` table and UI panel.
 
-**9. Plaintext metadata hardening**
+**7. Plaintext metadata hardening**
 Assess what post timestamps and asset filenames leak and whether it matters for the threat
 model.
 
@@ -125,7 +84,13 @@ model.
 - **Tang retry**: attempts at 2s, 7s, 22s after startup; bails if already unlocked manually.
 - **Default passphrase banner**: red banner prompts users still on "foobar" to set a real
   passphrase. Also updates registry escrow if escrow passphrase is also "foobar".
-- **Non-unique handles**: registry primary key is `user_id`; handles can repeat across users.
+- **Non-unique handles**: registry primary key is `node_id`; handles can repeat across owners.
+- **owner_id / node_id separation (0a)**: two distinct UUIDs — `owner_id` is permanent person identity, `node_id` is deployment-specific. Registry v3 schema uses `node_id` as PK.
+- **1:n nodes per owner — registry (0b)**: registry now allows multiple node rows per `owner_id`. "Existing owner" setup path implemented server-side. Tang endpoints fixed to use `node_id` column.
+- **Supersede endpoint (partial 0c)**: `POST /nodes/{node_id}/supersede` marks a node as replaced; superseded nodes get HTTP 410 on heartbeat. UI button in registry landing page.
+- **Hybrid push/poll for live post updates**: subscribe to post on remote node; 2s cheap poll for pushed updates; 20s heavy poll replaced.
+- **Reaction emoji + emoji picker**: 1800+ emoji from CDN, search, recently used row.
+- **@mention notifications**: @ bell in header, dropdown, click-to-jump-to-post.
 
 **Setup flow**
 - **Setup wizard**: email, full name, handle, passphrase — all in one form.

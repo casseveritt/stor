@@ -70,7 +70,8 @@ def _verify_delegation_cert(cert: dict, node_pub_b64: str) -> bool:
             return False
         id_pub = Ed25519PublicKey.from_public_bytes(
             base64.b64decode(cert["identity_public_key"] + "=="))
-        canonical = (f"contacc:delegate:{cert['user_id']}:"
+        owner_id = cert.get("owner_id") or cert["user_id"]
+        canonical = (f"contacc:delegate:{owner_id}:"
                      f"{cert['node_public_key']}:{cert['expires_at']}")
         id_pub.verify(base64.b64decode(cert["signature"] + "=="), canonical.encode())
         return True
@@ -81,10 +82,11 @@ def _verify_delegation_cert(cert: dict, node_pub_b64: str) -> bool:
 def create_app(db_path: str) -> FastAPI:
     con = sqlite3.connect(db_path, check_same_thread=False)
     con.execute("PRAGMA journal_mode=WAL")
-    # Schema v2: primary key is user_id (UUID); username/handle is non-unique.
+    # Schema v3: node_id is PK (node deployment); owner_id is person identifier (stable, groups 1:n nodes).
     con.execute("""
         CREATE TABLE IF NOT EXISTS handles (
-            user_id       TEXT PRIMARY KEY,
+            node_id       TEXT PRIMARY KEY,
+            owner_id      TEXT NOT NULL,
             username      TEXT NOT NULL DEFAULT '',
             server_url    TEXT NOT NULL,
             public_key    TEXT NOT NULL,
@@ -92,18 +94,24 @@ def create_app(db_path: str) -> FastAPI:
             registered_at INTEGER NOT NULL,
             updated_at    INTEGER NOT NULL,
             display_name  TEXT,
-            web_url       TEXT
+            web_url       TEXT,
+            identity_public_key TEXT,
+            delegation_sig TEXT,
+            encrypted_identity_key TEXT,
+            google_identity TEXT,
+            is_primary    INTEGER DEFAULT 0,
+            superseded_at INTEGER
         )
     """)
-    # Migrate from old schema where username was the PK
+    # Migrate from v2 schema (user_id PK) to v3 (node_id PK, owner_id separate)
     try:
-        con.execute("SELECT user_id FROM handles LIMIT 1")
+        con.execute("SELECT owner_id FROM handles LIMIT 1")
     except Exception:
-        # Old schema — rename and recreate with user_id as PK
-        con.execute("ALTER TABLE handles RENAME TO _handles_v1")
+        con.execute("ALTER TABLE handles RENAME TO _handles_v2")
         con.execute("""
             CREATE TABLE handles (
-                user_id       TEXT PRIMARY KEY,
+                node_id       TEXT PRIMARY KEY,
+                owner_id      TEXT NOT NULL,
                 username      TEXT NOT NULL DEFAULT '',
                 server_url    TEXT NOT NULL,
                 public_key    TEXT NOT NULL,
@@ -111,37 +119,32 @@ def create_app(db_path: str) -> FastAPI:
                 registered_at INTEGER NOT NULL,
                 updated_at    INTEGER NOT NULL,
                 display_name  TEXT,
-                web_url       TEXT
+                web_url       TEXT,
+                identity_public_key TEXT,
+                delegation_sig TEXT,
+                encrypted_identity_key TEXT,
+                google_identity TEXT,
+                is_primary    INTEGER DEFAULT 0,
+                superseded_at INTEGER
             )
         """)
-        # Preserve old rows — user_id will be NULL for legacy entries without one
         con.execute("""
-            INSERT OR IGNORE INTO handles
-              (user_id, username, server_url, public_key, ttl, registered_at, updated_at, display_name, web_url)
-            SELECT COALESCE(user_id, username), username, server_url, public_key, ttl,
-                   registered_at, updated_at, display_name, web_url
-            FROM _handles_v1
+            INSERT INTO handles
+              (node_id, owner_id, username, server_url, public_key, ttl, registered_at,
+               updated_at, display_name, web_url, identity_public_key, delegation_sig,
+               encrypted_identity_key, google_identity, is_primary)
+            SELECT
+              COALESCE(node_id, user_id),
+              user_id,
+              username, server_url, public_key, ttl, registered_at, updated_at,
+              display_name, web_url, identity_public_key, delegation_sig,
+              encrypted_identity_key, google_identity, COALESCE(is_primary, 0)
+            FROM _handles_v2
         """)
-        con.execute("DROP TABLE _handles_v1")
+        con.execute("DROP TABLE _handles_v2")
         con.commit()
-    # Add web_url column if missing (upgrade from earlier schema)
-    try:
-        con.execute("SELECT web_url FROM handles LIMIT 1")
-    except Exception:
-        con.execute("ALTER TABLE handles ADD COLUMN web_url TEXT")
-        con.commit()
-    # Add identity/user_id columns if missing
-    for col in ["user_id TEXT", "identity_public_key TEXT", "delegation_sig TEXT", "encrypted_identity_key TEXT", "google_identity TEXT", "is_primary INTEGER DEFAULT 0", "node_id TEXT"]:
-        try:
-            con.execute(f"ALTER TABLE handles ADD COLUMN {col}")
-            con.commit()
-        except Exception:
-            pass
-    try:
-        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS handles_user_id ON handles (user_id) WHERE user_id IS NOT NULL")
-        con.commit()
-    except Exception:
-        pass
+    con.execute("CREATE INDEX IF NOT EXISTS handles_owner_id ON handles (owner_id)")
+    con.execute("CREATE INDEX IF NOT EXISTS handles_username ON handles (username)")
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS tang_keys (
@@ -241,7 +244,7 @@ def create_app(db_path: str) -> FastAPI:
         if not identity:
             raise HTTPException(401, "Not authenticated")
         rows = con.execute(
-            "SELECT username, display_name, server_url, web_url, user_id, "
+            "SELECT username, display_name, server_url, web_url, node_id, owner_id, "
             "public_key, delegation_sig, identity_public_key, is_primary "
             "FROM handles WHERE google_identity = ? ORDER BY is_primary DESC, updated_at DESC",
             (identity,)
@@ -249,11 +252,12 @@ def create_app(db_path: str) -> FastAPI:
         nodes = []
         for r in rows:
             node = {"handle": r[0], "display_name": r[1], "server_url": r[2],
-                    "web_url": r[3], "user_id": r[4], "public_key": r[5],
-                    "identity_public_key": r[7], "is_primary": bool(r[8])}
-            if r[6]:
+                    "web_url": r[3], "node_id": r[4], "owner_id": r[5],
+                    "user_id": r[5],  # legacy alias
+                    "public_key": r[6], "identity_public_key": r[8], "is_primary": bool(r[9])}
+            if r[7]:
                 try:
-                    node["delegation_cert"] = json.loads(r[6])
+                    node["delegation_cert"] = json.loads(r[7])
                 except Exception:
                     pass
             nodes.append(node)
@@ -278,7 +282,7 @@ def create_app(db_path: str) -> FastAPI:
                 base64.b64decode(body.signature + "=="), msg.encode())
         except Exception:
             # Fall back to checking against the registered node key
-            row = con.execute("SELECT public_key FROM handles WHERE user_id = ?", (body.node_id,)).fetchone()
+            row = con.execute("SELECT public_key FROM handles WHERE node_id = ?", (body.node_id,)).fetchone()
             if not row:
                 raise HTTPException(401, "Node not found")
             try:
@@ -344,7 +348,7 @@ def create_app(db_path: str) -> FastAPI:
         if not _verify_sig(body.node_public_key, msg, body.signature):
             raise HTTPException(401, "Invalid node key signature")
         # Verify the node_public_key matches what's registered
-        row = con.execute("SELECT public_key FROM handles WHERE user_id = ?", (body.node_id,)).fetchone()
+        row = con.execute("SELECT public_key FROM handles WHERE node_id = ?", (body.node_id,)).fetchone()
         if not row:
             raise HTTPException(404, "Node not registered")
         if row[0] != body.node_public_key:
@@ -359,13 +363,13 @@ def create_app(db_path: str) -> FastAPI:
         S_bytes = t_priv.exchange(C_pub)
         return {"S": base64.b64encode(S_bytes).decode()}
 
-    def _require_node_ownership(request, user_id: str) -> str:
+    def _require_node_ownership(request, node_id: str) -> str:
         """Verify session owns this node; return google_identity."""
         identity = _get_session(request)
         if not identity:
             raise HTTPException(401, "Not authenticated")
         row = con.execute(
-            "SELECT google_identity FROM handles WHERE user_id = ?", (user_id,)
+            "SELECT google_identity FROM handles WHERE node_id = ?", (node_id,)
         ).fetchone()
         if not row:
             raise HTTPException(404, "Node not found")
@@ -377,20 +381,29 @@ def create_app(db_path: str) -> FastAPI:
         handle: str | None = None
         display_name: str | None = None
 
-    @app.get("/nodes/{user_id}")
-    def get_node(user_id: str):
+    @app.get("/nodes/{node_id}")
+    def get_node(node_id: str):
         row = con.execute(
-            "SELECT server_url, web_url, username, display_name FROM handles WHERE user_id = ?",
-            (user_id,)
+            "SELECT server_url, web_url, username, display_name, owner_id FROM handles WHERE node_id = ?",
+            (node_id,)
         ).fetchone()
         if not row:
-            raise HTTPException(404, "Node not found")
-        return {"user_id": user_id, "server_url": row[0], "web_url": row[1],
-                "handle": row[2], "display_name": row[3]}
+            # Try owner_id lookup — return primary node for this owner
+            row2 = con.execute(
+                "SELECT server_url, web_url, username, display_name, owner_id, node_id "
+                "FROM handles WHERE owner_id = ? ORDER BY is_primary DESC, updated_at DESC LIMIT 1",
+                (node_id,)
+            ).fetchone()
+            if not row2:
+                raise HTTPException(404, "Node not found")
+            return {"node_id": row2[5], "owner_id": row2[4], "user_id": row2[4],
+                    "server_url": row2[0], "web_url": row2[1], "handle": row2[2], "display_name": row2[3]}
+        return {"node_id": node_id, "owner_id": row[4], "user_id": row[4],
+                "server_url": row[0], "web_url": row[1], "handle": row[2], "display_name": row[3]}
 
-    @app.patch("/nodes/{user_id}", status_code=204)
-    def update_node(user_id: str, body: UpdateNodeBody, request: Request):
-        _require_node_ownership(request, user_id)
+    @app.patch("/nodes/{node_id}", status_code=204)
+    def update_node(node_id: str, body: UpdateNodeBody, request: Request):
+        _require_node_ownership(request, node_id)
         updates, params = [], []
         if body.handle is not None:
             updates.append("username = ?"); params.append(body.handle.lower())
@@ -398,28 +411,28 @@ def create_app(db_path: str) -> FastAPI:
             updates.append("display_name = ?"); params.append(body.display_name)
         if not updates:
             raise HTTPException(422, "Nothing to update")
-        params.extend([time.time_ns(), user_id])
-        con.execute(f"UPDATE handles SET {', '.join(updates)}, updated_at = ? WHERE user_id = ?", params)
+        params.extend([time.time_ns(), node_id])
+        con.execute(f"UPDATE handles SET {', '.join(updates)}, updated_at = ? WHERE node_id = ?", params)
         con.commit()
 
-    @app.delete("/nodes/{user_id}", status_code=204)
-    def remove_node(user_id: str, request: Request):
-        _require_node_ownership(request, user_id)
-        con.execute("DELETE FROM handles WHERE user_id = ?", (user_id,))
+    @app.delete("/nodes/{node_id}", status_code=204)
+    def remove_node(node_id: str, request: Request):
+        _require_node_ownership(request, node_id)
+        con.execute("DELETE FROM handles WHERE node_id = ?", (node_id,))
         con.commit()
 
     class RedelegateBody(BaseModel):
         identity_private_key: str  # hex
 
-    @app.post("/nodes/{user_id}/redelegate", status_code=204)
-    def redelegate_node(user_id: str, body: RedelegateBody, request: Request):
-        _require_node_ownership(request, user_id)
+    @app.post("/nodes/{node_id}/redelegate", status_code=204)
+    def redelegate_node(node_id: str, body: RedelegateBody, request: Request):
+        _require_node_ownership(request, node_id)
         row = con.execute(
-            "SELECT public_key, identity_public_key FROM handles WHERE user_id = ?", (user_id,)
+            "SELECT public_key, identity_public_key, owner_id FROM handles WHERE node_id = ?", (node_id,)
         ).fetchone()
         if not row:
             raise HTTPException(404, "Node not found")
-        node_pub_b64, stored_id_pub = row
+        node_pub_b64, stored_id_pub, owner_id = row
         # Verify identity key matches
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _EPK
         from cryptography.hazmat.primitives.serialization import Encoding as _E, PublicFormat as _PF
@@ -432,11 +445,29 @@ def create_app(db_path: str) -> FastAPI:
             raise
         except Exception:
             raise HTTPException(400, "Invalid identity private key")
-        # Sign new delegation cert
+        # Sign new delegation cert (owner_id is the person identifier, node_id is deployment-specific)
         from server.identity import make_delegation_cert as _mkdel
-        cert = _mkdel(id_key, user_id, node_pub_b64)
-        con.execute("UPDATE handles SET delegation_sig = ?, updated_at = ? WHERE user_id = ?",
-                    (json.dumps(cert), time.time_ns(), user_id))
+        cert = _mkdel(id_key, owner_id, node_pub_b64, node_id=node_id)
+        con.execute("UPDATE handles SET delegation_sig = ?, updated_at = ? WHERE node_id = ?",
+                    (json.dumps(cert), time.time_ns(), node_id))
+        con.commit()
+
+    @app.post("/nodes/{node_id}/supersede", status_code=204)
+    def supersede_node(node_id: str, request: Request):
+        """Mark a node as superseded (replaced by a new deployment). Requires registry session."""
+        identity = _get_session(request)
+        if not identity:
+            raise HTTPException(401, "Sign in first")
+        row = con.execute(
+            "SELECT google_identity, superseded_at FROM handles WHERE node_id = ?", (node_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Node not found")
+        if row[0] != identity:
+            raise HTTPException(403, "Not your node")
+        if row[1]:
+            raise HTTPException(409, "Node already superseded")
+        con.execute("UPDATE handles SET superseded_at = ? WHERE node_id = ?", (time.time_ns(), node_id))
         con.commit()
 
     @app.post("/auth/logout", status_code=204)
@@ -629,14 +660,15 @@ def create_app(db_path: str) -> FastAPI:
             <div style="font-size:0.75rem;color:#555">@${esc(n.handle)} &nbsp;·&nbsp; ${esc(n.server_url)}</div>
           </div>
           <div style="display:flex;gap:0.4rem;align-items:center">
-            ${(n.is_primary || nodes.length === 1) ? '<span style="font-size:0.75rem;color:#6cbe6c;padding:0.3rem 0.5rem">★ primary</span>' : `<button class="btn btn-muted" style="font-size:0.8rem;padding:0.3rem 0.7rem" onclick="setPrimary('${esc(n.user_id)}')">Set primary</button>`}
+            ${(n.is_primary || nodes.length === 1) ? '<span style="font-size:0.75rem;color:#6cbe6c;padding:0.3rem 0.5rem">★ primary</span>' : `<button class="btn btn-muted" style="font-size:0.8rem;padding:0.3rem 0.7rem" onclick="setPrimary('${esc(n.node_id)}')">Set primary</button>`}
             ${link ? `<a href="${esc(link)}" target="_blank" class="btn btn-muted" style="font-size:0.8rem;padding:0.3rem 0.7rem;text-decoration:none">Open ↗</a>` : ''}
             <button class="btn btn-muted" style="font-size:0.8rem;padding:0.3rem 0.7rem" onclick="toggleNode(${i})">Info ▾</button>
           </div>
         </div>
         <div id="node-info-${i}" style="display:none;margin-top:0.75rem;display:none">
           <div style="font-size:0.78rem;color:#555;margin-bottom:0.6rem">
-            <strong style="color:#888">User ID:</strong> ${esc(n.user_id)}<br>
+            <strong style="color:#888">Owner ID:</strong> ${esc(n.owner_id)}<br>
+            <strong style="color:#888">Node ID:</strong> ${esc(n.node_id)}<br>
             <strong style="color:#888">Node key:</strong> ${esc(pubShort)}<br>
             <strong style="color:#888">Delegation expires:</strong> ${esc(expiry)}
           </div>
@@ -656,6 +688,14 @@ def create_app(db_path: str) -> FastAPI:
                 <input type="password" id="node-idkey-${i}" placeholder="Identity private key (hex)" style="font-size:0.82rem;font-family:monospace">
                 <button class="btn btn-primary" style="font-size:0.82rem" onclick="redelegateNode(${i})">Sign new delegation</button>
                 <div id="node-redeleg-msg-${i}" class="msg"></div>
+              </div>
+            </details>
+            <details style="background:#111;border-radius:4px;padding:0.5rem">
+              <summary style="cursor:pointer;font-size:0.85rem;color:#c8a84a">Supersede (replaced by new node)</summary>
+              <div style="margin-top:0.5rem;display:flex;flex-direction:column;gap:0.4rem">
+                <p style="font-size:0.82rem;color:#888">Mark this node as superseded after restoring a backup onto a new node. Superseded nodes cannot update their registry entry.</p>
+                <button class="btn" style="background:#2a2a1a;color:#c8a84a;font-size:0.82rem" onclick="supersedeNode(${i})">Mark superseded</button>
+                <div id="node-supersede-msg-${i}" class="msg"></div>
               </div>
             </details>
             <details style="background:#111;border-radius:4px;padding:0.5rem">
@@ -683,7 +723,7 @@ def create_app(db_path: str) -> FastAPI:
     const displayName = document.getElementById("node-name-"+i).value.trim();
     const msg = document.getElementById("node-update-msg-"+i);
     msg.textContent = "Saving…"; msg.className = "msg";
-    const r = await fetch("/nodes/"+n.user_id, {
+    const r = await fetch("/nodes/"+n.node_id, {
       method: "PATCH", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({handle, display_name: displayName}),
     });
@@ -697,7 +737,7 @@ def create_app(db_path: str) -> FastAPI:
     const msg = document.getElementById("node-redeleg-msg-"+i);
     if (!key) { msg.className="msg err"; msg.textContent="Identity private key required."; return; }
     msg.textContent = "Signing…"; msg.className = "msg";
-    const r = await fetch("/nodes/"+n.user_id+"/redelegate", {
+    const r = await fetch("/nodes/"+n.node_id+"/redelegate", {
       method: "POST", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({identity_private_key: key}),
     });
@@ -705,17 +745,26 @@ def create_app(db_path: str) -> FastAPI:
     else { const d = await r.json().catch(()=>{}); msg.className = "msg err"; msg.textContent = d?.detail||"Failed."; }
   }
 
+  async function supersedeNode(i) {
+    const n = _nodes[i];
+    const msg = document.getElementById("node-supersede-msg-"+i);
+    if (!confirm("Mark @"+n.handle+" as superseded? This cannot be undone.")) return;
+    const r = await fetch("/nodes/"+n.node_id+"/supersede", {method: "POST"});
+    if (r.ok) { msg.className = "msg ok"; msg.textContent = "✓ Marked superseded."; await loadNodes(); }
+    else { const d = await r.json().catch(()=>{}); msg.className = "msg err"; msg.textContent = d?.detail||"Failed."; }
+  }
+
   async function removeNode(i) {
     const n = _nodes[i];
     const msg = document.getElementById("node-remove-msg-"+i);
     if (!confirm("Remove @"+n.handle+" from the registry?")) return;
-    const r = await fetch("/nodes/"+n.user_id, {method: "DELETE"});
+    const r = await fetch("/nodes/"+n.node_id, {method: "DELETE"});
     if (r.ok) { msg.className = "msg ok"; msg.textContent = "✓ Removed."; await loadNodes(); }
     else { const d = await r.json().catch(()=>{}); msg.className = "msg err"; msg.textContent = d?.detail||"Failed."; }
   }
 
-  async function setPrimary(userId) {
-    const r = await fetch("/nodes/"+userId+"/set-primary", {method: "POST"});
+  async function setPrimary(nodeId) {
+    const r = await fetch("/nodes/"+nodeId+"/set-primary", {method: "POST"});
     if (r.ok) await loadNodes();
   }
 
@@ -744,8 +793,8 @@ def create_app(db_path: str) -> FastAPI:
     if (!r.ok) { msg.className = "msg err"; msg.textContent = d.detail || "Failed."; return; }
     msg.textContent = "";
     keyBox.innerHTML =
-      '<div style="color:#666;font-size:0.7rem;margin-bottom:0.2rem">User ID</div>' +
-      '<div style="margin-bottom:0.6rem">' + d.user_id + '</div>' +
+      '<div style="color:#666;font-size:0.7rem;margin-bottom:0.2rem">Owner ID</div>' +
+      '<div style="margin-bottom:0.6rem">' + (d.owner_id || d.user_id) + '</div>' +
       '<div style="color:#666;font-size:0.7rem;margin-bottom:0.2rem">Identity Public Key</div>' +
       '<div style="margin-bottom:0.6rem;word-break:break-all">' + d.identity_public_key + '</div>' +
       '<div style="color:#666;font-size:0.7rem;margin-bottom:0.2rem">Identity Private Key</div>' +
@@ -897,11 +946,14 @@ docker compose down                     # stop everything</code></pre>
 <div>
 <h2>Pending</h2>
 
-<h3><span class="badge badge-pending">planned</span> Separate node_id from user_id</h3>
-<p>Currently <code>owner_id</code> and <code>node_id</code> are the same UUID (1:1), stored as <code>user_id</code> in the current schema. Separating them enables key rotation and multiple nodes per person.</p>
+<h3><span class="badge">done</span> Separate node_id from owner_id (0a)</h3>
+<p><code>owner_id</code> permanently identifies a person; <code>node_id</code> identifies a specific deployment. The registry schema (v3) uses <code>node_id</code> as the primary key with <code>owner_id</code> as a grouping column, enabling multiple nodes per owner.</p>
 
-<h3><span class="badge badge-pending">planned</span> Multiple nodes per identity (1:n)</h3>
-<p>A person should be able to run more than one node under a single identity. Requires a "link to existing identity" setup path where the user provides their identity private key to sign a delegation cert for a new node.</p>
+<h3><span class="badge">done</span> Multiple nodes per identity — registry (0b)</h3>
+<p>Registry schema supports 1:n nodes per <code>owner_id</code>. The "link to existing identity" setup path (providing the identity private key to sign a delegation cert for a new node) is also implemented.</p>
+
+<h3><span class="badge badge-pending">planned</span> Restore-from-backup supersession (0c)</h3>
+<p>When restoring a backup onto a new node, the old node can be superseded via the registry landing page. Superseded nodes are blocked from updating their registration (HTTP 410). Shutdown of the old node and cert revocation remain manual steps.</p>
 
 <h3><span class="badge badge-pending">planned</span> Upload identity escrow from settings</h3>
 <p>Users who set up before the automatic escrow flow can upload their identity key escrow from the profile/settings UI (requires their identity private key).</p>
@@ -1127,27 +1179,28 @@ blockquote p { color: #888; font-style: italic; }
                          samesite="lax", max_age=REG_SESSION_TTL)
         return r
 
-    @app.post("/nodes/{user_id}/set-primary", status_code=204)
-    def set_primary(user_id: str, request: Request):
+    @app.post("/nodes/{node_id}/set-primary", status_code=204)
+    def set_primary(node_id: str, request: Request):
         """Mark a node as the primary for its owner. Requires registry session."""
         identity = _get_session(request)
         if not identity:
             raise HTTPException(401, "Sign in first")
         row = con.execute(
-            "SELECT google_identity FROM handles WHERE user_id = ?", (user_id,)
+            "SELECT google_identity, owner_id FROM handles WHERE node_id = ?", (node_id,)
         ).fetchone()
         if not row or row[0] != identity:
             raise HTTPException(403, "Not your node")
-        # Clear existing primary for this identity, set new one
-        con.execute("UPDATE handles SET is_primary = 0 WHERE google_identity = ?", (identity,))
-        con.execute("UPDATE handles SET is_primary = 1 WHERE user_id = ?", (user_id,))
+        # Clear existing primary for this owner, set new one
+        con.execute("UPDATE handles SET is_primary = 0 WHERE owner_id = ?", (row[1],))
+        con.execute("UPDATE handles SET is_primary = 1 WHERE node_id = ?", (node_id,))
         con.commit()
 
     @app.get("/go/{username}")
     def go(username: str):
         username = username.lower()
         row = con.execute(
-            "SELECT server_url, web_url FROM handles WHERE username = ?", (username,)
+            "SELECT server_url, web_url FROM handles WHERE username = ? AND superseded_at IS NULL "
+            "ORDER BY is_primary DESC, updated_at DESC LIMIT 1", (username,)
         ).fetchone()
         if not row:
             return RedirectResponse(f"/?handle={username}", status_code=302)
@@ -1166,9 +1219,10 @@ blockquote p { color: #888; font-style: italic; }
             return {"results": []}
         pattern = "%" + q.lower() + "%"
         rows = con.execute(
-            """SELECT username, server_url, display_name, public_key, user_id, identity_public_key
+            """SELECT username, server_url, display_name, public_key, node_id, owner_id, identity_public_key
                FROM handles
-               WHERE LOWER(username) LIKE ? OR LOWER(display_name) LIKE ?
+               WHERE (LOWER(username) LIKE ? OR LOWER(display_name) LIKE ?)
+                 AND superseded_at IS NULL
                ORDER BY username LIMIT ?""",
             (pattern, pattern, limit),
         ).fetchall()
@@ -1179,9 +1233,12 @@ blockquote p { color: #888; font-style: italic; }
                 "photo_url": r[1].rstrip("/") + "/profile/photo", "public_key": r[3],
             }
             if r[4]:
-                entry["user_id"] = r[4]
+                entry["node_id"] = r[4]
+                entry["user_id"] = r[5] or r[4]   # legacy alias = owner_id
             if r[5]:
-                entry["identity_public_key"] = r[5]
+                entry["owner_id"] = r[5]
+            if r[6]:
+                entry["identity_public_key"] = r[6]
             results.append(entry)
         return {"results": results}
 
@@ -1202,12 +1259,14 @@ blockquote p { color: #888; font-style: italic; }
     def lookup(username: str):
         username = username.lower()
         row = con.execute(
-            "SELECT server_url, web_url, public_key, ttl, updated_at, display_name, user_id, identity_public_key "
-            "FROM handles WHERE username = ?", (username,)
+            "SELECT server_url, web_url, public_key, ttl, updated_at, display_name, "
+            "node_id, owner_id, identity_public_key "
+            "FROM handles WHERE username = ? AND superseded_at IS NULL "
+            "ORDER BY is_primary DESC, updated_at DESC LIMIT 1", (username,)
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Username not found")
-        server_url, web_url, public_key, ttl, updated_at, display_name, user_id, identity_public_key = row
+        server_url, web_url, public_key, ttl, updated_at, display_name, node_id, owner_id, identity_public_key = row
         result = {
             "username": username,
             "server_url": server_url,
@@ -1218,19 +1277,29 @@ blockquote p { color: #888; font-style: italic; }
             "display_name": display_name,
             "photo_url": server_url.rstrip("/") + "/profile/photo",
         }
-        if user_id:
-            result["user_id"] = user_id
+        if node_id:
+            result["node_id"] = node_id
+            result["user_id"] = owner_id or node_id  # legacy alias
+        if owner_id:
+            result["owner_id"] = owner_id
         if identity_public_key:
             result["identity_public_key"] = identity_public_key
         return result
 
-    @app.get("/id/{user_id}")
-    def go_by_id(user_id: str):
+    @app.get("/id/{owner_id}")
+    def go_by_id(owner_id: str):
+        # Try exact node_id first, then primary node for owner
         row = con.execute(
-            "SELECT server_url, web_url FROM handles WHERE user_id = ?", (user_id,)
+            "SELECT server_url, web_url FROM handles WHERE node_id = ? AND superseded_at IS NULL",
+            (owner_id,)
         ).fetchone()
         if not row:
-            raise HTTPException(404, "User ID not found")
+            row = con.execute(
+                "SELECT server_url, web_url FROM handles WHERE owner_id = ? AND superseded_at IS NULL "
+                "ORDER BY is_primary DESC, updated_at DESC LIMIT 1", (owner_id,)
+            ).fetchone()
+        if not row:
+            raise HTTPException(404, "ID not found")
         return RedirectResponse(row[1] or row[0], status_code=302)
 
     class RegisterBody(BaseModel):
@@ -1256,28 +1325,27 @@ blockquote p { color: #888; font-style: italic; }
         if not _verify_sig(body.public_key, msg, body.signature):
             raise HTTPException(status_code=401, detail="Invalid signature")
         reg_identity_public_key = reg_delegation_json = None
-        reg_node_id = None
         if body.delegation_cert:
             cert = body.delegation_cert
             if not _verify_delegation_cert(cert, body.public_key):
                 raise HTTPException(400, "Invalid or expired delegation cert")
-            reg_user_id = cert.get("owner_id") or cert.get("user_id")
-            reg_node_id = cert.get("node_id")
+            reg_owner_id = cert.get("owner_id") or cert.get("user_id")
+            reg_node_id = cert.get("node_id") or reg_owner_id
             reg_identity_public_key = cert.get("identity_public_key")
             reg_delegation_json = json.dumps(cert)
         else:
-            # Legacy: no delegation cert — use username as fallback user_id
-            reg_user_id = username
-        # Conflict only if same node_id (or user_id for legacy) tries to register again
-        check_id = reg_node_id or reg_user_id
-        if con.execute("SELECT 1 FROM handles WHERE node_id = ? OR (node_id IS NULL AND user_id = ?)", (check_id, check_id)).fetchone():
+            # Legacy: no delegation cert — use username as both owner_id and node_id
+            reg_owner_id = username
+            reg_node_id = username
+        if con.execute("SELECT 1 FROM handles WHERE node_id = ?", (reg_node_id,)).fetchone():
             raise HTTPException(status_code=409, detail="Already registered — use update instead")
         now = time.time_ns()
         con.execute(
             "INSERT INTO handles "
-            "(user_id, node_id, username, server_url, public_key, ttl, registered_at, updated_at, display_name, web_url, identity_public_key, delegation_sig, google_identity) "
+            "(node_id, owner_id, username, server_url, public_key, ttl, registered_at, updated_at, "
+            "display_name, web_url, identity_public_key, delegation_sig, google_identity) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (reg_user_id, reg_node_id, username, body.server_url, body.public_key, ttl, now, now,
+            (reg_node_id, reg_owner_id, username, body.server_url, body.public_key, ttl, now, now,
              body.display_name, body.web_url, reg_identity_public_key, reg_delegation_json, body.google_identity),
         )
         con.commit()
@@ -1297,35 +1365,46 @@ blockquote p { color: #888; font-style: italic; }
     def update(username: str, body: UpdateBody):
         username = username.lower()
         _check_timestamp(body.timestamp)
-        # Look up by user_id from cert if available, else by username (legacy)
-        lookup_user_id = body.delegation_cert.get("user_id") if body.delegation_cert else None
-        if lookup_user_id:
-            row = con.execute("SELECT public_key FROM handles WHERE user_id = ?", (lookup_user_id,)).fetchone()
-        if not lookup_user_id or not row:
-            row = con.execute("SELECT public_key FROM handles WHERE username = ? ORDER BY updated_at DESC", (username,)).fetchone()
+        # Locate the node: cert node_id > cert owner_id > username fallback
+        cert_node_id = body.delegation_cert.get("node_id") if body.delegation_cert else None
+        cert_owner_id = (body.delegation_cert.get("owner_id") or body.delegation_cert.get("user_id")) if body.delegation_cert else None
+        row = None
+        if cert_node_id:
+            row = con.execute(
+                "SELECT public_key, node_id, superseded_at FROM handles WHERE node_id = ?", (cert_node_id,)
+            ).fetchone()
+        if not row and cert_owner_id:
+            row = con.execute(
+                "SELECT public_key, node_id, superseded_at FROM handles WHERE owner_id = ? "
+                "ORDER BY is_primary DESC, updated_at DESC LIMIT 1", (cert_owner_id,)
+            ).fetchone()
+        if not row:
+            row = con.execute(
+                "SELECT public_key, node_id, superseded_at FROM handles WHERE username = ? "
+                "ORDER BY updated_at DESC LIMIT 1", (username,)
+            ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Handle not found")
+        pub_key, update_node_id, superseded_at = row
+        if superseded_at:
+            raise HTTPException(status_code=410, detail="This node has been superseded and cannot update its registration")
         ttl = _clamp_ttl(body.ttl)
         msg = f"contacc:update:{username}:{body.server_url}:{body.timestamp}"
-        if not _verify_sig(row[0], msg, body.signature):
+        if not _verify_sig(pub_key, msg, body.signature):
             raise HTTPException(status_code=401, detail="Invalid signature")
-        upd_user_id = upd_identity_public_key = upd_delegation_json = None
+        upd_identity_public_key = upd_delegation_json = None
         if body.delegation_cert:
             cert = body.delegation_cert
-            if not _verify_delegation_cert(cert, row[0]):
+            if not _verify_delegation_cert(cert, pub_key):
                 raise HTTPException(400, "Invalid or expired delegation cert")
-            upd_user_id = cert.get("user_id")
             upd_identity_public_key = cert.get("identity_public_key")
-        # Always update by user_id (preferred) or username (legacy)
-        where_col = "user_id" if upd_user_id or lookup_user_id else "username"
-        where_val = upd_user_id or lookup_user_id or username
-        upd_delegation_json = json.dumps(body.delegation_cert) if body.delegation_cert else None
+            upd_delegation_json = json.dumps(cert)
         con.execute(
             "UPDATE handles SET username=?, server_url=?, ttl=?, updated_at=?, display_name=?, web_url=?, "
             "identity_public_key=?, delegation_sig=?, google_identity=COALESCE(?, google_identity) "
-            f"WHERE {where_col}=?",
+            "WHERE node_id=?",
             (username, body.server_url, ttl, time.time_ns(), body.display_name, body.web_url,
-             upd_identity_public_key, upd_delegation_json, body.google_identity, where_val),
+             upd_identity_public_key, upd_delegation_json, body.google_identity, update_node_id),
         )
         con.commit()
         return {"username": username, "ttl": ttl}
@@ -1341,18 +1420,18 @@ blockquote p { color: #888; font-style: italic; }
         signature: str               # identity_key signs f"contacc:escrow:{user_id}:{timestamp}"
         timestamp: int
 
-    @app.put("/identity-key/{user_id}", status_code=204)
-    def store_escrow(user_id: str, body: EscrowBody):
+    @app.put("/identity-key/{owner_id}", status_code=204)
+    def store_escrow(owner_id: str, body: EscrowBody):
         row = con.execute(
-            "SELECT identity_public_key FROM handles WHERE user_id = ?", (user_id,)
+            "SELECT identity_public_key FROM handles WHERE owner_id = ? LIMIT 1", (owner_id,)
         ).fetchone()
         if not row or not row[0]:
-            raise HTTPException(404, "User ID not registered or has no identity key")
+            raise HTTPException(404, "Owner ID not registered or has no identity key")
         if abs(time.time() - body.timestamp) > TIMESTAMP_TOLERANCE:
             raise HTTPException(401, "Timestamp too skewed")
         try:
             id_pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(row[0] + "=="))
-            msg = f"contacc:escrow:{user_id}:{body.timestamp}"
+            msg = f"contacc:escrow:{owner_id}:{body.timestamp}"
             id_pub.verify(base64.b64decode(body.signature + "=="), msg.encode())
         except Exception:
             raise HTTPException(401, "Invalid signature")
@@ -1363,43 +1442,48 @@ blockquote p { color: #888; font-style: italic; }
             "argon2_memory_cost": body.argon2_memory_cost,
             "argon2_parallelism": body.argon2_parallelism,
         })
+        # Store escrow on the primary node for this owner (or any node if no primary)
         con.execute(
-            "UPDATE handles SET encrypted_identity_key = ? WHERE user_id = ?",
-            (escrow_data, user_id),
+            "UPDATE handles SET encrypted_identity_key = ? WHERE owner_id = ?",
+            (escrow_data, owner_id),
         )
         con.commit()
 
-    @app.get("/identity-key/{user_id}")
-    def get_escrow(user_id: str):
+    @app.get("/identity-key/{owner_id}")
+    def get_escrow(owner_id: str):
         """Return the encrypted escrow blob for an owner_id. Decryption requires the owner passphrase."""
         row = con.execute(
-            "SELECT encrypted_identity_key FROM handles WHERE user_id = ?", (user_id,)
+            "SELECT encrypted_identity_key FROM handles WHERE owner_id = ? "
+            "AND encrypted_identity_key IS NOT NULL ORDER BY is_primary DESC, updated_at DESC LIMIT 1",
+            (owner_id,)
         ).fetchone()
         if not row or not row[0]:
             raise HTTPException(404, "No escrow stored for this owner ID")
         return json.loads(row[0])
 
-    @app.post("/identity-key/{user_id}/recover")
-    def recover_escrow(user_id: str):
+    @app.post("/identity-key/{owner_id}/recover")
+    def recover_escrow(owner_id: str):
         row = con.execute(
-            "SELECT encrypted_identity_key FROM handles WHERE user_id = ?", (user_id,)
+            "SELECT encrypted_identity_key FROM handles WHERE owner_id = ? "
+            "AND encrypted_identity_key IS NOT NULL ORDER BY is_primary DESC, updated_at DESC LIMIT 1",
+            (owner_id,)
         ).fetchone()
         if not row or not row[0]:
-            raise HTTPException(404, "No escrow stored for this user ID")
+            raise HTTPException(404, "No escrow stored for this owner ID")
         return json.loads(row[0])
 
     def _escrow_for_handle(handle: str):
-        """Return (user_id, escrow_dict) or raise HTTPException."""
+        """Return (owner_id, escrow_dict) or raise HTTPException."""
         handle = handle.lower()
         row = con.execute(
-            "SELECT user_id, encrypted_identity_key FROM handles WHERE username = ?", (handle,)
+            "SELECT owner_id, encrypted_identity_key FROM handles WHERE username = ? "
+            "AND encrypted_identity_key IS NOT NULL ORDER BY is_primary DESC, updated_at DESC LIMIT 1",
+            (handle,)
         ).fetchone()
         if not row:
-            raise HTTPException(404, "Handle not found")
+            raise HTTPException(404, "Handle not found or no escrow stored")
         if not row[0]:
             raise HTTPException(404, "No permanent identity registered for this handle")
-        if not row[1]:
-            raise HTTPException(404, "No recovery escrow stored for this handle")
         return row[0], json.loads(row[1])
 
     def _decrypt_escrow(escrow: dict, passphrase: str) -> bytes:
@@ -1426,25 +1510,24 @@ blockquote p { color: #888; font-style: italic; }
         owner_passphrase: str
 
     def _escrow_for_session(request) -> tuple[str, dict]:
-        """Find the escrow for the currently signed-in user via their Google identity."""
+        """Find the escrow for the currently signed-in user; return (owner_id, escrow_dict)."""
         identity = _get_session(request)
         if not identity:
             raise HTTPException(401, "Sign in first")
         row = con.execute(
-            "SELECT user_id, encrypted_identity_key FROM handles WHERE google_identity = ? "
-            "ORDER BY updated_at DESC LIMIT 1", (identity,)
+            "SELECT owner_id, encrypted_identity_key FROM handles WHERE google_identity = ? "
+            "AND encrypted_identity_key IS NOT NULL ORDER BY is_primary DESC, updated_at DESC LIMIT 1",
+            (identity,)
         ).fetchone()
         if not row:
-            raise HTTPException(404, "No registered identity found for your account")
-        if not row[1]:
-            raise HTTPException(404, "No recovery escrow stored for your account")
+            raise HTTPException(404, "No registered identity or escrow found for your account")
         return row[0], json.loads(row[1])
 
     @app.post("/identity/recover")
     def recover_identity(body: RecoverBody, request: Request):
         """Decrypt and return the identity private key for the signed-in user.
         Requires registry session (Google auth) + owner passphrase."""
-        user_id, escrow = _escrow_for_session(request)
+        owner_id, escrow = _escrow_for_session(request)
         try:
             id_priv = _decrypt_escrow(escrow, body.owner_passphrase)
         except ValueError as e:
@@ -1453,7 +1536,8 @@ blockquote p { color: #888; font-style: italic; }
         from cryptography.hazmat.primitives.serialization import Encoding as _E, PublicFormat as _PF
         _key = _EPK.from_private_bytes(id_priv)
         id_pub_hex = _key.public_key().public_bytes(_E.Raw, _PF.Raw).hex()
-        return {"user_id": user_id, "identity_public_key": id_pub_hex, "identity_private_key": id_priv.hex()}
+        return {"owner_id": owner_id, "user_id": owner_id,
+                "identity_public_key": id_pub_hex, "identity_private_key": id_priv.hex()}
 
     class ChangePassphraseBody(BaseModel):
         old_owner_passphrase: str
@@ -1463,7 +1547,7 @@ blockquote p { color: #888; font-style: italic; }
     def change_identity_passphrase(body: ChangePassphraseBody, request: Request):
         """Re-encrypt the identity key escrow under a new passphrase.
         Requires registry session (Google auth) + owner passphrase."""
-        user_id, escrow = _escrow_for_session(request)
+        owner_id, escrow = _escrow_for_session(request)
         try:
             id_priv = _decrypt_escrow(escrow, body.old_owner_passphrase)
         except ValueError as e:
@@ -1483,8 +1567,8 @@ blockquote p { color: #888; font-style: italic; }
         new_escrow = {**escrow,
                       "encrypted_identity_key": base64.b64encode(nonce + new_ct).decode(),
                       "argon2_salt": new_salt.hex()}
-        con.execute("UPDATE handles SET encrypted_identity_key = ? WHERE user_id = ?",
-                    (json.dumps(new_escrow), user_id))
+        con.execute("UPDATE handles SET encrypted_identity_key = ? WHERE owner_id = ?",
+                    (json.dumps(new_escrow), owner_id))
         con.commit()
 
     # ── identity proxy ────────────────────────────────────────────────────────
