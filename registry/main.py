@@ -769,7 +769,7 @@ def create_app(db_path: str) -> FastAPI:
     _DOC_STYLE = """
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: system-ui, sans-serif; background: #111; color: #e0e0e0;
-           min-height: 100vh; padding: 2rem 1rem; }
+           min-height: 100vh; padding: 2rem 1rem; font-size: 16px; }
     .page { max-width: 720px; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem; }
     .logo { display: flex; align-items: center; gap: 0.6rem; }
     .logo span { font-size: 1.8rem; font-weight: 300; letter-spacing: 0.1em; color: #fff; }
@@ -780,9 +780,9 @@ def create_app(db_path: str) -> FastAPI:
     h1 { font-size: 1.4rem; font-weight: 500; color: #fff; margin-bottom: 0.25rem; }
     h2 { font-size: 1.05rem; font-weight: 500; color: #ccc; margin: 1.75rem 0 0.5rem; border-bottom: 1px solid #222; padding-bottom: 0.3rem; }
     h3 { font-size: 0.92rem; font-weight: 600; color: #aaa; margin: 1.25rem 0 0.35rem; }
-    p { font-size: 0.88rem; color: #bbb; line-height: 1.6; margin-bottom: 0.6rem; }
+    p { font-size: 1rem; color: #bbb; line-height: 1.7; margin-bottom: 0.6rem; }
     ul, ol { padding-left: 1.4rem; margin-bottom: 0.6rem; }
-    li { font-size: 0.88rem; color: #bbb; line-height: 1.6; margin-bottom: 0.2rem; }
+    li { font-size: 1rem; color: #bbb; line-height: 1.7; margin-bottom: 0.2rem; }
     code { font-family: monospace; background: #1e1e1e; border: 1px solid #2a2a2a;
            border-radius: 3px; padding: 0.1em 0.35em; font-size: 0.82rem; color: #a8d8a8; }
     pre { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 6px;
