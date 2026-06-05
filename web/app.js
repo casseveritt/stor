@@ -1691,6 +1691,7 @@ function onComposeInput() {
   if (!contacts.length) { hideMentionDropdown(); return; }
   _mentionState = { start: pos - match[0].length, query, focused: 0, contacts };
   const dd = document.getElementById(_mentionCtx.ddId);
+  if (!dd) return;
   dd.innerHTML = '';
   contacts.forEach((c, i) => {
     const prof = serverProfiles[c.url] || {};
@@ -1706,7 +1707,8 @@ function onComposeInput() {
 }
 
 function hideMentionDropdown() {
-  document.getElementById(_mentionCtx.ddId).hidden = true;
+  const dd = document.getElementById(_mentionCtx.ddId);
+  if (dd) dd.hidden = true;
   _mentionState = null;
 }
 
@@ -1733,7 +1735,9 @@ function _selectMention(c) {
 
 function onComposeKeydown(e) {
   if (!_mentionState) return;
-  const items = document.getElementById(_mentionCtx.ddId).querySelectorAll('.mention-item');
+  const _dd = document.getElementById(_mentionCtx.ddId);
+  if (!_dd) return;
+  const items = _dd.querySelectorAll('.mention-item');
   if (!items.length) return;
   if (e.key === 'ArrowDown') {
     e.preventDefault();
