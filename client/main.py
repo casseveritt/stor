@@ -1312,6 +1312,24 @@ def create_app(config_path: str | Path) -> FastAPI:
             if now - cached_at < _REGISTRY_TTL:
                 return record
 
+        def _cache_record(rec: dict) -> dict:
+            """Verify signature, store in DB + memory, return the record."""
+            import json as _json
+            if not _verify_registry_record(rec):
+                raise ValueError("invalid registry signature")
+            qt = rec.get("queried_at", now)
+            _registry_cache[node_id] = (rec, qt)
+            try:
+                db = app.state.db
+                db.execute(
+                    "INSERT OR REPLACE INTO registry_cache (node_id, record, cached_at) VALUES (?, ?, ?)",
+                    (node_id, _json.dumps(rec), int(time.time_ns()))
+                )
+                db.commit()
+            except Exception:
+                pass
+            return rec
+
         # 1b. Persistent DB cache (survives restarts)
         try:
             import json as _json
@@ -1322,8 +1340,8 @@ def create_app(config_path: str | Path) -> FastAPI:
             if db_row:
                 db_rec = _json.loads(db_row[0])
                 qt = db_rec.get("queried_at", 0)
-                if now - qt < _REGISTRY_TTL:
-                    _registry_cache[node_id] = (db_rec, qt)  # warm the in-memory cache
+                if now - qt < _REGISTRY_TTL and _verify_registry_record(db_rec):
+                    _registry_cache[node_id] = (db_rec, qt)  # warm in-memory cache
                     return db_rec
         except Exception:
             pass
@@ -1348,8 +1366,7 @@ def create_app(config_path: str | Path) -> FastAPI:
             for coro in _aio.as_completed(peer_tasks):
                 result = await coro
                 if result:
-                    _registry_cache[node_id] = (result, now)
-                    return result
+                    return _cache_record(result)
 
         # 3. Registry direct
         reg = _registry_url()
@@ -1357,20 +1374,7 @@ def create_app(config_path: str | Path) -> FastAPI:
             async with httpx.AsyncClient() as hc:
                 r = await hc.get(f"{reg}/nodes/{node_id}", timeout=5)
             if r.is_success:
-                rec = r.json()
-                _registry_cache[node_id] = (rec, now)
-                # Populate server-side registry_cache DB for peer sharing
-                try:
-                    import json as _json
-                    db = app.state.db
-                    db.execute(
-                        "INSERT OR REPLACE INTO registry_cache (node_id, record, cached_at) VALUES (?, ?, ?)",
-                        (node_id, _json.dumps(rec), int(time.time_ns()))
-                    )
-                    db.commit()
-                except Exception:
-                    pass
-                return rec
+                return _cache_record(r.json())
         except Exception:
             pass
         raise HTTPException(status_code=404, detail="Node not found")
