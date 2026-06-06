@@ -355,6 +355,10 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         )
     """)
     con.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS dm_threads_peer_node_id
+        ON dm_threads(peer_node_id)
+    """)
+    con.execute("""
         CREATE TABLE IF NOT EXISTS dm_messages (
             id           TEXT PRIMARY KEY,
             thread_id    TEXT NOT NULL,
