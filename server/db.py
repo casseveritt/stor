@@ -354,20 +354,31 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             unread_count INTEGER NOT NULL DEFAULT 0
         )
     """)
-    # Dedup dm_threads by peer_node_id before enforcing uniqueness
-    dupes = con.execute("""
-        SELECT peer_node_id FROM dm_threads
-        GROUP BY peer_node_id HAVING COUNT(*) > 1
-    """).fetchall()
-    for (nid,) in dupes:
-        threads = con.execute(
-            "SELECT thread_id FROM dm_threads WHERE peer_node_id = ? ORDER BY last_msg_at DESC",
-            (nid,)
-        ).fetchall()
-        for (tid,) in threads[1:]:
+    # Dedup dm_threads by peer_node_id and peer_url before enforcing uniqueness.
+    # Build groups: node_id → [thread_ids]; merge groups sharing a peer_url.
+    _rows = con.execute("SELECT thread_id, peer_node_id, peer_url, last_msg_at FROM dm_threads").fetchall()
+    _groups: dict = {}
+    _url_map: dict = {}
+    for tid, nid, url, ts in _rows:
+        key = nid or url or tid
+        _groups.setdefault(key, []).append((tid, ts or 0))
+        if url:
+            existing = _url_map.get(url)
+            if existing and existing != key:
+                _groups.setdefault(key, []).extend(_groups.pop(existing, []))
+                _url_map[url] = key
+            else:
+                _url_map[url] = key
+    _changed = False
+    for group in _groups.values():
+        if len(group) < 2:
+            continue
+        group.sort(key=lambda x: x[1], reverse=True)
+        for tid, _ in group[1:]:
             con.execute("DELETE FROM dm_messages WHERE thread_id = ?", (tid,))
             con.execute("DELETE FROM dm_threads WHERE thread_id = ?", (tid,))
-    if dupes:
+        _changed = True
+    if _changed:
         con.commit()
     con.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS dm_threads_peer_node_id

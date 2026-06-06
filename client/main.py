@@ -1162,16 +1162,20 @@ def create_app(config_path: str | Path) -> FastAPI:
             r = await hc.get(_server + "/dm/threads", headers=_headers(config.own_server), timeout=10)
         data = r.json() if r.is_success else {"threads": []}
         threads = data.get("threads", [])
-        # Auto-dedup: if any peer_node_id appears more than once, merge on the server
+        # Auto-dedup: merge threads sharing peer_node_id OR peer_url
         seen_nodes: set[str] = set()
+        seen_urls: set[str] = set()
         has_dupes = False
         for t in threads:
             nid = t.get("peer_node_id") or ""
-            if nid and nid in seen_nodes:
+            url = t.get("peer_url") or ""
+            if (nid and nid in seen_nodes) or (url and url in seen_urls):
                 has_dupes = True
                 break
             if nid:
                 seen_nodes.add(nid)
+            if url:
+                seen_urls.add(url)
         if has_dupes:
             async with httpx.AsyncClient() as hc:
                 await hc.post(_server + "/dm/threads/dedup", headers=_headers(config.own_server), timeout=15)
