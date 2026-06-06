@@ -45,8 +45,17 @@ class ClientConfig:
             return cfg
         data = json.loads(p.read_text())
         _ce_fields = {f.name for f in dataclasses.fields(ContactEntry)}
-        contacts = [ContactEntry(**{k: v for k, v in c.items() if k in _ce_fields})
-                    for c in data.get("contacts", [])]
+        raw_contacts = [ContactEntry(**{k: v for k, v in c.items() if k in _ce_fields})
+                        for c in data.get("contacts", [])]
+        # Deduplicate by node_id (keep first occurrence per node_id)
+        seen_node_ids: set[str] = set()
+        contacts = []
+        for c in raw_contacts:
+            if c.node_id:
+                if c.node_id in seen_node_ids:
+                    continue
+                seen_node_ids.add(c.node_id)
+            contacts.append(c)
         node_key = NodeKey(**data["node_key"]) if "node_key" in data else None
         return cls(
             own_server=data["own_server"],

@@ -1009,22 +1009,35 @@ def create_app(config_path: str | Path) -> FastAPI:
         from client.config import ContactEntry
         if body.url == config.own_server:
             raise HTTPException(status_code=400, detail="Cannot add yourself as a contact")
+
+        # Fetch /node to get node_id and public_key — node_id is the stable identity
+        node_id = body.node_id
+        pub_key = body.public_key
+        try:
+            async with httpx.AsyncClient() as hc:
+                nr = await hc.get(body.url.rstrip("/") + "/node", timeout=5)
+            if nr.is_success:
+                nd = nr.json()
+                node_id = node_id or nd.get("node_id") or nd.get("user_id")
+                pub_key = pub_key or nd.get("public_key") or None
+        except Exception:
+            pass
+        if not node_id:
+            raise HTTPException(status_code=502, detail="Could not reach contact's node to get node ID")
+
+        # Deduplicate by node_id (primary key) then url
+        if any(c.node_id == node_id for c in config.contacts):
+            raise HTTPException(status_code=409, detail="Contact with this node ID already exists")
         if any(c.url == body.url for c in config.contacts):
             raise HTTPException(status_code=409, detail="Contact with this URL already exists")
-        pub_key = body.public_key
-        if not pub_key:
-            try:
-                async with httpx.AsyncClient() as hc:
-                    nr = await hc.get(body.url.rstrip("/") + "/node", timeout=5)
-                if nr.is_success:
-                    pub_key = nr.json().get("public_key") or None
-            except Exception:
-                pass
-        config.contacts.append(ContactEntry(name=body.name, url=body.url, handle=body.handle, public_key=pub_key, node_id=body.node_id))
+
+        config.contacts.append(ContactEntry(
+            name=body.name, url=body.url, handle=body.handle,
+            public_key=pub_key, node_id=node_id,
+        ))
         if pub_key:
             _contact_url_cache[pub_key] = body.url
         config.save(config_path)
-        # Sync to server so it can authorize inbound comments from this contact
         if _token(config.own_server):
             async with httpx.AsyncClient() as hc:
                 await hc.post(
@@ -1033,10 +1046,11 @@ def create_app(config_path: str | Path) -> FastAPI:
                     headers=_headers(config.own_server),
                     timeout=10.0,
                 )
-        return {"name": body.name, "url": body.url, "handle": body.handle}
+        return {"name": body.name, "url": body.url, "handle": body.handle, "node_id": node_id}
 
     class ContactPatchBody(BaseModel):
-        url: str
+        url: str = ""
+        node_id: str | None = None  # lookup key; falls back to url
         tag: str | None = None
         description: str | None = None
         node_id: str | None = None
@@ -1048,7 +1062,11 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     @api.patch("/contacts")
     async def api_patch_contact(body: ContactPatchBody):
-        contact = next((c for c in config.contacts if c.url == body.url), None)
+        contact = None
+        if body.node_id:
+            contact = next((c for c in config.contacts if c.node_id == body.node_id), None)
+        if not contact and body.url:
+            contact = next((c for c in config.contacts if c.url == body.url), None)
         if not contact:
             raise HTTPException(status_code=404, detail="Contact not found")
         dirty = False
