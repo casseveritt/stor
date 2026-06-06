@@ -58,9 +58,12 @@ let _pendingKeyLookups = new Set();
   let _active = false;
   const _REACT = ['reaction-btn', 'reaction-btn-active'];
   const _ALL   = [..._REACT, 'emoji-pick-btn'];
+  let _activeBtn = null;
   document.addEventListener('mouseover', e => {
     const btn = e.target.closest('.' + _ALL.join(',.'));
     if (!btn) return;
+    if (btn === _activeBtn) return;  // already showing for this button
+    _activeBtn = btn;
     const emojiEl = document.getElementById('emoji-preview-char');
     const namesEl = document.getElementById('emoji-preview-names');
     const el = document.getElementById('emoji-preview');
@@ -94,9 +97,12 @@ let _pendingKeyLookups = new Set();
   });
   document.addEventListener('mouseout', e => {
     if (!_active) return;
-    if (!e.target.closest('.' + _ALL.join(',.'))) return;
+    const btn = e.target.closest('.' + _ALL.join(',.'));
+    if (!btn) return;
+    if (btn.contains(e.relatedTarget)) return;  // cursor moved to child element, stay open
     document.getElementById('emoji-preview').hidden = true;
     _active = false;
+    _activeBtn = null;
   });
   document.addEventListener('mousemove', e => {
     if (!_active) return;
