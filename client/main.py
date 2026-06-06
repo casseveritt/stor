@@ -1143,10 +1143,28 @@ def create_app(config_path: str | Path) -> FastAPI:
         async with httpx.AsyncClient() as hc:
             r = await hc.get(_server + "/dm/threads", headers=_headers(config.own_server), timeout=10)
         data = r.json() if r.is_success else {"threads": []}
+        threads = data.get("threads", [])
+        # Auto-dedup: if any peer_node_id appears more than once, merge on the server
+        seen_nodes: set[str] = set()
+        has_dupes = False
+        for t in threads:
+            nid = t.get("peer_node_id") or ""
+            if nid and nid in seen_nodes:
+                has_dupes = True
+                break
+            if nid:
+                seen_nodes.add(nid)
+        if has_dupes:
+            async with httpx.AsyncClient() as hc:
+                await hc.post(_server + "/dm/threads/dedup", headers=_headers(config.own_server), timeout=15)
+            async with httpx.AsyncClient() as hc:
+                r2 = await hc.get(_server + "/dm/threads", headers=_headers(config.own_server), timeout=10)
+            data = r2.json() if r2.is_success else data
+            threads = data.get("threads", [])
         contact_by_node_id = {c.node_id: c for c in config.contacts if c.node_id}
         contact_by_url = {c.url: c for c in config.contacts}
         tags = get_all_tags(_client_db)
-        for t in data.get("threads", []):
+        for t in threads:
             contact = contact_by_node_id.get(t.get("peer_node_id", "")) \
                    or contact_by_url.get(t.get("peer_url", ""))
             t["is_contact"] = contact is not None

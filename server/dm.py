@@ -103,6 +103,62 @@ async def dm_receive(body: ReceiveBody, request: Request, identity: FederatedOrT
 
 # ── owner endpoints ───────────────────────────────────────────────────────────
 
+@router.post("/dm/threads/dedup", status_code=200)
+def dedup_threads(request: Request, _: InternalOrOwnerDep):
+    """Merge all duplicate threads that share the same peer_node_id."""
+    db = request.app.state.db
+    app = request.app
+    # Find peer_node_ids with more than one thread, ordered by most recent first
+    dupes = db.execute("""
+        SELECT peer_node_id FROM dm_threads
+        GROUP BY peer_node_id HAVING COUNT(*) > 1
+    """).fetchall()
+    merged_count = 0
+    for (peer_node_id,) in dupes:
+        threads = db.execute("""
+            SELECT thread_id FROM dm_threads WHERE peer_node_id = ?
+            ORDER BY last_msg_at DESC
+        """, (peer_node_id,)).fetchall()
+        keep_id = threads[0][0]
+        for (drop_id,) in threads[1:]:
+            # Re-use the merge logic inline
+            keep = db.execute("SELECT peer_dh_pub FROM dm_threads WHERE thread_id = ?", (keep_id,)).fetchone()
+            drop = db.execute("SELECT peer_dh_pub FROM dm_threads WHERE thread_id = ?", (drop_id,)).fetchone()
+            if not keep or not drop:
+                continue
+            keep_dh = keep[0]
+            drop_dh = drop[0] or keep_dh
+            if keep_dh:
+                keep_key = _get_thread_key(app, keep_id, keep_dh)
+                drop_key = _get_thread_key(app, drop_id, drop_dh)
+                for r in db.execute(
+                    "SELECT id, direction, body_enc, created_at, delivered_at, seen_at FROM dm_messages WHERE thread_id = ?",
+                    (drop_id,)
+                ).fetchall():
+                    if db.execute("SELECT 1 FROM dm_messages WHERE id = ? AND thread_id = ?", (r[0], keep_id)).fetchone():
+                        continue
+                    try:
+                        new_enc = encrypt_dm(keep_key, decrypt_dm(drop_key, r[2]))
+                    except Exception:
+                        new_enc = r[2]
+                    db.execute(
+                        "INSERT OR IGNORE INTO dm_messages (id, thread_id, direction, body_enc, created_at, delivered_at, seen_at) VALUES (?,?,?,?,?,?,?)",
+                        (r[0], keep_id, r[1], new_enc, r[3], r[4], r[5])
+                    )
+            db.execute("DELETE FROM dm_messages WHERE thread_id = ?", (drop_id,))
+            db.execute("DELETE FROM dm_threads WHERE thread_id = ?", (drop_id,))
+            merged_count += 1
+        if keep_dh:
+            db.execute("""
+                UPDATE dm_threads SET
+                    last_msg_at = (SELECT COALESCE(MAX(created_at),0) FROM dm_messages WHERE thread_id = ?),
+                    unread_count = (SELECT COUNT(*) FROM dm_messages WHERE thread_id = ? AND direction='in' AND seen_at IS NULL)
+                WHERE thread_id = ?
+            """, (keep_id, keep_id, keep_id))
+    db.commit()
+    return {"merged": merged_count}
+
+
 @router.get("/dm/threads")
 def list_threads(request: Request, _: InternalOrOwnerDep):
     db = request.app.state.db
