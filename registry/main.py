@@ -1337,9 +1337,7 @@ blockquote p { color: #888; font-style: italic; }
         try:
             r = httpx.get(server_url.rstrip("/") + "/node", timeout=5)
             if not r.is_success:
-                if old_node_id:
-                    raise HTTPException(409, "URL is in use and the node there is not responding correctly")
-                return
+                raise HTTPException(409, "Node is unreachable at the claimed URL — must be live to register")
             live_key = r.json().get("public_key", "")
             if live_key == claiming_pub_key:
                 # Claiming node is live at this URL — evict any stale entry
@@ -1353,9 +1351,7 @@ blockquote p { color: #888; font-style: italic; }
         except HTTPException:
             raise
         except Exception:
-            if old_node_id:
-                raise HTTPException(409, "URL is in use and the node there is unreachable — cannot verify ownership")
-            # No conflict and unreachable: allow (node may be starting up)
+            raise HTTPException(409, "Node is unreachable at the claimed URL — must be live to register")
 
     @app.post("/register/{username}", status_code=201)
     def register(username: str, body: RegisterBody):
