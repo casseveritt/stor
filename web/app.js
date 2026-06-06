@@ -1346,40 +1346,12 @@ function makePostCard(post, idx) {
   author.appendChild(rightGroup);
   div.appendChild(author);
 
-  const bodyText = (post.body || "").replace(/\[asset:[0-9a-f-]+\]/g, "").trim();
-  if (bodyText) {
+  const bodyHtml = renderPostBody(post, {thumb: true});
+  if (bodyHtml) {
     const p = document.createElement("div");
     p.className = "post-body";
-    p.innerHTML = renderBodyText(bodyText);
+    p.innerHTML = bodyHtml;
     div.appendChild(p);
-  }
-
-  if (post.assets && post.assets.length) {
-    const strip = document.createElement("div");
-    strip.className = "post-thumbs";
-    for (const asset of post.assets) {
-      if ((asset.media_type || "").startsWith("image/")) {
-        const img = document.createElement("img");
-        img.className = "post-thumb loading";
-        img.onload = img.onerror = () => img.classList.remove("loading");
-        img.alt = ""; img.loading = "lazy";
-        const params = post._server_url !== CFG.own_server
-          ? "?server=" + encodeURIComponent(post._server_url) : "";
-        const thumbBase = "/api/assets/" + asset.id + "/thumb" + params + clientTokenParam(!!params);
-        const hashQ = asset.content_hash ? (thumbBase.includes('?') ? '&' : '?') + 'hash=' + encodeURIComponent(asset.content_hash) : '';
-        img.src = thumbBase + hashQ + (hashQ ? '&' : '?') + 'tq=640';
-        const fullBase = "/api/assets/" + asset.id + params + clientTokenParam(!!params);
-        const fullSrc = fullBase + (asset.content_hash ? (fullBase.includes('?') ? '&' : '?') + 'hash=' + encodeURIComponent(asset.content_hash) : '');
-        img.onclick = () => openLightbox(fullSrc);
-        strip.appendChild(img);
-      } else {
-        const ic = document.createElement("div");
-        ic.className = "post-thumb-icon";
-        ic.textContent = mimeIcon(asset.media_type);
-        strip.appendChild(ic);
-      }
-    }
-    div.appendChild(strip);
   }
 
   const foot = document.createElement("div");
@@ -1457,7 +1429,7 @@ function renderBodyText(text) {
   return html;
 }
 
-function renderPostBody(post) {
+function renderPostBody(post, opts = {}) {
   const assetMap = {};
   for (const a of (post.assets || [])) assetMap[a.id] = a;
 
@@ -1471,14 +1443,25 @@ function renderPostBody(post) {
       const aid = m[1], a = assetMap[aid];
       const params = post._server_url !== CFG.own_server
         ? "?server=" + encodeURIComponent(post._server_url) : "";
-      const url = "/api/assets/" + aid + params + clientTokenParam(!!params);
-      if (a && (a.media_type || "").startsWith("image/"))
-        rendered += '<span class="asset-block"><img src="' + url + '" alt="" onclick="openLightbox(this.src)"></span>';
-      else if (a && (a.media_type || "").startsWith("video/"))
-        rendered += '<span class="asset-block"><video src="' + url + '" controls></video></span>';
+      const fullBase = "/api/assets/" + aid + params + clientTokenParam(!!params);
+      const fullSrc = fullBase + (a?.content_hash ? (fullBase.includes('?') ? '&' : '?') + 'hash=' + encodeURIComponent(a.content_hash) : '');
+      if (a && (a.media_type || "").startsWith("image/")) {
+        if (opts.thumb) {
+          const thumbBase = "/api/assets/" + aid + "/thumb" + params + clientTokenParam(!!params);
+          const hashQ = a.content_hash ? (thumbBase.includes('?') ? '&' : '?') + 'hash=' + encodeURIComponent(a.content_hash) : '';
+          const thumbSrc = thumbBase + hashQ + (hashQ ? '&' : '?') + 'tq=640';
+          rendered += '<span class="asset-block"><img src="' + thumbSrc + '" alt="" loading="lazy" class="post-thumb loading"'
+            + ' data-full="' + esc(fullSrc) + '"'
+            + ' onload="this.classList.remove(\'loading\')" onerror="this.classList.remove(\'loading\')"'
+            + ' onclick="openLightbox(this.dataset.full)"></span>';
+        } else {
+          rendered += '<span class="asset-block"><img src="' + fullSrc + '" alt="" onclick="openLightbox(this.src)"></span>';
+        }
+      } else if (a && (a.media_type || "").startsWith("video/"))
+        rendered += '<span class="asset-block"><video src="' + fullSrc + '" controls></video></span>';
       else {
         const label = (a && a.title) ? a.title : aid.slice(0, 8) + "…";
-        rendered += '<span class="asset-block"><a class="asset-file" href="' + url + '" download>' + mimeIcon(a && a.media_type) + ' ' + esc(label) + '</a></span>';
+        rendered += '<span class="asset-block"><a class="asset-file" href="' + fullSrc + '" download>' + mimeIcon(a && a.media_type) + ' ' + esc(label) + '</a></span>';
       }
     } else {
       rendered += renderBodyText(part);
@@ -2203,6 +2186,8 @@ async function submitPost() {
       const post = await r.json();
       prependPost(post);
       loadTagSidebar();
+      document.getElementById("compose-body").value = "";
+      document.getElementById("compose-tags").value = "";
       _clearDraft();
       prog.innerHTML = '<div class="progress-item progress-ok">&#x2713; Posted</div>';
       pendingFiles = [];

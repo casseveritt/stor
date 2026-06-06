@@ -88,7 +88,12 @@
   .post-cached::after { content: "cached"; position: absolute; top: 0.4rem; right: 0.5rem; font-size: 0.65rem; color: var(--text-5); background: var(--surface-0); border: 1px solid var(--surface-3); border-radius: 3px; padding: 1px 5px; pointer-events: none; letter-spacing: 0.03em; }
   .post-cached .reaction-btn, .post-cached .reaction-add, .post-cached .comment-form, .post-cached .emoji-picker { pointer-events: none; opacity: 0.4; }
   .post-source { font-size: 0.72rem; color: var(--text-dim); margin-bottom: 0.4rem; }
-  .post-body { font-size: 0.92rem; color: var(--text-2); line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .post-body { font-size: 0.92rem; color: var(--text-2); line-height: 1.5; word-break: break-word; }
+  .post-body .asset-block { display: block; margin: 0.5rem 0; white-space: normal; }
+  .post-body .asset-block img { display: block; max-height: 22rem; width: auto; height: auto; border-radius: 4px; }
+  .post-body .asset-block video { display: block; max-width: 100%; border-radius: 4px; }
+  .post-body .asset-block .asset-file { display: inline-flex; align-items: center; gap: 0.5rem; background: var(--surface-3); padding: 0.4rem 0.75rem; border-radius: 4px; font-size: 0.85rem; color: var(--text-3); text-decoration: none; }
+  .post-body .asset-block .asset-file:hover { background: #333; color: #eee; }
   .post-thumbs { display: block; overflow-x: auto; white-space: nowrap; margin-top: 0.6rem; }
   .post-thumb { display: inline-block; vertical-align: top; max-height: 22rem; max-width: none; width: auto; height: auto; border-radius: 4px; background: var(--surface-3); margin-right: 4px; }
   .post-thumb:last-child { margin-right: 0; }
@@ -281,7 +286,7 @@
   }
 
 /* ── markdown rendered content ─────────────────────────────────────────── */
-.post-body p, .comment-body p, #compose-preview-wrap p { margin: 0 0 0.6em; }
+.post-body p, .comment-body p, #compose-preview-wrap p { margin: 0 0 0.35em; }
 .post-body p:last-child, .comment-body p:last-child, #compose-preview-wrap p:last-child { margin-bottom: 0; }
 .post-body h1,.post-body h2,.post-body h3,
 .comment-body h1,.comment-body h2,.comment-body h3,
