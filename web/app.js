@@ -904,7 +904,9 @@ async function loadMore(allowLoginRedirect = false) {
   serverStatuses[src] = "ok";
   if (data.server_status) {
     for (const [url, status] of Object.entries(data.server_status)) {
-      serverOnline[url] = status === "online";
+      if (status === "online") serverOnline[url] = true;
+      else if (status === "offline") serverOnline[url] = false;
+      // "unknown" → leave unchanged so posts aren't incorrectly grayed out
     }
   }
   renderServerList();
