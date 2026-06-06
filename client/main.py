@@ -427,7 +427,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         if not queried_at or not sig:
             return False
         canonical = (f"contacc:node-record:{queried_at}:{record.get('node_id','')}:"
-                     f"{record.get('owner_id','')}:{record.get('server_url','')}:"
+                     f"{record.get('server_url','')}:"
                      f"{record.get('handle','') or ''}:{record.get('display_name','') or ''}")
         try:
             from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey

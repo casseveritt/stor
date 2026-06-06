@@ -170,13 +170,25 @@ def create_app(db_path: str) -> FastAPI:
         _registry_pub_b64 = _reg_key_row[1]
 
     def _sign_record(record: dict) -> dict:
+        """Return a signed node record stripped of owner_id — querying nodes don't need it."""
         queried_at = int(time.time())
-        canonical = (f"contacc:node-record:{queried_at}:{record.get('node_id','')}:"
-                     f"{record.get('owner_id','')}:{record.get('server_url','')}:"
-                     f"{record.get('handle','') or ''}:{record.get('display_name','') or ''}")
+        node_id = record.get('node_id', '')
+        server_url = record.get('server_url', '')
+        handle = record.get('handle', '') or ''
+        display_name = record.get('display_name', '') or ''
+        canonical = (f"contacc:node-record:{queried_at}:{node_id}:"
+                     f"{server_url}:{handle}:{display_name}")
         sig = base64.b64encode(_registry_signing_key.sign(canonical.encode())).decode()
-        return {**record, "queried_at": queried_at, "registry_signature": sig,
-                "registry_public_key": _registry_pub_b64}
+        return {
+            "node_id": node_id,
+            "server_url": server_url,
+            "web_url": record.get("web_url"),
+            "handle": handle,
+            "display_name": display_name or None,
+            "queried_at": queried_at,
+            "registry_signature": sig,
+            "registry_public_key": _registry_pub_b64,
+        }
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS tang_keys (
