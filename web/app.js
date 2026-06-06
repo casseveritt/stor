@@ -2466,6 +2466,7 @@ function _dmKeyNav(e) {
   if (e.key === 'ArrowDown') { e.preventDefault(); _dmHighlightUpdate(_dmHighlightIdx + 1); }
   else if (e.key === 'ArrowUp') { e.preventDefault(); _dmHighlightUpdate(_dmHighlightIdx - 1); }
   else if (e.key === 'Enter' && _dmHighlightIdx >= 0) {
+    e.preventDefault();
     const items = document.querySelectorAll('#dm-threads-list [data-tid]');
     const el = items[_dmHighlightIdx];
     if (el) _dmOpenThread(el.dataset.tid, el.dataset.pname);
