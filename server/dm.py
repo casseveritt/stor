@@ -12,7 +12,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from .auth import OwnerDep, FederatedOrTokenDep
+from .auth import InternalOrOwnerDep, FederatedOrTokenDep
 from .db import NS, now_ns
 from .crypto import make_thread_id, derive_thread_key, encrypt_dm, decrypt_dm
 
@@ -64,6 +64,7 @@ class ReceiveBody(BaseModel):
     thread_id: str
     sender_node_id: str
     sender_url: str
+    sender_name: str | None = None
     sender_dh_pub: str
     body_enc: str
     created_at: int
@@ -87,7 +88,7 @@ async def dm_receive(body: ReceiveBody, request: Request, identity: FederatedOrT
         return  # already stored
 
     _upsert_thread(db, body.thread_id, body.sender_node_id, body.sender_url,
-                   None, body.sender_dh_pub)
+                   body.sender_name, body.sender_dh_pub)
     db.execute("""
         INSERT INTO dm_messages (id, thread_id, direction, body_enc, created_at)
         VALUES (?, ?, 'in', ?, ?)
@@ -103,7 +104,7 @@ async def dm_receive(body: ReceiveBody, request: Request, identity: FederatedOrT
 # ── owner endpoints ───────────────────────────────────────────────────────────
 
 @router.get("/dm/threads")
-def list_threads(request: Request, _: OwnerDep):
+def list_threads(request: Request, _: InternalOrOwnerDep):
     db = request.app.state.db
     rows = db.execute("""
         SELECT thread_id, peer_node_id, peer_url, peer_name, last_msg_at, unread_count
@@ -117,7 +118,7 @@ def list_threads(request: Request, _: OwnerDep):
 
 
 @router.get("/dm/updates")
-def get_dm_updates(_: OwnerDep):
+def get_dm_updates(_: InternalOrOwnerDep):
     return {"updates": drain_dm_updates()}
 
 
@@ -127,7 +128,7 @@ class GetMessagesParams(BaseModel):
 
 
 @router.get("/dm/messages/{thread_id}")
-def get_messages(thread_id: str, request: Request, _: OwnerDep, since: int = 0, limit: int = 50):
+def get_messages(thread_id: str, request: Request, _: InternalOrOwnerDep, since: int = 0, limit: int = 50):
     db = request.app.state.db
     app = request.app
     thread = db.execute(
@@ -169,7 +170,7 @@ class SendBody(BaseModel):
 
 
 @router.post("/dm/send", status_code=201)
-async def send_message(payload: SendBody, request: Request, _: OwnerDep):
+async def send_message(payload: SendBody, request: Request, _: InternalOrOwnerDep):
     db = request.app.state.db
     app = request.app
 
@@ -225,9 +226,16 @@ async def send_message(payload: SendBody, request: Request, _: OwnerDep):
     # Push to peer (best-effort; heartbeat retries undelivered messages)
     my_url = app.state.node_address
     my_dh_pub = app.state.dh_public_key
+    my_name = None
+    try:
+        row = app.state.db.execute("SELECT display_name FROM profile LIMIT 1").fetchone()
+        my_name = row[0] if row else None
+    except Exception:
+        pass
     push_body = {
         "id": msg_id, "thread_id": thread_id,
         "sender_node_id": my_node_id, "sender_url": my_url,
+        "sender_name": my_name,
         "sender_dh_pub": my_dh_pub,
         "body_enc": body_enc, "created_at": created_at,
     }
@@ -254,7 +262,7 @@ async def send_message(payload: SendBody, request: Request, _: OwnerDep):
 
 
 @router.post("/dm/threads/{thread_id}/seen", status_code=204)
-def mark_seen(thread_id: str, request: Request, _: OwnerDep):
+def mark_seen(thread_id: str, request: Request, _: InternalOrOwnerDep):
     db = request.app.state.db
     now = now_ns()
     db.execute("""

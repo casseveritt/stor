@@ -2483,7 +2483,11 @@ async function _dmOpenThread(threadId, peerName) {
 
 async function _loadDmMessages(threadId) {
   const r = await apiFetch("/api/dm/messages/" + threadId + "?limit=100");
-  if (!r.ok) return;
+  if (!r.ok) {
+    document.getElementById("dm-messages-list").innerHTML =
+      '<div style="text-align:center;color:#666;font-size:0.82rem;padding:1rem">Could not load messages.</div>';
+    return;
+  }
   const d = await r.json();
   _dmMessages = d.messages || [];
   _renderDmMessages();

@@ -327,6 +327,32 @@ def require_owner(identity: AuthDep) -> TokenIdentity:
 OwnerDep = Annotated[TokenIdentity, Depends(require_owner)]
 
 
+def require_owner_or_internal(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> TokenIdentity:
+    """Accept owner Bearer token or internal inter-container token.
+
+    DM endpoints are only called by the client container (them), which always
+    includes x-contacc-internal. After a container restart the Bearer token
+    may be absent from tokens[], so fall back to the internal token.
+    """
+    import secrets as _sec
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ")
+        if _verify_owner_token(token):
+            return TokenIdentity(is_owner=True)
+    internal_token = getattr(request.app.state, "internal_token", None)
+    if internal_token:
+        provided = request.headers.get("x-contacc-internal", "")
+        if provided and _sec.compare_digest(provided, internal_token):
+            return TokenIdentity(is_owner=True)
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Owner access required")
+
+
+InternalOrOwnerDep = Annotated[TokenIdentity, Depends(require_owner_or_internal)]
+
+
 # ── federated request signature verification ─────────────────────────────────
 
 async def verify_federated_signature(request: Request) -> None:

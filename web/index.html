@@ -180,7 +180,7 @@
             <div style="padding:0.5rem 0.75rem;border-top:1px solid #2a2a2a;display:flex;gap:0.4rem">
               <textarea id="dm-compose" placeholder="Message…" rows="1"
                 style="flex:1;background:#222;border:1px solid #333;border-radius:4px;color:#e0e0e0;font-size:0.85rem;padding:0.35rem 0.5rem;resize:none;font-family:inherit;line-height:1.4;max-height:100px;overflow-y:auto"
-                onkeydown="if((event.ctrlKey||event.metaKey)&&event.key==='Enter'){_dmSend();event.preventDefault()}"
+                onkeydown="if(event.key==='Enter'&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey){_dmSend();event.preventDefault()}"
                 oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
               <button class="btn btn-primary btn-sm" onclick="_dmSend()" style="align-self:flex-end">Send</button>
             </div>
@@ -529,6 +529,6 @@
 
 <div id="comment-mention-dropdown" class="mention-dropdown" hidden style="position:fixed"></div>
 
-  <script src="/app.js?v=2c9481c"></script>
+  <script src="/app.js?v=795a652"></script>
 </body>
 </html>
