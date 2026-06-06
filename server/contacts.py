@@ -29,14 +29,18 @@ def list_users(request: Request, _: OwnerDep):
 @router.post("/users", status_code=201)
 def add_user(payload: _UserBody, request: Request, _: OwnerDep):
     db = request.app.state.db
-    try:
-        db.execute(
-            "INSERT INTO users (server_url, name, handle, public_key, relationship, weight) VALUES (?, ?, ?, ?, ?, ?)",
-            (payload.server_url, payload.name, payload.handle, payload.public_key, payload.relationship, payload.weight),
-        )
-        db.commit()
-    except Exception:
-        raise HTTPException(status_code=409, detail="User already exists")
+    db.execute(
+        """INSERT INTO users (server_url, name, handle, public_key, relationship, weight)
+           VALUES (?, ?, ?, ?, ?, ?)
+           ON CONFLICT(server_url) DO UPDATE SET
+               relationship = excluded.relationship,
+               public_key = COALESCE(excluded.public_key, public_key),
+               name = COALESCE(excluded.name, name),
+               weight = COALESCE(excluded.weight, weight)
+        """,
+        (payload.server_url, payload.name, payload.handle, payload.public_key, payload.relationship, payload.weight),
+    )
+    db.commit()
     return {"server_url": payload.server_url}
 
 
