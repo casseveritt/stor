@@ -188,8 +188,6 @@ async function continueInit() {
 
   const status = CFG.servers.find(s => s.url === CFG.own_server);
   if (status && status.authenticated) {
-    // Back-fill node_id for any contacts that don't have one yet (background)
-    apiFetch("/api/contacts/refresh-node-ids", {method: "POST"});
     await loadFeed();
   } else {
     showView("login");

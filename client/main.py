@@ -107,6 +107,33 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def _warm_caches():
         import asyncio
         asyncio.create_task(_refresh_contact_photos())
+        asyncio.create_task(_startup_backfill_node_ids())
+
+    async def _startup_backfill_node_ids():
+        """One-time migration: fill node_id for contacts that don't have it."""
+        if all(c.node_id for c in config.contacts):
+            return  # nothing to do
+        import asyncio as _asyncio
+        await _asyncio.sleep(5)  # let the server finish starting up
+        updated = 0
+        async with httpx.AsyncClient() as hc:
+            for c in config.contacts:
+                if c.node_id:
+                    continue
+                try:
+                    r = await hc.get(c.url.rstrip("/") + "/node", timeout=4)
+                    if r.is_success:
+                        nd = r.json()
+                        nid = nd.get("node_id") or nd.get("user_id")
+                        if nid and not any(x.node_id == nid for x in config.contacts if x is not c):
+                            c.node_id = nid
+                            if nd.get("public_key") and not c.public_key:
+                                c.public_key = nd["public_key"]
+                            updated += 1
+                except Exception:
+                    pass
+        if updated:
+            config.save(config_path)
         asyncio.create_task(_backfill_contact_pubkeys())
 
     async def _backfill_contact_pubkeys():
