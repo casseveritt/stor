@@ -380,9 +380,6 @@ function renderServerList() {
       : `<span class="post-author-initials">${sInitial}</span>`;
     const tagLabel = s.tag || s.name.trim().split(/\s+/)[0] || s.handle || '';
     const urlJson  = JSON.stringify(s.url).replace(/"/g, '&quot;');
-    const tagJson  = JSON.stringify(s.tag || '').replace(/"/g, '&quot;');
-    const descJson = JSON.stringify(s.description || '').replace(/"/g, '&quot;');
-    const catJson  = JSON.stringify(s.category || '').replace(/"/g, '&quot;');
     return '<div class="contact-row">'
       + '<button class="server-btn' + (activeServer === s.url ? " active" : "") + '" onclick="setActiveServer(' + globalIdx + ')" title="' + esc(tagLabel ? '@' + tagLabel : s.name) + '">'
       + avatarHtml
@@ -390,7 +387,7 @@ function renderServerList() {
       + '<span class="server-dot ' + status + '"></span>'
       + '</button>'
       + '<span style="position:relative;display:inline-flex;align-items:center">'
-      + '<button class="contact-menu-btn" onclick="openContactMenu(event,' + urlJson + ',' + tagJson + ',' + descJson + ',' + catJson + ')" title="Contact options">…</button>'
+      + '<button class="contact-menu-btn" onclick="openContactMenu(event,' + urlJson + ')" title="Contact options">…</button>'
       + '</span>'
       + '</div>';
   });
@@ -405,7 +402,7 @@ const _CONTACT_CATS = [
   {key:'acquaintances', label:'Acquaint.', weight:0.3},
 ];
 
-function openContactMenu(e, url, tag, description, category) {
+function openContactMenu(e, url) {
   e.stopPropagation();
   closeAllPostMenus();
   const btn = e.currentTarget;
@@ -450,20 +447,6 @@ async function setContactTag(url, currentTag) {
   renderServerList();
 }
 
-async function setContactCategory(url, category) {
-  const r = await apiFetch("/api/contacts", {
-    method: "PATCH",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({url, category}),
-  });
-  if (!r.ok) { alert("Failed to set category."); return; }
-  const d = await r.json();
-  const cfg = await (await apiFetch("/api/config")).json();
-  _setCFG(cfg);
-  renderServerList();
-  // Recompute poll interval with new weight
-  _serverPollIntervals[url] = _computePollInterval(_serverActivity7d[url] || 0, d.poll_weight);
-}
 
 async function editContactDescription(url, currentDescription) {
   const newDesc = prompt("Description for this contact:", currentDescription || "");
@@ -2653,20 +2636,18 @@ function _dmBackToThreads() {
 // ── contact edit modal ────────────────────────────────────────────────────────
 let _ceUrl = null;
 const _CE_CATS = [
-  {key:'family',        label:'Family',       weight:1.0},
-  {key:'close_friends', label:'Close friends', weight:0.8},
-  {key:'friends',       label:'Friends',       weight:0.6},
-  {key:'colleagues',    label:'Work',          weight:0.5},
-  {key:'acquaintances', label:'Acquaintances', weight:0.3},
+  {key:'family',        label:'Family'},
+  {key:'close_friends', label:'Close Friends'},
+  {key:'friends',       label:'Friends'},
+  {key:'colleagues',    label:'Colleagues'},
+  {key:'acquaintances', label:'Acquaintances'},
 ];
-const _CE_DEFAULT_WEIGHTS = Object.fromEntries(_CE_CATS.map(c => [c.key, c.weight]));
 
 function openContactEdit(url) {
   const contact = (CFG.servers || []).find(s => s.url === url);
   if (!contact) return;
   _ceUrl = url;
 
-  // Header
   const prof = serverProfiles[url];
   const initial = (contact.name || '?')[0].toUpperCase();
   const avatarEl = document.getElementById('ce-avatar');
@@ -2677,24 +2658,25 @@ function openContactEdit(url) {
   }
   document.getElementById('ce-name').textContent = contact.name || url;
   document.getElementById('ce-url').textContent = url;
-
-  // Fields
   document.getElementById('ce-description').value = contact.description || '';
   document.getElementById('ce-tag').value = contact.tag || '';
 
-  // Category buttons
-  const cat = contact.category || '';
-  const isPredefined = _CE_CATS.some(c => c.key === cat);
-  _ceBuildCatBtns(cat);
-  document.getElementById('ce-cat-custom').value = (!isPredefined && cat) ? cat : '';
-
-  // Weight
-  const w = contact.poll_weight ?? _CE_DEFAULT_WEIGHTS[cat] ?? 0.5;
-  const autoChecked = contact.poll_weight === null || contact.poll_weight === undefined;
-  document.getElementById('ce-weight').value = w;
-  document.getElementById('ce-weight-auto').checked = autoChecked;
-  document.getElementById('ce-weight').disabled = autoChecked;
-  document.getElementById('ce-weight-display').textContent = w.toFixed(2);
+  // Build category sliders
+  const container = document.getElementById('ce-cats');
+  container.innerHTML = '';
+  _CE_CATS.forEach(({key, label}) => {
+    const val = contact[key] ?? 0;
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:0.6rem';
+    row.innerHTML = `
+      <span style="width:110px;font-size:0.82rem;color:#aaa;flex-shrink:0">${label}</span>
+      <input type="range" min="0" max="1" step="0.05" value="${val}"
+        style="flex:1;accent-color:#4285f4"
+        oninput="this.nextElementSibling.textContent=parseFloat(this.value).toFixed(2)"
+        data-cat="${key}">
+      <span style="width:2.5rem;text-align:right;font-size:0.82rem;color:#90c0ff;font-variant-numeric:tabular-nums">${val.toFixed(2)}</span>`;
+    container.appendChild(row);
+  });
 
   document.getElementById('ce-status').textContent = '';
   document.getElementById('contact-edit-overlay').hidden = false;
@@ -2706,83 +2688,19 @@ function closeContactEdit() {
   _ceUrl = null;
 }
 
-function _ceBuildCatBtns(activeCat) {
-  const container = document.getElementById('ce-cat-btns');
-  container.innerHTML = '';
-  [..._CE_CATS, {key:'', label:'None', weight:0}].forEach(({key, label}) => {
-    const active = key ? activeCat === key : !activeCat || !_CE_CATS.some(c => c.key === activeCat);
-    const btn = document.createElement('button');
-    btn.textContent = label;
-    btn.style.cssText = `padding:0.25rem 0.55rem;font-size:0.8rem;border-radius:4px;cursor:pointer;border:1px solid ${active?'#4285f4':'#2e2e2e'};background:${active?'#1a3360':'#1a1a1a'};color:${active?'#90c0ff':'#888'}`;
-    btn.onclick = () => {
-      _ceBuildCatBtns(key);
-      document.getElementById('ce-cat-custom').value = '';
-      _ceUpdateWeightFromCat(key);
-    };
-    container.appendChild(btn);
-  });
-}
-
-function _ceCatCustomInput() {
-  const val = document.getElementById('ce-cat-custom').value.trim();
-  if (val) {
-    _ceBuildCatBtns('__custom__');  // deselect all predefined
-    _ceUpdateWeightFromCat(null);   // custom = no default weight
-  }
-}
-
-function _ceCurrentCat() {
-  const custom = document.getElementById('ce-cat-custom').value.trim();
-  if (custom) return custom;
-  // Find active predefined button (has blue border)
-  const btns = document.getElementById('ce-cat-btns').querySelectorAll('button');
-  for (const btn of btns) {
-    if (btn.style.borderColor === 'rgb(66, 133, 244)') {
-      // Match label back to key
-      const match = _CE_CATS.find(c => c.label === btn.textContent);
-      return match ? match.key : '';
-    }
-  }
-  return '';
-}
-
-function _ceUpdateWeightFromCat(catKey) {
-  const autoEl = document.getElementById('ce-weight-auto');
-  if (!autoEl.checked) return;
-  const w = catKey ? (_CE_DEFAULT_WEIGHTS[catKey] ?? 0.5) : 0.5;
-  document.getElementById('ce-weight').value = w;
-  document.getElementById('ce-weight-display').textContent = w.toFixed(2);
-}
-
-function _ceWeightInput() {
-  const v = parseFloat(document.getElementById('ce-weight').value);
-  document.getElementById('ce-weight-display').textContent = v.toFixed(2);
-  document.getElementById('ce-weight-auto').checked = false;
-}
-
-function _ceWeightAutoChange() {
-  const auto = document.getElementById('ce-weight-auto').checked;
-  document.getElementById('ce-weight').disabled = auto;
-  if (auto) _ceUpdateWeightFromCat(_ceCurrentCat());
-}
-
 async function saveContactEdit() {
   if (!_ceUrl) return;
-  const description = document.getElementById('ce-description').value.trim() || null;
-  const tag = document.getElementById('ce-tag').value.trim();
-  const category = _ceCurrentCat() || null;
-  const autoWeight = document.getElementById('ce-weight-auto').checked;
-  const poll_weight = autoWeight ? null : parseFloat(document.getElementById('ce-weight').value);
-
   const status = document.getElementById('ce-status');
   status.textContent = 'Saving…'; status.style.color = '#888';
 
-  const patchBody = {url: _ceUrl};
-  patchBody.description = description || '';
-  if (tag !== undefined) patchBody.tag = tag;
-  patchBody.category = category || '';
-  if (!autoWeight) patchBody.poll_weight = poll_weight;
-  else if (category) patchBody.category = category;  // let server derive weight
+  const patchBody = {
+    url: _ceUrl,
+    description: document.getElementById('ce-description').value.trim() || '',
+    tag: document.getElementById('ce-tag').value.trim(),
+  };
+  document.getElementById('ce-cats').querySelectorAll('input[data-cat]').forEach(el => {
+    patchBody[el.dataset.cat] = parseFloat(el.value);
+  });
 
   const r = await apiFetch('/api/contacts', {
     method: 'PATCH',
@@ -2797,7 +2715,6 @@ async function saveContactEdit() {
   const cfg = await (await apiFetch('/api/config')).json();
   _setCFG(cfg);
   renderServerList();
-  // Recompute poll interval with new weight
   const updated = (cfg.servers || []).find(s => s.url === _ceUrl);
   if (updated) _serverPollIntervals[_ceUrl] = _computePollInterval(_serverActivity7d[_ceUrl] || 0, updated.poll_weight);
   closeContactEdit();

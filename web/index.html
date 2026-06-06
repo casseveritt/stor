@@ -421,31 +421,10 @@
         style="background:#1a1a1a;border:1px solid #333;border-radius:4px;color:#e0e0e0;font-size:0.88rem;padding:0.4rem 0.6rem">
     </div>
 
-    <div style="display:flex;flex-direction:column;gap:0.5rem">
-      <label style="font-size:0.72rem;color:#666;text-transform:uppercase;letter-spacing:0.06em">Category</label>
-      <div id="ce-cat-btns" style="display:flex;flex-wrap:wrap;gap:0.3rem"></div>
-      <div style="display:flex;align-items:center;gap:0.5rem">
-        <span style="font-size:0.78rem;color:#666">Custom:</span>
-        <input id="ce-cat-custom" type="text" placeholder="e.g. collaborator" autocomplete="off"
-          style="flex:1;background:#1a1a1a;border:1px solid #333;border-radius:4px;color:#e0e0e0;font-size:0.82rem;padding:0.3rem 0.5rem"
-          oninput="_ceCatCustomInput()">
-      </div>
-    </div>
-
-    <div style="display:flex;flex-direction:column;gap:0.5rem">
-      <div style="display:flex;justify-content:space-between;align-items:baseline">
-        <label style="font-size:0.72rem;color:#666;text-transform:uppercase;letter-spacing:0.06em">Poll weight</label>
-        <span id="ce-weight-display" style="font-size:0.82rem;color:#90c0ff;font-weight:500"></span>
-      </div>
-      <input id="ce-weight" type="range" min="0" max="1" step="0.05"
-        style="width:100%;accent-color:#4285f4" oninput="_ceWeightInput()">
-      <div style="display:flex;justify-content:space-between;font-size:0.7rem;color:#444">
-        <span>0 (never poll)</span><span>0.5 (neutral)</span><span>1 (always)</span>
-      </div>
-      <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.8rem;color:#888;cursor:pointer">
-        <input id="ce-weight-auto" type="checkbox" checked onchange="_ceWeightAutoChange()">
-        Auto-derive from category
-      </label>
+    <div style="display:flex;flex-direction:column;gap:0.6rem">
+      <label style="font-size:0.72rem;color:#666;text-transform:uppercase;letter-spacing:0.06em">Categories</label>
+      <div style="font-size:0.72rem;color:#555;margin-top:-0.2rem">Set each that applies. 0 = not applicable, 1 = fully.</div>
+      <div id="ce-cats" style="display:flex;flex-direction:column;gap:0.5rem"></div>
     </div>
 
     <div id="ce-status" style="font-size:0.82rem;min-height:1em;color:#e06c6c"></div>
@@ -514,6 +493,6 @@
 
 <div id="comment-mention-dropdown" class="mention-dropdown" hidden style="position:fixed"></div>
 
-  <script src="/app.js?v=1529932"></script>
+  <script src="/app.js?v=fd10d2f"></script>
 </body>
 </html>

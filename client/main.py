@@ -467,18 +467,26 @@ def create_app(config_path: str | Path) -> FastAPI:
                 entry["tag"] = tags.get(url)
                 entry["handle"] = c.handle
                 entry["description"] = c.description
-                entry["category"] = c.category
-                entry["poll_weight"] = c.poll_weight
+                entry["poll_weight"] = _contact_weight(c)
+                for f in _CAT_FIELDS:
+                    entry[f] = getattr(c, f, 0.0)
             servers_list.append(entry)
+
+        def _contact_dict(c):
+            d = {"name": c.name, "url": c.url, "handle": c.handle, "public_key": c.public_key,
+                 "tag": tags.get(c.url), "description": c.description,
+                 "poll_weight": _contact_weight(c)}
+            for f in _CAT_FIELDS:
+                d[f] = getattr(c, f, 0.0)
+            return d
+
         return {
             "own_server": config.own_server,
             "own_display_name": own_display_name,
             "own_handle": own_handle,
             "identity_proxy_url": os.environ.get("CONTACC_IDENTITY_PROXY_URL", ""),
             "servers": servers_list,
-            "contacts": [{"name": c.name, "url": c.url, "handle": c.handle, "public_key": c.public_key,
-                          "tag": tags.get(c.url), "description": c.description,
-                          "category": c.category, "poll_weight": c.poll_weight} for c in config.contacts],
+            "contacts": [_contact_dict(c) for c in config.contacts],
             "cached_photos": [c.url for c in config.contacts if _has_cached_photo(c.url)],
         }
 
@@ -786,10 +794,10 @@ def create_app(config_path: str | Path) -> FastAPI:
         return r.json()
 
     # ── contacts ──────────────────────────────────────────────────────────
-    CATEGORY_WEIGHTS: dict[str, float] = {
-        "family": 1.0, "close_friends": 0.8, "friends": 0.6,
-        "colleagues": 0.5, "acquaintances": 0.3,
-    }
+    _CAT_FIELDS = ["family", "close_friends", "friends", "colleagues", "acquaintances"]
+
+    def _contact_weight(c) -> float:
+        return max(getattr(c, f, 0.0) or 0.0 for f in _CAT_FIELDS)
 
     @api.get("/profile")
     async def api_profile():
@@ -1031,9 +1039,12 @@ def create_app(config_path: str | Path) -> FastAPI:
         url: str
         tag: str | None = None
         description: str | None = None
-        category: str | None = None       # predefined key or custom; "" to clear
-        poll_weight: float | None = None  # explicit override; None = derive from category
         node_id: str | None = None
+        family: float | None = None
+        close_friends: float | None = None
+        friends: float | None = None
+        colleagues: float | None = None
+        acquaintances: float | None = None
 
     @api.patch("/contacts")
     async def api_patch_contact(body: ContactPatchBody):
@@ -1049,33 +1060,28 @@ def create_app(config_path: str | Path) -> FastAPI:
         if body.description is not None:
             contact.description = body.description or None
             dirty = True
-        if body.category is not None:
-            cat = body.category or None
-            contact.category = cat
-            if body.poll_weight is not None:
-                contact.poll_weight = body.poll_weight if body.poll_weight > 0 else None
-            else:
-                contact.poll_weight = CATEGORY_WEIGHTS.get(cat, 0.5) if cat else None
-            dirty = True
-        elif body.poll_weight is not None:
-            contact.poll_weight = body.poll_weight if body.poll_weight > 0 else None
-            dirty = True
+        for f in _CAT_FIELDS:
+            v = getattr(body, f)
+            if v is not None:
+                setattr(contact, f, max(0.0, min(1.0, v)))
+                dirty = True
         if dirty:
             config.save(config_path)
             # Sync weight to server so it can make nuanced data-sharing decisions
-            if contact.poll_weight is not None and _token(config.own_server):
+            weight = _contact_weight(contact)
+            if weight > 0 and _token(config.own_server):
                 try:
                     async with httpx.AsyncClient() as hc:
                         await hc.patch(
                             _server + "/users",
                             params={"server_url": body.url},
-                            json={"server_url": body.url, "weight": contact.poll_weight},
+                            json={"server_url": body.url, "weight": weight},
                             headers=_headers(config.own_server),
                             timeout=5.0,
                         )
                 except Exception:
                     pass  # non-fatal; weight will sync on next contact add
-        return {"ok": True, "poll_weight": contact.poll_weight}
+        return {"ok": True, "poll_weight": _contact_weight(contact)}
 
     # ── dev / debug ───────────────────────────────────────────────────────
 

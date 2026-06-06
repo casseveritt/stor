@@ -12,8 +12,11 @@ class ContactEntry:
     public_key: str | None = None
     node_id: str | None = None  # node deployment identifier
     description: str | None = None
-    category: str | None = None    # family / close_friends / friends / colleagues / acquaintances
-    poll_weight: float | None = None  # [0,1]; derived from category but overridable
+    family: float = 0.0
+    close_friends: float = 0.0
+    friends: float = 0.0
+    colleagues: float = 0.0
+    acquaintances: float = 0.0
 
 
 @dataclass
