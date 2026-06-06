@@ -1370,13 +1370,15 @@ blockquote p { color: #888; font-style: italic; }
             if not _verify_delegation_cert(cert, body.public_key):
                 raise HTTPException(400, "Invalid or expired delegation cert")
             reg_owner_id = cert.get("owner_id") or cert.get("user_id")
-            reg_node_id = cert.get("node_id") or reg_owner_id
+            reg_node_id = cert.get("node_id")
+            if not reg_node_id:
+                raise HTTPException(400, "Delegation cert must include a node_id distinct from owner_id")
+            if reg_node_id == reg_owner_id:
+                raise HTTPException(400, "node_id must be distinct from owner_id")
             reg_identity_public_key = cert.get("identity_public_key")
             reg_delegation_json = json.dumps(cert)
         else:
-            # Legacy: no delegation cert — use username as both owner_id and node_id
-            reg_owner_id = username
-            reg_node_id = username
+            raise HTTPException(400, "A delegation cert is required to register")
         if con.execute("SELECT 1 FROM handles WHERE node_id = ?", (reg_node_id,)).fetchone():
             raise HTTPException(status_code=409, detail="Already registered — use update instead")
         _claim_url(body.server_url, reg_node_id, body.public_key)
