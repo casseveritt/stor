@@ -77,7 +77,25 @@ is opened). Instead:
 - Bulk "mark all read" can remain as a secondary action (e.g. a small "clear all" link in
   the panel header).
 
-**4. Chat / direct messages — remaining work**
+**4. Thread follow notifications**
+
+If you have commented on a post, subsequent comments on that post by others should appear
+in your notifications — you're implicitly "following" the thread.
+
+Design:
+- Server tracks which nodes have commented on each post (already available via
+  `comments.author_identity`).
+- When a new comment is added, push a notification to every node that has previously
+  commented on the post (excluding the post owner, who already gets comment notifications,
+  and the commenter themselves).
+- Notification type: new entry in `mention_notifications` with `notif_type = 'thread'`
+  (or reuse `'comment'`) and `post_id` pointing to the post.
+- Client renders it in the mentions/reactions panel: "X also commented on a post you
+  commented on" with a click-to-jump action.
+- Opt-out: consider a per-post "unfollow thread" action so users can stop notifications
+  for a specific thread without leaving a comment.
+
+**5. Chat / direct messages — remaining work**
 
 The DM feature is implemented (see Completed). Remaining:
 - Small-group messaging (3+ participants)
