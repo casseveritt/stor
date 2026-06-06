@@ -912,7 +912,11 @@ async function loadMore(allowLoginRedirect = false) {
   const timeline = document.getElementById("timeline");
   for (const post of data.posts) {
     allPosts.push(post);
-    timeline.appendChild(makePostCard(post, allPosts.length - 1));
+    try {
+      timeline.appendChild(makePostCard(post, allPosts.length - 1));
+    } catch (err) {
+      console.error('makePostCard failed:', err, post);
+    }
   }
   if (!nextCursor && !currentSearch && activeTags.size === 0 && !activeServer) {
     _saveFeedCache(allPosts);
@@ -2219,7 +2223,7 @@ function prependPost(post) {
   allPosts.unshift(post);
   document.querySelectorAll(".post-card[data-idx]").forEach(c => c.dataset.idx = parseInt(c.dataset.idx) + 1);
   const timeline = document.getElementById("timeline");
-  timeline.insertBefore(makePostCard(post, 0), timeline.firstChild);
+  try { timeline.insertBefore(makePostCard(post, 0), timeline.firstChild); } catch(e) { console.error('prependPost render error:', e); }
   document.getElementById("empty-msg").hidden = true;
 }
 

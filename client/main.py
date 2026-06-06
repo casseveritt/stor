@@ -773,6 +773,8 @@ def create_app(config_path: str | Path) -> FastAPI:
         post = r.json()
         post["_server_url"] = config.own_server
         post["_server_name"] = "me"
+        if config.own_node_id:
+            asyncio.create_task(_background_fetch_one(config.own_server, config.own_node_id))
         return post
 
     @api.patch("/posts/{post_id}")
