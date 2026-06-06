@@ -32,7 +32,8 @@ def _load_font(size: int) -> ImageFont.ImageFont:
 
 
 def _watermark_image(content: bytes, identity: str) -> bytes:
-    img = Image.open(io.BytesIO(content)).convert("RGBA")
+    from PIL import ImageOps
+    img = ImageOps.exif_transpose(Image.open(io.BytesIO(content))).convert("RGBA")
     w, h = img.size
 
     font_size = max(12, min(w, h) // 15)

@@ -171,8 +171,8 @@ def fetch_thumbnail(asset_id: str, request: Request, identity: OptionalAuthDep):
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail="Asset content not found")
 
-    from PIL import Image
-    img = Image.open(io.BytesIO(content))
+    from PIL import Image, ImageOps
+    img = ImageOps.exif_transpose(Image.open(io.BytesIO(content)))
     img.thumbnail(THUMB_SIZE)
     if img.mode not in ("RGB", "L"):
         img = img.convert("RGB")

@@ -1861,6 +1861,13 @@ document.addEventListener('keydown', e => {
   if (!e.target.classList.contains('comment-input')) return;
   if (!e.target.id) return;
   _mentionCtx = { taId: e.target.id, hlId: null, ddId: 'comment-mention-dropdown' };
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !_mentionState) {
+    e.preventDefault();
+    const postId = e.target.dataset.postId;
+    const post = allPosts.find(p => p.id === postId);
+    submitComment(postId, post?._server_url || CFG.own_server);
+    return;
+  }
   onComposeKeydown(e);
 }, true);
 document.addEventListener('blur', e => {
@@ -2046,6 +2053,24 @@ function composeShowTab(tab) {
   }
 }
 
+function _composeKeydownHandler(e) {
+  _mentionCtx = COMPOSE_CTX;
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !_mentionState) {
+    e.preventDefault();
+    submitPost();
+    return;
+  }
+  onComposeKeydown(e);
+}
+function _editKeydownHandler(e) {
+  _mentionCtx = EDIT_CTX;
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !_mentionState) {
+    e.preventDefault();
+    submitEdit();
+    return;
+  }
+  onComposeKeydown(e);
+}
 function openCompose() {
   _mentionCtx = COMPOSE_CTX;
   pendingFiles = [];
@@ -2064,12 +2089,15 @@ function openCompose() {
   document.getElementById("compose-overlay").hidden = false;
   const ta = document.getElementById("compose-body");
   ta.addEventListener('paste', _composePasteHandler);
+  ta.addEventListener('keydown', _composeKeydownHandler);
   ta.focus();
 }
 function closeCompose() {
   hideMentionDropdown();
   _saveDraft();
-  document.getElementById("compose-body").removeEventListener('paste', _composePasteHandler);
+  const ta = document.getElementById("compose-body");
+  ta.removeEventListener('paste', _composePasteHandler);
+  ta.removeEventListener('keydown', _composeKeydownHandler);
   document.getElementById("compose-overlay").hidden = true;
 }
 function _renderFileList() {
@@ -2152,7 +2180,7 @@ function _inlineComposeMentionInput(e) {
 
 function _inlineComposeKeydown(e) {
   _mentionCtx = INLINE_CTX;
-  if (e.key === 'Enter' && !e.shiftKey && !_mentionState) {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !_mentionState) {
     e.preventDefault();
     submitInlinePost();
     return;
@@ -2364,9 +2392,14 @@ function openEdit(idx) {
   document.getElementById("edit-status").innerHTML = "";
   document.getElementById("edit-submit").disabled = false;
   document.getElementById("edit-overlay").hidden = false;
-  document.getElementById("edit-body").focus();
+  const ta = document.getElementById("edit-body");
+  ta.addEventListener('keydown', _editKeydownHandler);
+  ta.focus();
 }
-function closeEdit() { document.getElementById("edit-overlay").hidden = true; }
+function closeEdit() {
+  document.getElementById("edit-body").removeEventListener('keydown', _editKeydownHandler);
+  document.getElementById("edit-overlay").hidden = true;
+}
 
 async function submitEdit() {
   const post = allPosts[editingIdx];

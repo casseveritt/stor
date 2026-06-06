@@ -80,7 +80,8 @@ async def update_photo(request: Request, identity: OwnerDep, file: UploadFile = 
 
     # Convert to JPEG at ingest — normalises WebP, PNG, HEIC, etc.
     try:
-        img = Image.open(io.BytesIO(raw))
+        from PIL import ImageOps
+        img = ImageOps.exif_transpose(Image.open(io.BytesIO(raw)))
         img.thumbnail(PHOTO_THUMB)
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
