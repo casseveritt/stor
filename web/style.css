@@ -286,18 +286,19 @@
   }
 
 /* ── markdown rendered content ─────────────────────────────────────────── */
-.post-body p, .comment-body p, #compose-preview-wrap p { margin: 0 0 0.35em; }
-.post-body p:last-child, .comment-body p:last-child, #compose-preview-wrap p:last-child { margin-bottom: 0; }
+.post-body p, .comment-body p, .dm-bubble p, #compose-preview-wrap p { margin: 0 0 0.35em; }
+.post-body p:last-child, .comment-body p:last-child, .dm-bubble p:last-child, #compose-preview-wrap p:last-child { margin-bottom: 0; }
 .post-body h1,.post-body h2,.post-body h3,
 .comment-body h1,.comment-body h2,.comment-body h3,
+.dm-bubble h1,.dm-bubble h2,.dm-bubble h3,
 #compose-preview-wrap h1,#compose-preview-wrap h2,#compose-preview-wrap h3 { margin: 0.5em 0 0.25em; font-size: 1.1em; }
-.post-body pre, .comment-body pre, #compose-preview-wrap pre { background:#111; border:1px solid #2a2a2a; border-radius:4px; padding:0.5em 0.75em; overflow-x:auto; font-size:0.82em; margin:0.4em 0; }
-.post-body code, .comment-body code, #compose-preview-wrap code { background:#111; border-radius:3px; padding:0.1em 0.3em; font-size:0.85em; }
-.post-body pre code, .comment-body pre code, #compose-preview-wrap pre code { background:none; padding:0; }
-.post-body blockquote, .comment-body blockquote, #compose-preview-wrap blockquote { border-left:3px solid #444; margin:0.4em 0 0.4em 0.5em; padding-left:0.75em; color:#aaa; }
-.post-body ul,.post-body ol, .comment-body ul,.comment-body ol, #compose-preview-wrap ul,#compose-preview-wrap ol { margin:0.3em 0 0.3em 1.2em; padding:0; }
-.post-body a, .comment-body a, #compose-preview-wrap a { color:#4285f4; }
-.post-body hr, .comment-body hr, #compose-preview-wrap hr { border:none; border-top:1px solid #2a2a2a; margin:0.6em 0; }
+.post-body pre, .comment-body pre, .dm-bubble pre, #compose-preview-wrap pre { background:#111; border:1px solid #2a2a2a; border-radius:4px; padding:0.5em 0.75em; overflow-x:auto; font-size:0.82em; margin:0.4em 0; }
+.post-body code, .comment-body code, .dm-bubble code, #compose-preview-wrap code { background:#111; border-radius:3px; padding:0.1em 0.3em; font-size:0.85em; }
+.post-body pre code, .comment-body pre code, .dm-bubble pre code, #compose-preview-wrap pre code { background:none; padding:0; }
+.post-body blockquote, .comment-body blockquote, .dm-bubble blockquote, #compose-preview-wrap blockquote { border-left:3px solid #444; margin:0.4em 0 0.4em 0.5em; padding-left:0.75em; color:#aaa; }
+.post-body ul,.post-body ol, .comment-body ul,.comment-body ol, .dm-bubble ul,.dm-bubble ol, #compose-preview-wrap ul,#compose-preview-wrap ol { margin:0.3em 0 0.3em 1.2em; padding:0; }
+.post-body a, .comment-body a, .dm-bubble a, #compose-preview-wrap a { color:#4285f4; }
+.post-body hr, .comment-body hr, .dm-bubble hr, #compose-preview-wrap hr { border:none; border-top:1px solid #2a2a2a; margin:0.6em 0; }
 .post-body table, .comment-body table, #compose-preview-wrap table { border-collapse:collapse; font-size:0.85em; margin:0.4em 0; }
 .post-body th,.post-body td, .comment-body th,.comment-body td, #compose-preview-wrap th,#compose-preview-wrap td { border:1px solid #333; padding:0.2em 0.5em; }
 .post-body th, .comment-body th, #compose-preview-wrap th { background:#1a1a1a; }

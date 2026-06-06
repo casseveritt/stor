@@ -2758,7 +2758,7 @@ function _renderDmMessages() {
     const time = m.created_at ? fmtDate(m.created_at) : '';
     const delivered = out ? (m.delivered_at ? '' : ' style="opacity:0.5"') : '';
     return `<div style="display:flex;flex-direction:column;align-items:${out?'flex-end':'flex-start'}"${delivered}>
-      <div style="max-width:80%;background:${out?'#1a3360':'#252525'};border-radius:8px;padding:0.4rem 0.65rem;font-size:0.88rem;color:#e0e0e0;word-break:break-word">${esc(m.body)}</div>
+      <div class="dm-bubble" style="max-width:80%;background:${out?'#1a3360':'#252525'};border-radius:8px;padding:0.4rem 0.65rem;font-size:0.88rem;color:#e0e0e0;word-break:break-word">${renderBodyText(m.body)}</div>
       <span style="font-size:0.65rem;color:#555;margin-top:0.15rem">${esc(time)}${out&&!m.delivered_at?' ·':''}</span>
     </div>`;
   }).join('');
