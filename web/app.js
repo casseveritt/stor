@@ -2571,19 +2571,7 @@ async function _dmSend() {
     // Use node_id from contact list if available; otherwise fetch /node
     const contact = (CFG.contacts || []).find(c => c.url === peer_url);
     peer_node_id = contact?.node_id;
-    if (!peer_node_id) {
-      try {
-        const nr = await fetch(peer_url.replace(/\/$/, '') + "/node");
-        if (!nr.ok) { alert("Could not reach contact's node."); return; }
-        const nd = await nr.json();
-        peer_node_id = nd.node_id || nd.user_id;
-        if (!peer_node_id) { alert("Contact's node doesn't report a node ID."); return; }
-        // Persist node_id on the contact so future DMs use the same thread_id
-        if (contact) apiFetch("/api/contacts", {method:"PATCH",
-          headers:{"Content-Type":"application/json"},
-          body: JSON.stringify({url: peer_url, node_id: peer_node_id})});
-      } catch { alert("Could not reach contact's node."); return; }
-    }
+    if (!peer_node_id) { alert("Contact's node ID is not known — cannot send message."); return; }
   } else {
     const thread = _dmThreads.find(t => t.thread_id === _dmActiveThread);
     if (!thread) return;
@@ -2613,7 +2601,25 @@ async function _dmSend() {
 }
 
 async function _dmStartNew(peerUrl) {
-  // Open the DM panel; find existing thread for this contact or prepare a new one
+  const contact = (CFG.contacts || []).find(c => c.url === peerUrl);
+
+  // Resolve node_id before opening the panel — no thread without a known peer identity
+  if (!contact?.node_id) {
+    try {
+      const nr = await fetch(peerUrl.replace(/\/$/, '') + "/node");
+      if (!nr.ok) { alert("Could not reach contact's node."); return; }
+      const nd = await nr.json();
+      const nodeId = nd.node_id || nd.user_id;
+      if (!nodeId) { alert("Contact's node doesn't report a node ID."); return; }
+      if (contact) {
+        contact.node_id = nodeId;
+        apiFetch("/api/contacts", {method:"PATCH",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({url: peerUrl, node_id: nodeId})});
+      }
+    } catch { alert("Could not reach contact's node."); return; }
+  }
+
   const panel = document.getElementById("dm-panel");
   document.getElementById("mentions-panel").hidden = true;
   panel.style.top = _panelTop("dm-btn");
@@ -2621,15 +2627,11 @@ async function _dmStartNew(peerUrl) {
   setTimeout(() => document.addEventListener('click', _closeDmPanelOutside, {once: true}), 0);
   if (!_dmPollTimer) _dmPollTimer = setInterval(_loadDmThreads, 30_000);
   await _loadDmThreads();
-  const contact = (CFG.contacts || []).find(c => c.url === peerUrl);
-  const thread = _dmThreads.find(t =>
-    (contact?.node_id && t.peer_node_id === contact.node_id) || t.peer_url === peerUrl
-  );
+
+  const thread = _dmThreads.find(t => t.peer_node_id === contact?.node_id || t.peer_url === peerUrl);
   if (thread) {
     await _dmOpenThread(thread.thread_id, thread.peer_name || (contact && contact.name) || peerUrl);
   } else {
-    // Show thread list; user can see they need to send the first message
-    // Prepare a new-thread placeholder in the compose view
     _dmActiveThread = "__new__:" + peerUrl;
     const name = (contact && contact.name) || peerUrl;
     document.getElementById("dm-conv-name").textContent = name;
