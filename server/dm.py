@@ -270,3 +270,59 @@ def mark_seen(thread_id: str, request: Request, _: InternalOrOwnerDep):
     """, (now, thread_id))
     db.execute("UPDATE dm_threads SET unread_count = 0 WHERE thread_id = ?", (thread_id,))
     db.commit()
+
+
+@router.post("/dm/threads/{keep_id}/merge/{drop_id}", status_code=200)
+def merge_threads(keep_id: str, drop_id: str, request: Request, _: InternalOrOwnerDep):
+    """Merge drop_id into keep_id: re-encrypt messages and delete the duplicate."""
+    db = request.app.state.db
+    app = request.app
+
+    keep = db.execute("SELECT peer_dh_pub FROM dm_threads WHERE thread_id = ?", (keep_id,)).fetchone()
+    drop = db.execute("SELECT peer_dh_pub FROM dm_threads WHERE thread_id = ?", (drop_id,)).fetchone()
+    if not keep:
+        raise HTTPException(404, f"Thread {keep_id} not found")
+    if not drop:
+        raise HTTPException(404, f"Thread {drop_id} not found")
+
+    keep_dh = keep[0]
+    drop_dh = drop[0] or keep_dh  # fall back to keep's key if drop has none
+    if not keep_dh:
+        raise HTTPException(400, "Keep thread has no DH key — cannot re-encrypt")
+
+    keep_key = _get_thread_key(app, keep_id, keep_dh)
+    drop_key = _get_thread_key(app, drop_id, drop_dh)
+
+    rows = db.execute(
+        "SELECT id, direction, body_enc, created_at, delivered_at, seen_at FROM dm_messages WHERE thread_id = ?",
+        (drop_id,)
+    ).fetchall()
+
+    moved = 0
+    for r in rows:
+        if db.execute("SELECT 1 FROM dm_messages WHERE id = ?", (r[0],)).fetchone() and \
+           db.execute("SELECT 1 FROM dm_messages WHERE id = ? AND thread_id = ?", (r[0], keep_id)).fetchone():
+            continue  # already in keep thread
+        try:
+            body = decrypt_dm(drop_key, r[2])
+            new_enc = encrypt_dm(keep_key, body)
+        except Exception:
+            new_enc = r[2]  # keep as-is if decryption fails
+        db.execute(
+            "INSERT OR IGNORE INTO dm_messages (id, thread_id, direction, body_enc, created_at, delivered_at, seen_at) VALUES (?,?,?,?,?,?,?)",
+            (r[0], keep_id, r[1], new_enc, r[3], r[4], r[5])
+        )
+        moved += 1
+
+    # Update keep thread's last_msg_at and unread_count
+    db.execute("""
+        UPDATE dm_threads SET
+            last_msg_at = MAX(last_msg_at, (SELECT COALESCE(MAX(created_at),0) FROM dm_messages WHERE thread_id = ?)),
+            unread_count = (SELECT COUNT(*) FROM dm_messages WHERE thread_id = ? AND direction='in' AND seen_at IS NULL)
+        WHERE thread_id = ?
+    """, (keep_id, keep_id, keep_id))
+
+    db.execute("DELETE FROM dm_messages WHERE thread_id = ?", (drop_id,))
+    db.execute("DELETE FROM dm_threads WHERE thread_id = ?", (drop_id,))
+    db.commit()
+    return {"merged": moved, "dropped": drop_id, "kept": keep_id}

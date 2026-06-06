@@ -1195,6 +1195,15 @@ def create_app(config_path: str | Path) -> FastAPI:
             await hc.post(_server + f"/dm/threads/{thread_id}/seen",
                           headers=_headers(config.own_server), timeout=5)
 
+    @api.post("/dm/threads/{keep_id}/merge/{drop_id}")
+    async def api_dm_merge(keep_id: str, drop_id: str):
+        async with httpx.AsyncClient() as hc:
+            r = await hc.post(_server + f"/dm/threads/{keep_id}/merge/{drop_id}",
+                              headers=_headers(config.own_server), timeout=15)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
     app.include_router(api)
 
     # ── contact photo cache (public — no client auth, contact URLs only) ──────
