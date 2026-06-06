@@ -79,9 +79,16 @@ let _pendingKeyLookups = new Set();
 })();
 
 // ── emoji hover preview ────────────────────────────────────────────────────
+let _hideEmojiPreview = () => {};  // overwritten by IIFE below
 (function() {
   let _session = 0;   // incremented on each hide; retries check this to self-cancel
   let _activeBtn = null;
+  _hideEmojiPreview = () => {
+    _session++;
+    _activeBtn = null;
+    const el = document.getElementById('emoji-preview');
+    if (el) el.hidden = true;
+  };
   const _REACT = ['reaction-btn', 'reaction-btn-active'];
   const _ALL   = [..._REACT, 'emoji-pick-btn'];
   document.addEventListener('mouseover', e => {
@@ -1391,6 +1398,7 @@ async function toggleReaction(postId, serverUrl, emoji, commentId, _btn) {
     tmp.innerHTML = reactionBarHtml(data.reactions, postId, serverUrl, cid);
     bar.replaceWith(tmp.firstChild);
   });
+  _hideEmojiPreview();
 }
 
 // ── visibility / access icons ──────────────────────────────────────────────
