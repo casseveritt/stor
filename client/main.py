@@ -108,7 +108,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def _warm_caches():
         asyncio.create_task(_refresh_contact_photos())
         asyncio.create_task(_startup_consistency_check())
-        asyncio.create_task(_dm_sse_poller())
+        asyncio.create_task(_dm_sse_subscriber())
 
     async def _startup_consistency_check():
         """Run all startup consistency checks. Add new checks here as needed."""
@@ -154,21 +154,39 @@ def create_app(config_path: str | Path) -> FastAPI:
             config.save(config_path)
         asyncio.create_task(_backfill_contact_pubkeys())
 
-    async def _dm_sse_poller():
-        """When SSE connections are open, poll server for DM updates and push to queues."""
+    async def _dm_sse_subscriber():
+        """Subscribe to server's /dm/events SSE and forward updates to browser SSE."""
+        backoff = 1.0
         while True:
-            await asyncio.sleep(1.0)
-            if not _sse_queues:
-                continue
+            connected = False
             try:
+                timeout = httpx.Timeout(connect=5.0, read=None, write=5.0, pool=5.0)
                 async with httpx.AsyncClient() as hc:
-                    r = await hc.get(_server + "/dm/updates",
-                                     headers=_internal_headers(), timeout=3)
-                if r.is_success:
-                    for upd in r.json().get("updates", []):
-                        _push_to_sse(upd)
+                    async with hc.stream("GET", _server + "/dm/events",
+                                         headers=_internal_headers(),
+                                         timeout=timeout) as r:
+                        if r.status_code == 200:
+                            connected = True
+                            backoff = 1.0
+                            buf = ""
+                            async for chunk in r.aiter_text():
+                                buf += chunk
+                                while "\n\n" in buf:
+                                    block, buf = buf.split("\n\n", 1)
+                                    for line in block.splitlines():
+                                        if line.startswith("data:"):
+                                            try:
+                                                event = json.loads(line[5:].strip())
+                                                _push_to_sse(event)
+                                            except Exception:
+                                                pass
             except Exception:
                 pass
+            if connected:
+                await asyncio.sleep(0.5)
+            else:
+                await asyncio.sleep(backoff)
+                backoff = min(backoff * 2, 60.0)
 
     async def _backfill_contact_pubkeys():
         """Fetch public key from /node for any contact that's missing one, then sync to server."""

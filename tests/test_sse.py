@@ -6,7 +6,9 @@ for infinite SSE streams.  The `live_server` fixture spins up a real uvicorn
 instance in a background thread for those tests.  Non-streaming tests use the
 normal TestClient.
 """
+import asyncio
 import json
+import os
 import socket
 import threading
 import time
@@ -238,3 +240,127 @@ class TestFallbackQueue:
         assert r.status_code == 200
         types = [u.get("type") for u in r.json()["updates"]]
         assert "dm" in types
+
+
+# ── server-side SSE (me→them direction) ──────────────────────────────────────
+
+@pytest.fixture
+def server_live(tmp_path):
+    """Spin up a real server (server/main.py) with internal_token configured."""
+    import uvicorn
+    from tests.conftest import _make_store, TEST_PASSPHRASE
+
+    store = _make_store(tmp_path)
+    cfg_path = store / "node_config.json"
+    cfg_data = json.loads(cfg_path.read_text())
+    internal_tok = "test-server-internal-token"
+    cfg_data["internal_token"] = internal_tok
+    cfg_path.write_text(json.dumps(cfg_data))
+
+    # Capture the server's event loop so tests can inject events thread-safely.
+    _loop_holder: list[asyncio.AbstractEventLoop] = [None]
+
+    old_pp = os.environ.get("CONTACC_PASSPHRASE_UNSECURE")
+    os.environ["CONTACC_PASSPHRASE_UNSECURE"] = TEST_PASSPHRASE
+    try:
+        from server.main import create_app
+        app = create_app(cfg_path)
+    finally:
+        if old_pp is None:
+            os.environ.pop("CONTACC_PASSPHRASE_UNSECURE", None)
+        else:
+            os.environ["CONTACC_PASSPHRASE_UNSECURE"] = old_pp
+
+    @app.on_event("startup")
+    async def _grab_loop():
+        _loop_holder[0] = asyncio.get_event_loop()
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error")
+    server = uvicorn.Server(config)
+    server.install_signal_handlers = lambda: None
+
+    t = threading.Thread(target=server.run, daemon=True)
+    t.start()
+
+    base = f"http://127.0.0.1:{port}"
+    for _ in range(50):
+        try:
+            httpx.get(f"{base}/health", timeout=0.5)
+            break
+        except Exception:
+            time.sleep(0.1)
+
+    yield base, internal_tok, _loop_holder
+
+    server.should_exit = True
+    t.join(timeout=3.0)
+
+
+def _open_server_sse(base_url, headers, collected, ready, stop_after=1, timeout=5.0):
+    """Open server's /dm/events SSE in a background thread."""
+    def _run():
+        try:
+            with httpx.stream("GET", f"{base_url}/dm/events",
+                              headers=headers, timeout=timeout) as r:
+                buf = ""
+                for chunk in r.iter_text():
+                    buf += chunk
+                    while "\n\n" in buf:
+                        block, buf = buf.split("\n\n", 1)
+                        for line in block.splitlines():
+                            if line.startswith("data:"):
+                                try:
+                                    collected.append(json.loads(line[5:].strip()))
+                                except Exception:
+                                    pass
+                        if len(collected) >= stop_after:
+                            ready.set()
+                            return
+        except Exception:
+            pass
+        ready.set()
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return t
+
+
+class TestServerSSE:
+    def test_dm_events_requires_auth(self, server_live):
+        # Server middleware returns 403 when internal_token is configured but not provided
+        base, _, _ = server_live
+        r = httpx.get(f"{base}/dm/events", timeout=2.0)
+        assert r.status_code == 403
+
+    def test_dm_events_wrong_token_403(self, server_live):
+        base, _, _ = server_live
+        r = httpx.get(f"{base}/dm/events",
+                      headers={"x-contacc-internal": "wrong"}, timeout=2.0)
+        assert r.status_code == 403
+
+    def test_dm_events_delivers_update(self, server_live):
+        import server.dm as _dm
+        base, tok, loop_holder = server_live
+        headers = {"x-contacc-internal": tok}
+        events, ready = [], threading.Event()
+
+        t = _open_server_sse(base, headers, events, ready, stop_after=1)
+        time.sleep(0.3)  # wait for SSE connection to register
+
+        loop = loop_holder[0]
+        assert loop is not None, "Server loop not captured"
+        loop.call_soon_threadsafe(
+            _dm._push_dm_update, "new_message", {"thread_id": "svr-test-thread"}
+        )
+
+        ready.wait(timeout=3.0)
+        t.join(timeout=1.0)
+
+        assert len(events) >= 1
+        assert events[0]["type"] == "dm"
+        assert events[0]["thread_id"] == "svr-test-thread"

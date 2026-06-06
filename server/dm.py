@@ -4,12 +4,15 @@ Encryption: X25519 DH + HKDF derives a per-thread symmetric key. Both parties
 independently compute the same thread key from their DH key pair + peer's public key.
 Messages are encrypted with AES-256-GCM; the thread key is never stored.
 """
+import asyncio
 import base64
+import json
 import time
 import uuid
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .auth import InternalOrOwnerDep, FederatedOrTokenDep
@@ -22,11 +25,20 @@ router = APIRouter()
 _incoming_dm_updates: list[dict] = []
 _DM_UPDATES_MAX = 200
 
+# SSE queues — one per connected client process; events pushed here in real time.
+_dm_sse_queues: list[asyncio.Queue] = []
+
 
 def _push_dm_update(event: str, data: dict) -> None:
-    _incoming_dm_updates.append({"type": "dm", "event": event, **data})
+    update = {"type": "dm", "event": event, **data}
+    _incoming_dm_updates.append(update)
     if len(_incoming_dm_updates) > _DM_UPDATES_MAX:
         del _incoming_dm_updates[:100]
+    for q in list(_dm_sse_queues):
+        try:
+            q.put_nowait(update)
+        except asyncio.QueueFull:
+            pass
 
 
 def drain_dm_updates() -> list[dict]:
@@ -183,6 +195,32 @@ def list_threads(request: Request, _: InternalOrOwnerDep):
 @router.get("/dm/updates")
 def get_dm_updates(_: InternalOrOwnerDep):
     return {"updates": drain_dm_updates()}
+
+
+@router.get("/dm/events")
+async def dm_events(_: InternalOrOwnerDep):
+    """SSE stream — client process subscribes to receive DM updates with zero polling latency."""
+    queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+    _dm_sse_queues.append(queue)
+
+    async def _generate():
+        try:
+            while True:
+                try:
+                    event = await asyncio.wait_for(queue.get(), timeout=20.0)
+                    yield f"data: {json.dumps(event)}\n\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\n\n"
+        except asyncio.CancelledError:
+            pass
+        finally:
+            try:
+                _dm_sse_queues.remove(queue)
+            except ValueError:
+                pass
+
+    return StreamingResponse(_generate(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 class GetMessagesParams(BaseModel):
