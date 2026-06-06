@@ -148,7 +148,7 @@
   .comment { padding: 0.5rem 0; border-bottom: 1px solid var(--surface-0); }
   .comment:last-of-type { border-bottom: none; }
   .comment-author { font-size: 0.73rem; color: var(--text-5); margin-bottom: 0.2rem; display: flex; align-items: center; justify-content: space-between; }
-  .comment-body { font-size: 0.88rem; color: var(--text-2); white-space: pre-wrap; word-break: break-word; }
+  .comment-body { font-size: 0.88rem; color: var(--text-2); word-break: break-word; }
   .comment-replies { margin-left: 1rem; padding-left: 0.75rem; border-left: 2px solid var(--surface-3); }
   .comment-form { margin-top: 0.75rem; display: flex; align-items: flex-start; gap: 0.5rem; }
   .comment-form textarea { background: var(--surface-3); color: var(--text-1); border: 1px solid var(--border); border-radius: 4px; padding: 0.3rem 0.5rem; font-size: 0.88rem; resize: none; height: 30px; outline: none; font-family: inherit; flex: 1; line-height: 1.4; overflow: hidden; }
