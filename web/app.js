@@ -1133,7 +1133,7 @@ function showReactorsPanel(btn) {
 }
 
 document.addEventListener('pointerdown', e => {
-  const btn = e.target.closest('.reaction-add');
+  const btn = e.target.closest('.reaction-add, .reaction-btn, .reaction-btn-active');
   if (!btn) return;
   _longPressActivated = false;
   _longPressTimer = setTimeout(() => {
@@ -1204,7 +1204,7 @@ function reactionBarHtml(reactions, postId, serverUrl, commentId) {
   const btns = (reactions || []).map(r => {
     const cls = r.reacted ? 'reaction-btn reacted' : 'reaction-btn';
     const reactorsJson = esc(JSON.stringify(r.reactors || []));
-    return `<button class="${cls}" data-reactors="${reactorsJson}" data-server="${esc(serverUrl)}" onmouseenter="_showReactorTooltip(event,this)" onmouseleave="_hideReactorTooltip()" onclick="event.stopPropagation();toggleReaction('${esc(postId)}','${esc(serverUrl)}','${r.emoji}','${esc(cid)}',this)">${r.emoji} <span>${r.count}</span></button>`;
+    return `<button class="${cls}" data-reactors="${reactorsJson}" data-server="${esc(serverUrl)}" onmouseenter="_showReactorTooltip(event,this)" onmouseleave="_hideReactorTooltip()" onclick="if(_longPressActivated){_longPressActivated=false;}else{event.stopPropagation();toggleReaction('${esc(postId)}','${esc(serverUrl)}','${r.emoji}','${esc(cid)}',this)}">${r.emoji} <span>${r.count}</span></button>`;
   }).join('');
   const add = `<button class="reaction-add" onclick="if(_longPressActivated){_longPressActivated=false;}else{event.stopPropagation();showEmojiPicker(event,'${esc(postId)}','${esc(serverUrl)}','${esc(cid)}')}" title="Add reaction • hold to see all reactions">+</button>`;
   return `<div class="reaction-bar" data-post-id="${esc(postId)}" data-server="${esc(serverUrl)}" data-comment-id="${esc(cid)}">${btns}${add}</div>`;
@@ -2348,9 +2348,16 @@ async function loadMentions() {
   if (!_dmPollTimer) { _dmPollTimer = setInterval(_loadDmThreads, 30_000); _loadDmThreads(); }
 }
 
+function _panelTop(btnId) {
+  const btn = document.getElementById(btnId);
+  if (!btn) return '60px';
+  return (btn.getBoundingClientRect().bottom + 6) + 'px';
+}
+
 function _toggleMentionsPanel() {
   const panel = document.getElementById("mentions-panel");
   if (panel.hidden) {
+    panel.style.top = _panelTop("mentions-btn");
     _renderMentionsList();
     panel.hidden = false;
     setTimeout(() => document.addEventListener("click", _closeMentionsPanelOutside, {once: true}), 0);
@@ -2451,6 +2458,7 @@ function _toggleDmPanel() {
     if (_openPanels.size === 0) _stopDetailPoll();
     return;
   }
+  panel.style.top = _panelTop("dm-btn");
   _startDetailPoll();  // ensure 2s subscribed-updates poll runs while panel is open
   _dmBackToThreads();
   _loadDmThreads();  // fresh fetch when panel opens
@@ -2605,6 +2613,7 @@ async function _dmStartNew(peerUrl) {
   // Open the DM panel; find existing thread for this contact or prepare a new one
   const panel = document.getElementById("dm-panel");
   document.getElementById("mentions-panel").hidden = true;
+  panel.style.top = _panelTop("dm-btn");
   panel.hidden = false;
   setTimeout(() => document.addEventListener('click', _closeDmPanelOutside, {once: true}), 0);
   if (!_dmPollTimer) _dmPollTimer = setInterval(_loadDmThreads, 30_000);
