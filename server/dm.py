@@ -241,7 +241,9 @@ async def send_message(payload: SendBody, request: Request, _: InternalOrOwnerDe
     if not my_node_id:
         raise HTTPException(500, "Node ID not configured")
 
-    thread_id = make_thread_id(my_node_id, payload.peer_node_id)
+    # Reuse existing thread if one already exists for this peer (thread_id may differ after identity migration)
+    existing = db.execute("SELECT thread_id FROM dm_threads WHERE peer_node_id = ?", (payload.peer_node_id,)).fetchone()
+    thread_id = existing[0] if existing else make_thread_id(my_node_id, payload.peer_node_id)
 
     # Fetch peer's DH public key if we don't have it yet
     peer_dh_pub = _peer_dh_pub(db, thread_id)
