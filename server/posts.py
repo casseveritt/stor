@@ -207,6 +207,25 @@ def _post_dict(row, db, viewer: str = "") -> dict:
     }
 
 
+# ── standalone asset upload ───────────────────────────────────────────────────
+
+@router.post("/assets", status_code=201)
+async def upload_asset(request: Request, identity: OwnerDep, file: UploadFile = File(...)):
+    """Upload a file as a standalone asset and return its ID for use in post bodies."""
+    db = request.app.state.db
+    content = await file.read()
+    media_type = file.content_type or "application/octet-stream"
+    content_hash = _store_file(request, content)
+    asset_id = str(uuid.uuid4())
+    db.execute(
+        "INSERT INTO assets (id, content_hash, media_type, size, created_at, title, tags, predecessor, successor, deleted)"
+        " VALUES (?, ?, ?, ?, ?, ?, '[]', NULL, NULL, 0)",
+        (asset_id, content_hash, media_type, len(content), now_ns(), file.filename or None),
+    )
+    db.commit()
+    return {"id": asset_id, "media_type": media_type, "size": len(content), "title": file.filename}
+
+
 # ── create post ───────────────────────────────────────────────────────────────
 
 @router.post("/posts", status_code=201)

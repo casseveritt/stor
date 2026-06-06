@@ -256,30 +256,27 @@
   <div class="modal" id="compose-modal">
     <button class="modal-close" onclick="closeCompose()">&#x2715;</button>
     <h3>New post</h3>
-    <div style="display:flex;gap:0;border-bottom:1px solid #2a2a2a;margin-bottom:0.5rem">
+    <div style="display:flex;gap:0;border-bottom:1px solid #2a2a2a;margin-bottom:0.5rem;align-items:center">
       <button id="compose-tab-write" onclick="composeShowTab('write')"
         style="background:none;border:none;border-bottom:2px solid #4285f4;color:#e0e0e0;padding:0.3rem 0.75rem;cursor:pointer;font-size:0.85rem">Write</button>
       <button id="compose-tab-preview" onclick="composeShowTab('preview')"
         style="background:none;border:none;border-bottom:2px solid transparent;color:#888;padding:0.3rem 0.75rem;cursor:pointer;font-size:0.85rem">Preview</button>
+      <span style="flex:1"></span>
+      <button onclick="document.getElementById('file-picker').click()" title="Attach file"
+        style="background:none;border:none;color:#888;cursor:pointer;font-size:1.1rem;padding:0.2rem 0.5rem;line-height:1" onmouseover="this.style.color='#ccc'" onmouseout="this.style.color='#888'">📎</button>
     </div>
     <div id="compose-body-wrap">
       <div id="compose-highlight" aria-hidden="true"></div>
       <textarea id="compose-body" placeholder="What's on your mind? Markdown supported."
-                oninput="_mentionCtx=COMPOSE_CTX;onComposeInput()" onkeydown="_mentionCtx=COMPOSE_CTX;onComposeKeydown(event)"
+                oninput="_mentionCtx=COMPOSE_CTX;onComposeInput();_saveDraft()" onkeydown="_mentionCtx=COMPOSE_CTX;onComposeKeydown(event)"
                 onscroll="_updateHighlight()"
                 onblur="setTimeout(hideMentionDropdown,150)"></textarea>
       <div id="compose-mention-dropdown" class="mention-dropdown" hidden></div>
     </div>
     <div id="compose-preview-wrap" hidden
          style="min-height:6rem;max-height:16rem;overflow-y:auto;border:1px solid #333;border-radius:4px;padding:0.5rem 0.75rem;font-size:0.9rem;color:#e0e0e0;background:#141414;margin-bottom:0.5rem"></div>
-    <div class="drop-zone" id="drop-zone"
-         onclick="document.getElementById('file-picker').click()"
-         ondragover="dzOver(event)" ondragleave="dzOut(event)" ondrop="dzDrop(event)">
-      <div class="drop-zone-icon">&#x1F4CE;</div>
-      <div>Attach files — click or drag here</div>
-    </div>
-    <input type="file" id="file-picker" multiple hidden onchange="pickFiles(this.files);this.value=''">
-    <div class="file-list" id="file-list"></div>
+    <input type="file" id="file-picker" multiple hidden onchange="addFiles(this.files);this.value=''">
+    <div id="file-list"></div>
     <div class="compose-fields">
       <input type="text" id="compose-tags" placeholder="Tags — space-separated">
       <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;font-size:0.85rem;color:#aaa">

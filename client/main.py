@@ -863,6 +863,23 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     # ── assets ────────────────────────────────────────────────────────────
 
+    @api.post("/assets")
+    async def api_upload_asset(request: Request):
+        if not _token(config.own_server):
+            raise HTTPException(status_code=401, detail="Not authenticated")
+        body = await request.body()
+        content_type = request.headers.get("content-type", "")
+        async with httpx.AsyncClient() as hc:
+            r = await hc.post(
+                _server + "/assets",
+                content=body,
+                headers={**_headers(config.own_server), "content-type": content_type},
+                timeout=120.0,
+            )
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
     @api.get("/assets/{asset_id}/thumb")
     async def api_asset_thumb(asset_id: str, server: str = "", hash: str = ""):
         src = server or config.own_server

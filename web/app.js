@@ -13,7 +13,22 @@ let activeTags = new Set();
 let allPosts = [];
 let currentIdx = -1; // used by openEdit only
 let nextCursor = null, currentSearch = null, searchTimer = null;
-let pendingFiles = [];
+let pendingFiles = [];  // no longer used for upload — kept for compat
+let _uploadedAssets = []; // {id, title, media_type, markup}
+const DRAFT_KEY = 'contacc_compose_draft';
+
+function _saveDraft() {
+  const body = document.getElementById("compose-body")?.value || "";
+  if (!body.trim()) { localStorage.removeItem(DRAFT_KEY); return; }
+  localStorage.setItem(DRAFT_KEY, JSON.stringify({
+    body,
+    tags: document.getElementById("compose-tags")?.value || "",
+    visibility: document.getElementById("compose-visibility")?.value || "contacts",
+    comment_access: document.getElementById("compose-comment-access")?.value || "contacts",
+  }));
+}
+
+function _clearDraft() { localStorage.removeItem(DRAFT_KEY); }
 let IS_OWNER = false;
 let serverStatuses = {};
 let serverOnline = {};  // server_url → boolean, from server_status in feed response
@@ -2019,28 +2034,74 @@ function composeShowTab(tab) {
 function openCompose() {
   _mentionCtx = COMPOSE_CTX;
   pendingFiles = [];
-  document.getElementById("compose-body").value = "";
+  _uploadedAssets = [];
+  const draft = (() => { try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || 'null'); } catch { return null; } })();
+  document.getElementById("compose-body").value = draft?.body || "";
   _updateHighlight();
-  document.getElementById("compose-tags").value = "";
-  document.getElementById("compose-visibility").value = "contacts";
-  document.getElementById("compose-comment-access").value = "contacts";
-  document.getElementById("compose-progress").innerHTML = "";
+  document.getElementById("compose-tags").value = draft?.tags || "";
+  document.getElementById("compose-visibility").value = draft?.visibility || "contacts";
+  document.getElementById("compose-comment-access").value = draft?.comment_access || "contacts";
+  document.getElementById("compose-progress").innerHTML = draft?.body
+    ? '<div style="font-size:0.78rem;color:#888">Draft restored.</div>' : "";
   document.getElementById("compose-submit").disabled = false;
   document.getElementById("file-list").innerHTML = "";
   composeShowTab('write');
   document.getElementById("compose-overlay").hidden = false;
   document.getElementById("compose-body").focus();
 }
-function closeCompose() { hideMentionDropdown(); document.getElementById("compose-overlay").hidden = true; }
-function dzOver(e) { e.preventDefault(); document.getElementById("drop-zone").classList.add("over"); }
-function dzOut()   { document.getElementById("drop-zone").classList.remove("over"); }
-function dzDrop(e) { e.preventDefault(); dzOut(); addFiles(e.dataTransfer.files); }
-function pickFiles(files) { addFiles(files); }
-function addFiles(files) {
-  for (const f of files) pendingFiles.push(f);
-  document.getElementById("file-list").innerHTML = pendingFiles.map(f =>
-    '<div class="file-item"><span>' + esc(f.name) + '</span><span>' + fmtSize(f.size) + '</span></div>'
-  ).join("");
+function closeCompose() { hideMentionDropdown(); _saveDraft(); document.getElementById("compose-overlay").hidden = true; }
+function _renderFileList() {
+  document.getElementById("file-list").innerHTML = _uploadedAssets.map((a, i) => {
+    const statusHtml = a.uploading
+      ? '<span style="color:#888;font-size:0.78rem">uploading…</span>'
+      : a.error
+        ? '<span style="color:#e06c6c;font-size:0.78rem">✗ failed</span>'
+        : `<button onclick="_copyAssetMarkup(${i})" title="Copy markup"
+             style="background:none;border:1px solid #333;border-radius:3px;color:#aaa;cursor:pointer;font-size:0.75rem;padding:0.1rem 0.4rem">copy markup</button>`;
+    return `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.2rem 0;font-size:0.82rem;color:#ccc">
+      <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(a.title || a.id)}</span>
+      ${statusHtml}
+    </div>`;
+  }).join('');
+}
+
+function _copyAssetMarkup(i) {
+  navigator.clipboard.writeText(_uploadedAssets[i].markup).catch(() => {});
+}
+
+function _insertAtCursor(ta, text) {
+  const start = ta.selectionStart, end = ta.selectionEnd;
+  ta.value = ta.value.substring(0, start) + text + ta.value.substring(end);
+  ta.selectionStart = ta.selectionEnd = start + text.length;
+  ta.dispatchEvent(new Event('input'));
+}
+
+async function addFiles(files) {
+  const ta = document.getElementById("compose-body");
+  for (const f of files) {
+    const idx = _uploadedAssets.length;
+    _uploadedAssets.push({id: null, title: f.name, media_type: f.type, markup: '', uploading: true, error: false});
+    _renderFileList();
+    try {
+      const fd = new FormData();
+      fd.append("file", f);
+      const r = await apiFetch("/api/assets", {method: "POST", body: fd});
+      if (r.ok) {
+        const data = await r.json();
+        const markup = `[asset:${data.id}]`;
+        _uploadedAssets[idx] = {id: data.id, title: f.name, media_type: data.media_type, markup, uploading: false, error: false};
+        _insertAtCursor(ta, (ta.value && !ta.value.endsWith('\n') ? '\n' : '') + markup + '\n');
+        _saveDraft();
+      } else {
+        _uploadedAssets[idx].uploading = false;
+        _uploadedAssets[idx].error = true;
+      }
+    } catch {
+      _uploadedAssets[idx].uploading = false;
+      _uploadedAssets[idx].error = true;
+    }
+    _renderFileList();
+  }
 }
 
 // ── inline compose ─────────────────────────────────────────────────────────
@@ -2106,7 +2167,6 @@ async function submitPost() {
   fd.append("tags", JSON.stringify(tags));
   fd.append("visibility", document.getElementById("compose-visibility").value);
   fd.append("comment_access", document.getElementById("compose-comment-access").value);
-  for (const f of pendingFiles) fd.append("files", f);
 
   try {
     const r = await apiFetch("/api/posts", {method: "POST", body: fd});
@@ -2114,8 +2174,10 @@ async function submitPost() {
       const post = await r.json();
       prependPost(post);
       loadTagSidebar();
+      _clearDraft();
       prog.innerHTML = '<div class="progress-item progress-ok">&#x2713; Posted</div>';
       pendingFiles = [];
+      _uploadedAssets = [];
       document.getElementById("file-list").innerHTML = "";
       setTimeout(closeCompose, 900);
     } else {
