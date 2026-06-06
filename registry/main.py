@@ -1322,34 +1322,40 @@ blockquote p { color: #888; font-style: italic; }
         google_identity: str | None = None
 
     def _claim_url(server_url: str, claiming_node_id: str, claiming_pub_key: str) -> None:
-        """Enforce URL uniqueness. If another node holds this URL:
-        - Fetch /node at that URL to see who's actually there.
-        - Key matches claiming node → supersede the old entry (node was re-deployed).
-        - Key belongs to a different live node → reject with 409.
-        - Unreachable → allow (old node is presumed dead).
+        """Verify the claiming node is live at server_url and evict any stale entry.
+
+        Always fetches /node at the URL:
+        - Key matches claiming node → node is live there; evict any conflicting entry.
+        - Different key live at URL → reject 409 (URL genuinely in use by someone else).
+        - Unreachable → allow only if no active conflict exists (old node presumed dead).
         """
         conflict = con.execute(
             "SELECT node_id FROM handles WHERE server_url = ? AND node_id != ? AND superseded_at IS NULL",
             (server_url, claiming_node_id)
         ).fetchone()
-        if not conflict:
-            return
-        old_node_id = conflict[0]
+        old_node_id = conflict[0] if conflict else None
         try:
             r = httpx.get(server_url.rstrip("/") + "/node", timeout=5)
-            if r.is_success:
-                live_key = r.json().get("public_key", "")
-                if live_key == claiming_pub_key:
-                    # Same node at that URL under a new node_id — supersede old entry
+            if not r.is_success:
+                if old_node_id:
+                    raise HTTPException(409, "URL is in use and the node there is not responding correctly")
+                return
+            live_key = r.json().get("public_key", "")
+            if live_key == claiming_pub_key:
+                # Claiming node is live at this URL — evict any stale entry
+                if old_node_id:
                     con.execute("UPDATE handles SET superseded_at = ? WHERE node_id = ?",
                                 (time.time_ns(), old_node_id))
                     con.commit()
-                elif live_key:
-                    raise HTTPException(409, "URL is currently in use by a different active node")
+            elif live_key:
+                raise HTTPException(409, "URL is currently in use by a different active node")
+            # live_key empty: can't verify but no conflict, allow
         except HTTPException:
             raise
         except Exception:
-            pass  # unreachable — old node presumed dead, allow
+            if old_node_id:
+                raise HTTPException(409, "URL is in use and the node there is unreachable — cannot verify ownership")
+            # No conflict and unreachable: allow (node may be starting up)
 
     @app.post("/register/{username}", status_code=201)
     def register(username: str, body: RegisterBody):
