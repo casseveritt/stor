@@ -188,12 +188,6 @@
         </div>
       </span>
       <button class="btn btn-muted btn-sm" onclick="logout()">Sign out</button>
-      <span id="dev-menu-wrap" style="position:relative;display:none">
-        <button class="btn btn-sm" style="background:#2a1a00;color:#f90;border:1px solid #a60" onclick="_toggleDevMenu()">Dev ▾</button>
-        <div id="dev-menu-popup" hidden style="position:absolute;right:0;top:calc(100% + 4px);background:#1e1e1e;border:1px solid #555;border-radius:6px;z-index:300;min-width:180px;box-shadow:0 4px 12px rgba(0,0,0,0.6);overflow:hidden">
-          <button onclick="_toggleDevMenu();runDbCheck()" style="display:block;width:100%;background:none;border:none;color:#ddd;text-align:left;padding:0.5rem 1rem;font-size:0.85rem;cursor:pointer" onmouseover="this.style.background='#333'" onmouseout="this.style.background='none'">DB consistency check</button>
-        </div>
-      </span>
     </div>
   </header>
   <div id="body-wrap">
@@ -499,18 +493,6 @@
   </div>
 </div>
 
-<!-- ── dev: db check modal ────────────────────────────────────────────────── -->
-<div id="db-check-overlay" class="overlay" hidden onclick="maybeClose('db-check-overlay',event)">
-  <div class="modal" style="min-width:min(90vw,640px);max-height:80vh;display:flex;flex-direction:column">
-    <button class="modal-close" onclick="document.getElementById('db-check-overlay').hidden=true">&#x2715;</button>
-    <h3>DB Consistency Check</h3>
-    <div id="db-check-body" style="flex:1;overflow-y:auto;margin-top:0.75rem;font-size:0.88rem"></div>
-    <div style="display:flex;gap:0.75rem;justify-content:flex-end;margin-top:1rem;flex-shrink:0">
-      <button class="btn btn-muted btn-sm" onclick="document.getElementById('db-check-overlay').hidden=true">Close</button>
-      <button class="btn btn-primary btn-sm" id="db-fix-btn" hidden onclick="runDbFix()">Fix selected</button>
-    </div>
-  </div>
-</div>
 
 <div id="default-passphrase-overlay" class="overlay" hidden onclick="maybeClose('default-passphrase-overlay',event)">
   <div class="modal" style="max-width:420px">
@@ -532,6 +514,6 @@
 
 <div id="comment-mention-dropdown" class="mention-dropdown" hidden style="position:fixed"></div>
 
-  <script src="/app.js?v=c06280c"></script>
+  <script src="/app.js?v=baa8fbd"></script>
 </body>
 </html>

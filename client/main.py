@@ -474,7 +474,6 @@ def create_app(config_path: str | Path) -> FastAPI:
             "own_server": config.own_server,
             "own_display_name": own_display_name,
             "own_handle": own_handle,
-            "dev": bool(os.environ.get("CONTACC_DEV")),
             "identity_proxy_url": os.environ.get("CONTACC_IDENTITY_PROXY_URL", ""),
             "servers": servers_list,
             "contacts": [{"name": c.name, "url": c.url, "handle": c.handle, "public_key": c.public_key,
@@ -1085,27 +1084,7 @@ def create_app(config_path: str | Path) -> FastAPI:
             raise HTTPException(status_code=r.status_code, detail=r.text)
         return r.json()
 
-    @api.get("/dev/db-check")
-    async def api_dev_db_check():
-        async with httpx.AsyncClient() as hc:
-            r = await hc.get(_server + "/debug/db-check",
-                             headers=_internal_headers(), timeout=30)
-        if not r.is_success:
-            raise HTTPException(status_code=r.status_code, detail=r.text)
-        return r.json()
-
-    @api.post("/dev/db-fix")
-    async def api_dev_db_fix(request: Request):
-        body = await request.json()
-        async with httpx.AsyncClient() as hc:
-            r = await hc.post(_server + "/debug/db-fix",
-                              json=body, headers={**_internal_headers(), "Content-Type": "application/json"},
-                              timeout=30)
-        if not r.is_success:
-            raise HTTPException(status_code=r.status_code, detail=r.text)
-        return r.json()
-
-    @api.get("/backup")
+@api.get("/backup")
     async def api_backup():
         if not _token(config.own_server):
             raise HTTPException(status_code=401, detail="Not authenticated")

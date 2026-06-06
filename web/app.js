@@ -299,7 +299,6 @@ async function loadIdentity() {
   IS_OWNER = d.role === "owner";
   document.getElementById("compose-btn").hidden = true; // replaced by inline compose
   document.getElementById("inline-compose").hidden = !IS_OWNER;
-  document.getElementById("dev-menu-wrap").style.display = (CFG?.dev && IS_OWNER) ? '' : 'none';
   const identity = d.identity || "";
   const nodeR = await fetch("/node");
   const nodeD = nodeR.ok ? await nodeR.json() : {};
@@ -3098,85 +3097,3 @@ async function doUnlock() {
   } catch { err.textContent = "Network error."; }
 }
 
-// ── dev menu ───────────────────────────────────────────────────────────────
-function _toggleDevMenu() {
-  const popup = document.getElementById('dev-menu-popup');
-  popup.hidden = !popup.hidden;
-  if (!popup.hidden) {
-    const dismiss = e => {
-      if (!popup.contains(e.target)) {
-        popup.hidden = true;
-        document.removeEventListener('click', dismiss, true);
-      }
-    };
-    setTimeout(() => document.addEventListener('click', dismiss, true), 0);
-  }
-}
-
-let _dbCheckIssues = [];
-
-async function runDbCheck() {
-  const overlay = document.getElementById('db-check-overlay');
-  const body = document.getElementById('db-check-body');
-  const fixBtn = document.getElementById('db-fix-btn');
-  body.innerHTML = '<em style="color:#888">Running checks…</em>';
-  fixBtn.hidden = true;
-  overlay.hidden = false;
-  try {
-    const r = await apiFetch('/api/dev/db-check');
-    const d = await r.json();
-    _dbCheckIssues = d.issues || [];
-    _renderDbCheckResults(_dbCheckIssues);
-  } catch(e) {
-    body.innerHTML = `<span style="color:#e06c6c">Error: ${esc(String(e))}</span>`;
-  }
-}
-
-function _renderDbCheckResults(issues) {
-  const body = document.getElementById('db-check-body');
-  const fixBtn = document.getElementById('db-fix-btn');
-  if (!issues.length) {
-    body.innerHTML = '<span style="color:#4caf50">✓ No issues found.</span>';
-    fixBtn.hidden = true;
-    return;
-  }
-  const fixable = issues.filter(i => i.fix);
-  fixBtn.hidden = fixable.length === 0;
-  body.innerHTML = issues.map(issue => `
-    <div style="margin-bottom:1rem;padding:0.6rem 0.75rem;background:#1a1a1a;border:1px solid #333;border-radius:6px">
-      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.4rem">
-        ${issue.fix ? `<input type="checkbox" class="db-fix-check" data-id="${esc(issue.id)}" checked style="accent-color:#4285f4">` : '<span style="color:#888;font-size:0.8rem">ℹ</span>'}
-        <strong style="color:${issue.fix ? '#e0a060' : '#aaa'}">${esc(issue.title)}</strong>
-        <span style="color:#555;font-size:0.8rem">(${issue.items.length})</span>
-        ${issue.fix ? '' : '<span style="color:#555;font-size:0.75rem;margin-left:auto">manual fix required</span>'}
-      </div>
-      <ul style="margin:0 0 0 1.2rem;padding:0;color:#888;font-size:0.8rem;font-family:monospace">
-        ${issue.items.slice(0, 10).map(i => `<li>${esc(i)}</li>`).join('')}
-        ${issue.items.length > 10 ? `<li style="color:#555">…and ${issue.items.length - 10} more</li>` : ''}
-      </ul>
-    </div>
-  `).join('');
-}
-
-async function runDbFix() {
-  const checked = [...document.querySelectorAll('.db-fix-check:checked')].map(el => el.dataset.id);
-  if (!checked.length) return;
-  const fixBtn = document.getElementById('db-fix-btn');
-  fixBtn.disabled = true;
-  fixBtn.textContent = 'Fixing…';
-  try {
-    const r = await apiFetch('/api/dev/db-fix', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({fix_ids: checked}),
-    });
-    const d = await r.json();
-    _dbCheckIssues = d.issues || [];
-    _renderDbCheckResults(_dbCheckIssues);
-  } catch(e) {
-    document.getElementById('db-check-body').innerHTML = `<span style="color:#e06c6c">Fix error: ${esc(String(e))}</span>`;
-  } finally {
-    fixBtn.disabled = false;
-    fixBtn.textContent = 'Fix selected';
-  }
-}
