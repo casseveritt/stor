@@ -2560,7 +2560,7 @@ async function _jumpToMention(postId, serverUrl) {
     ? "?server=" + encodeURIComponent(serverUrl) : "";
   const r = await apiFetch("/api/posts/" + postId + params);
   if (!r.ok) {
-    if (serverUrl) window.open(serverUrl, "_blank");
+    alert("Post not accessible.");
     return;
   }
   const post = await r.json();
