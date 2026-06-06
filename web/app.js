@@ -2458,15 +2458,27 @@ function _renderDmThreads() {
   }
   list.innerHTML = _dmThreads.map(t => {
     const name = esc(t.peer_name || t.peer_node_id || '');
+    const initial = esc((t.peer_name || t.peer_node_id || '?')[0].toUpperCase());
     const unread = t.unread_count || 0;
-    const contactIcon = t.is_contact ? '<span title="Contact" style="font-size:0.75rem;color:#888">👤</span>' : '';
+    const photoUrl = t.peer_url ? '/api/contacts/photo?url=' + encodeURIComponent(t.peer_url) : '';
+    const avatarHtml = photoUrl
+      ? `<img src="${photoUrl}" class="post-author-avatar" style="width:28px;height:28px" alt=""
+           onerror="this.hidden=true;this.nextElementSibling.hidden=false">
+         <span class="post-author-initials" style="width:28px;height:28px;font-size:0.7rem" hidden>${initial}</span>`
+      : `<span class="post-author-initials" style="width:28px;height:28px;font-size:0.7rem">${initial}</span>`;
+    const contactBadge = t.is_contact
+      ? `<span style="font-size:0.65rem;color:#555;border:1px solid #2a2a2a;border-radius:3px;padding:0.05rem 0.3rem;white-space:nowrap">contact</span>`
+      : '';
+    const unreadBadge = unread
+      ? `<span style="background:#4285f4;color:#fff;border-radius:10px;padding:0.1rem 0.4rem;font-size:0.7rem;font-weight:600">${unread}</span>`
+      : '';
     return `<div data-tid="${esc(t.thread_id)}" data-pname="${esc(t.peer_name||t.peer_node_id||'')}"
       onclick="_dmOpenThread(this.dataset.tid,this.dataset.pname)"
-      style="padding:0.5rem 0.75rem;cursor:pointer;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid #1a1a1a"
+      style="padding:0.4rem 0.75rem;cursor:pointer;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid #1a1a1a"
       onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
-      ${contactIcon}
+      ${avatarHtml}
       <span style="flex:1;font-size:0.88rem;color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</span>
-      ${unread ? `<span style="background:#4285f4;color:#fff;border-radius:10px;padding:0.1rem 0.4rem;font-size:0.7rem;font-weight:600">${unread}</span>` : ''}
+      ${contactBadge}${unreadBadge}
     </div>`;
   }).join('');
 }
