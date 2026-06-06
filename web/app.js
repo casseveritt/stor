@@ -2538,7 +2538,7 @@ function _renderDmMessages() {
   if (!list) return;
   list.innerHTML = _dmMessages.map(m => {
     const out = m.direction === 'out';
-    const time = m.created_at ? new Date(m.created_at / 1_000_000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '';
+    const time = m.created_at ? fmtDate(m.created_at) : '';
     const delivered = out ? (m.delivered_at ? '' : ' style="opacity:0.5"') : '';
     return `<div style="display:flex;flex-direction:column;align-items:${out?'flex-end':'flex-start'}"${delivered}>
       <div style="max-width:80%;background:${out?'#1a3360':'#252525'};border-radius:8px;padding:0.4rem 0.65rem;font-size:0.88rem;color:#e0e0e0;word-break:break-word">${esc(m.body)}</div>
