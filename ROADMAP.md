@@ -102,7 +102,7 @@ The DM feature is implemented (see Completed). Remaining:
 - Asset/photo attachments in DMs
 - Forward secrecy (Double Ratchet) — explicitly deferred, static thread key accepted for v1
 
-**2. Client API test suite**
+**6. Client API test suite**
 Comprehensive pytest suite for every `/api/` route the client exposes to the browser.
 
 **7. Plaintext metadata hardening**
