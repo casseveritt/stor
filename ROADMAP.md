@@ -12,10 +12,6 @@ The DM feature is implemented (see Completed). Remaining:
 **2. Client API test suite**
 Comprehensive pytest suite for every `/api/` route the client exposes to the browser.
 
-**6. Chat / direct messages**
-1:1 and small-group messaging. End-to-end encrypted, stored on sender's node, pushed or
-polled by recipient. Likely a separate `messages` table and UI panel.
-
 **7. Plaintext metadata hardening**
 Assess what post timestamps and asset filenames leak and whether it matters for the threat
 model.
@@ -35,7 +31,7 @@ model.
   and delivers it to the node's registered URL — the delivery address is the implicit location
   proof. Node derives its passphrase from S and unlocks without user interaction.
   Auto-registers when a node changes its passphrase for the first time.
-- **Tang retry**: attempts at 2s, 7s, 22s after startup; bails if already unlocked manually.
+- **Tang retry**: fast attempts at 2s, 7s, 22s; then slow retry every 60s for up to 30 minutes; bails if already unlocked manually.
 - **Default passphrase banner**: red banner prompts users still on "foobar" to set a real
   passphrase. Also updates registry escrow if escrow passphrase is also "foobar".
 - **Non-unique handles**: registry primary key is `node_id`; handles can repeat across owners.
@@ -47,8 +43,8 @@ model.
 - **API versioning (3)**: GET /node includes api_version + extensions; registry GET /meta returns same.
 - **Upload identity escrow from settings (4)**: profile panel "Upload identity escrow" section calls /setup/escrow-identity-key.
 - **Profile photo hover preview (4)**: 100×100 popup on hover over any .post-author-avatar; event delegation, viewport-clamped.
-- **Chat / direct messages (6)**: 1:1 E2E encrypted DMs. X25519 DH key pair generated at setup; thread key = HKDF(DH(my_priv, peer_pub), thread_id). AES-256-GCM per message. Push delivery to peer's /dm/receive with heartbeat retry. Thread list + conversation view in header panel. "Message" button in contact menu. DM events flow through subscribed-updates 2s poll. Static thread key (no ratchet) accepted for v1.
-- **Hybrid push/poll for live post updates**: subscribe to post on remote node; 2s cheap poll for pushed updates; 20s heavy poll replaced.
+- **Chat / direct messages (6)**: 1:1 E2E encrypted DMs. X25519 DH key pair generated at setup; thread key = HKDF(DH(my_priv, peer_pub), thread_id). AES-256-GCM per message. Push delivery to peer's /dm/receive with heartbeat retry. Thread list + conversation view in header panel. "Message" button in contact menu. Static thread key (no ratchet) accepted for v1.
+- **SSE real-time updates**: browser holds a persistent `EventSource` to client's `/api/events`; client holds a persistent SSE subscription to server's `/dm/events`. DM events arrive with zero polling latency. Post/comment/reaction updates pushed from server to client's `/notifications/post-update` and forwarded via SSE. Replaces all polling loops.
 - **Reaction emoji + emoji picker**: 1800+ emoji from CDN, search, recently used row.
 - **@mention notifications**: @ bell in header, dropdown, click-to-jump-to-post.
 

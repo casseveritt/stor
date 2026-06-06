@@ -2449,12 +2449,38 @@ let _dmActiveThread = null;
 let _dmMessages = [];
 let _dmPollTimer = null;
 
+function _dmToggleExpand() {
+  const panel = document.getElementById("dm-panel");
+  const expanded = panel.classList.toggle("dm-expanded");
+  document.querySelectorAll(".dm-expand-btn").forEach(b => {
+    b.textContent = expanded ? "⤡" : "⤢";
+    b.title = expanded ? "Collapse" : "Expand";
+  });
+  if (expanded) {
+    const hdr = document.querySelector("header");
+    const top = hdr ? Math.round(hdr.getBoundingClientRect().bottom) + 6 : 70;
+    panel.style.top = top + "px";
+  } else {
+    panel.style.top = _panelTop("dm-btn");
+  }
+}
+
+function _dmResetExpand() {
+  const panel = document.getElementById("dm-panel");
+  panel.classList.remove("dm-expanded");
+  document.querySelectorAll(".dm-expand-btn").forEach(b => {
+    b.textContent = "⤢";
+    b.title = "Expand";
+  });
+}
+
 function _toggleDmPanel() {
   const panel = document.getElementById("dm-panel");
   const wasHidden = panel.hidden;
   document.getElementById("mentions-panel").hidden = true;
   panel.hidden = !wasHidden;
   if (!wasHidden) {
+    _dmResetExpand();
     if (_openPanels.size === 0) _stopDetailPoll();
     return;
   }
@@ -2474,6 +2500,7 @@ function _closeDmPanelOutside(e) {
     return;
   }
   panel.hidden = true;
+  _dmResetExpand();
   if (_openPanels.size === 0) _stopDetailPoll();
 }
 

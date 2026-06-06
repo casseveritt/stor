@@ -1,5 +1,7 @@
 # Unification: Client as Node Identity and Auth Gateway
 
+> **Design intent, partially realized** — The client does hold the node key and can sign federated requests, but the server still manages auth tokens and some identity state. Treat this as an aspirational design document, not a description of current architecture.
+
 ## Goal
 
 The client becomes the node's sole identity and external interface. The server

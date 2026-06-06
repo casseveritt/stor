@@ -1,5 +1,7 @@
 # contacc Implementation Plan
 
+> **Archived** — The system is well past these phases. This document is historical context only; do not use it as a development guide. See ROADMAP.md for current state and pending work.
+
 ## Approach
 
 Build a walking skeleton first — the thinnest vertical slice that exercises every layer of the system — then grow outward from it. Each phase must be working and tested before the next begins. The reference implementation uses Python and FastAPI; this may change if a compelling reason arises.

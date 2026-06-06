@@ -1,6 +1,6 @@
 # contacc HTTP/REST Protocol Binding — Plan
 
-## Status: Stub
+## Status: Stub (unpopulated — the HTTP/REST API is implemented in FastAPI; see server/main.py, server/dm.py, client/main.py for the actual routes)
 
 This document will define the HTTP/REST expression of the abstract `contacc` federation protocol. See [`spec.md`](spec.md) for the protocol-agnostic specification that this binding must conform to.
 
