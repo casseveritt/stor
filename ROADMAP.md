@@ -2,6 +2,32 @@
 
 ## Pending
 
+**0. Signed registry records / peer-to-peer registry cache**
+
+The registry signs each node-lookup response with a timestamp so any node that holds the
+record can prove its authenticity to a third party. Other nodes can answer registry queries
+from their cache; a node should only go to the registry directly if no peer has a fresh
+enough record.
+
+Design sketch:
+- Registry `GET /nodes/{node_id}` response gains two new fields:
+  `queried_at` (Unix seconds, set by registry at query time) and
+  `registry_signature` (Ed25519 signature over a canonical serialisation of the record
+  including `queried_at`, signed by the registry's own node key, whose public key is
+  published at `GET /meta`).
+- Nodes cache signed records locally (keyed by `node_id`).
+- New inter-node endpoint `GET /registry-cache/{node_id}`: returns the node's cached signed
+  record for that `node_id`, or 404 if not held.
+- When a node needs a registry entry it:
+  1. Checks its own cache — if fresh (within a configurable TTL, e.g. 4 h) uses it.
+  2. Asks known contacts' `/registry-cache/{node_id}` — accepts the first valid, fresh,
+     correctly-signed response.
+  3. Falls back to querying the registry directly and caches the result.
+- Browser-side: `_lookupNodeFromRegistry` tries the existing proxy first, which now checks
+  the node's local cache before hitting the registry.
+- Staleness threshold: records older than TTL are considered stale and trigger a refresh;
+  records older than 2× TTL are rejected even from peers.
+
 **1. Chat / direct messages — remaining work**
 
 The DM feature is implemented (see Completed). Remaining:
