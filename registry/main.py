@@ -1321,6 +1321,36 @@ blockquote p { color: #888; font-style: italic; }
         delegation_cert: dict | None = None  # replaces user_id/identity_public_key/delegation_sig
         google_identity: str | None = None
 
+    def _claim_url(server_url: str, claiming_node_id: str, claiming_pub_key: str) -> None:
+        """Enforce URL uniqueness. If another node holds this URL:
+        - Fetch /node at that URL to see who's actually there.
+        - Key matches claiming node → supersede the old entry (node was re-deployed).
+        - Key belongs to a different live node → reject with 409.
+        - Unreachable → allow (old node is presumed dead).
+        """
+        conflict = con.execute(
+            "SELECT node_id FROM handles WHERE server_url = ? AND node_id != ? AND superseded_at IS NULL",
+            (server_url, claiming_node_id)
+        ).fetchone()
+        if not conflict:
+            return
+        old_node_id = conflict[0]
+        try:
+            r = httpx.get(server_url.rstrip("/") + "/node", timeout=5)
+            if r.is_success:
+                live_key = r.json().get("public_key", "")
+                if live_key == claiming_pub_key:
+                    # Same node at that URL under a new node_id — supersede old entry
+                    con.execute("UPDATE handles SET superseded_at = ? WHERE node_id = ?",
+                                (time.time_ns(), old_node_id))
+                    con.commit()
+                elif live_key:
+                    raise HTTPException(409, "URL is currently in use by a different active node")
+        except HTTPException:
+            raise
+        except Exception:
+            pass  # unreachable — old node presumed dead, allow
+
     @app.post("/register/{username}", status_code=201)
     def register(username: str, body: RegisterBody):
         username = username.lower()
@@ -1347,6 +1377,7 @@ blockquote p { color: #888; font-style: italic; }
             reg_node_id = username
         if con.execute("SELECT 1 FROM handles WHERE node_id = ?", (reg_node_id,)).fetchone():
             raise HTTPException(status_code=409, detail="Already registered — use update instead")
+        _claim_url(body.server_url, reg_node_id, body.public_key)
         now = time.time_ns()
         con.execute(
             "INSERT INTO handles "
@@ -1407,6 +1438,7 @@ blockquote p { color: #888; font-style: italic; }
                 raise HTTPException(400, "Invalid or expired delegation cert")
             upd_identity_public_key = cert.get("identity_public_key")
             upd_delegation_json = json.dumps(cert)
+        _claim_url(body.server_url, update_node_id, pub_key)
         con.execute(
             "UPDATE handles SET username=?, server_url=?, ttl=?, updated_at=?, display_name=?, web_url=?, "
             "identity_public_key=?, delegation_sig=?, google_identity=COALESCE(?, google_identity) "
