@@ -1084,7 +1084,7 @@ def create_app(config_path: str | Path) -> FastAPI:
             raise HTTPException(status_code=r.status_code, detail=r.text)
         return r.json()
 
-@api.get("/backup")
+    @api.get("/backup")
     async def api_backup():
         if not _token(config.own_server):
             raise HTTPException(status_code=401, detail="Not authenticated")
