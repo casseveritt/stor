@@ -45,7 +45,26 @@ Scope:
 - If `disptext` is empty or stale, fall back to resolving the node_id via
   `_resolveIdentity` at render time so the name is always current.
 
-**2. Chat / direct messages — remaining work**
+**2. Profile hover popup — message and add-contact actions**
+
+The profile hover popup (shown when hovering over an avatar) currently displays name,
+handle, and photo. Add two action buttons:
+
+- **✉ (envelope)** — opens the DM panel for that contact, or initiates a new thread if
+  none exists yet. Visible for all nodes (own and contacts).
+- **➕👤 (add-contact)** — adds the node as a contact. Only shown when the node is *not*
+  already a contact and is not the viewer's own node. Tapping it runs the same flow as
+  the "Add contact" dialog, pre-filled with the node's URL.
+
+Implementation notes:
+- The popup already has the node's `server_url` (from `post._server_url` or the author
+  element's `data-server`). That's sufficient to drive both actions.
+- The add-contact button should grey out / change to a checkmark after the contact is
+  successfully added, without closing the popup.
+- The message button should work even before a DM thread exists (the DM panel handles
+  first-message creation).
+
+**3. Chat / direct messages — remaining work**
 
 The DM feature is implemented (see Completed). Remaining:
 - Small-group messaging (3+ participants)
