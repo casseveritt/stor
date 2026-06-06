@@ -1305,12 +1305,28 @@ def create_app(config_path: str | Path) -> FastAPI:
         """Proxy GET /nodes/{node_id}: check local cache → peers → registry."""
         now = time.time()
 
-        # 1. Local cache
+        # 1a. In-memory cache (survives within a process lifetime)
         entry = _registry_cache.get(node_id)
         if entry:
             record, cached_at = entry
             if now - cached_at < _REGISTRY_TTL:
                 return record
+
+        # 1b. Persistent DB cache (survives restarts)
+        try:
+            import json as _json
+            db = app.state.db
+            db_row = db.execute(
+                "SELECT record FROM registry_cache WHERE node_id = ?", (node_id,)
+            ).fetchone()
+            if db_row:
+                db_rec = _json.loads(db_row[0])
+                qt = db_rec.get("queried_at", 0)
+                if now - qt < _REGISTRY_TTL:
+                    _registry_cache[node_id] = (db_rec, qt)  # warm the in-memory cache
+                    return db_rec
+        except Exception:
+            pass
 
         # 2. Peer contacts' caches (parallel, first valid response wins)
         async def _try_peer(url: str):
