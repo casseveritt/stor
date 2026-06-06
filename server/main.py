@@ -501,10 +501,9 @@ def create_app(config_path: str | Path) -> FastAPI:
         _tang_ids = list(dict.fromkeys(filter(None, [
             _cfg.node_id, _cfg.owner_id, _cfg.user_id
         ])))
-        for delay in (2, 5, 15):  # try at 2s, 7s, 22s after startup
-            await _aio.sleep(delay)
-            if app.state.initialized:
-                return
+
+        async def _attempt() -> bool:
+            """Try Tang exchange for each candidate ID. Returns True if unlock was initiated."""
             for tang_node_id in _tang_ids:
                 nonce = _sec.token_urlsafe(32)
                 app.state.tang_nonce = nonce
@@ -518,7 +517,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                             "callback_url": f"{node_address}/tang/deliver",
                         }, timeout=15)
                     if r.is_success:
-                        return  # unlock handled in /tang/deliver
+                        return True  # unlock handled in /tang/deliver
                     if r.status_code != 404:
                         log.warning("Tang exchange attempt failed (%s), will retry", r.status_code)
                         break  # non-404 errors don't benefit from trying other IDs
@@ -526,7 +525,27 @@ def create_app(config_path: str | Path) -> FastAPI:
                     log.warning("Tang auto-unlock error: %s", e)
                     break
                 app.state.tang_nonce = None
-        log.warning("Tang auto-unlock gave up after 3 attempts")
+            return False
+
+        # Fast retries: at 2s, 7s, 22s after startup
+        for delay in (2, 5, 15):
+            await _aio.sleep(delay)
+            if app.state.initialized:
+                return
+            if await _attempt():
+                return
+
+        # Slow retries: every 60s for up to 30 minutes
+        deadline = time.time() + 30 * 60
+        while time.time() < deadline:
+            await _aio.sleep(60)
+            if app.state.initialized:
+                return
+            log.info("Tang slow-retry unlock attempt")
+            if await _attempt():
+                return
+
+        log.warning("Tang auto-unlock gave up after 30 minutes")
 
     @app.middleware("http")
     async def init_guard(request: Request, call_next):
