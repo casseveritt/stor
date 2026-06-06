@@ -1331,7 +1331,7 @@ function makePostCard(post, idx) {
   if (bodyText) {
     const p = document.createElement("div");
     p.className = "post-body";
-    p.innerHTML = _renderMentions(bodyText);
+    p.innerHTML = renderBodyText(bodyText);
     div.appendChild(p);
   }
 
@@ -1408,9 +1408,42 @@ document.addEventListener("keydown", e => {
   if (!document.getElementById("contact-edit-overlay").hidden && e.key === "Escape") closeContactEdit();
 });
 
+// Configure marked once: GFM + line breaks
+marked.use({ gfm: true, breaks: true });
+
+function mdRender(text) {
+  return DOMPurify.sanitize(marked.parse(text), {
+    ALLOWED_TAGS: ['p','br','strong','em','del','code','pre','blockquote',
+                   'h1','h2','h3','h4','h5','h6','ul','ol','li','hr',
+                   'a','img','table','thead','tbody','tr','th','td',
+                   'span','div'],
+    ALLOWED_ATTR: ['href','src','alt','title','class','target',
+                   'data-mention-id','onmouseenter','onmouseleave'],
+    ALLOW_DATA_ATTR: false,
+  });
+}
+
+// Render a plain text body with markdown + mention substitution (no assets).
+function renderBodyText(text) {
+  // Protect [id|display] mention tokens from markdown by substituting placeholders.
+  const phMap = new Map();
+  let pi = 0;
+  const withPh = text.replace(/\[([^|\]]+)\|([^\]]+)\]/g, (_, id, disptext) => {
+    const ph = `CCPH${pi++}END`;
+    phMap.set(ph, `<span class="mention-tag" data-mention-id="${esc(id)}" onmouseenter="_showMentionPopup(event,this)" onmouseleave="_hideMentionPopup(event)">${esc(disptext)}</span>`);
+    return ph;
+  });
+  let html = mdRender(withPh);
+  for (const [ph, mentionHtml] of phMap) html = html.split(ph).join(mentionHtml);
+  return html;
+}
+
 function renderPostBody(post) {
   const assetMap = {};
   for (const a of (post.assets || [])) assetMap[a.id] = a;
+
+  // Split on asset tokens, render each text segment as markdown+mentions,
+  // interleave with asset HTML.
   const parts = (post.body || "").split(/(\[asset:[0-9a-f-]+\])/);
   let rendered = "";
   for (const part of parts) {
@@ -1428,7 +1461,9 @@ function renderPostBody(post) {
         const label = (a && a.title) ? a.title : aid.slice(0, 8) + "…";
         rendered += '<span class="asset-block"><a class="asset-file" href="' + url + '" download>' + mimeIcon(a && a.media_type) + ' ' + esc(label) + '</a></span>';
       }
-    } else { rendered += _renderMentions(part); }
+    } else {
+      rendered += renderBodyText(part);
+    }
   }
   return rendered;
 }
@@ -1742,7 +1777,7 @@ function _renderCommentsInto(post, comments, panel) {
       + (dateFmt ? `<span class="post-date" title="${esc(dateFull)}">${dateFmt}</span>` : '')
       + menuBtn + `</span>`
       + `</div>`
-      + '<div class="comment-body">' + _renderMentions(c.body || '') + '</div>'
+      + '<div class="comment-body">' + renderBodyText(c.body || '') + '</div>'
       + reactionBarHtml(c.reactions || [], post.id, post._server_url, c.id)
       + (replies.length ? '<div class="comment-replies">' + replies.map(r => renderOne(r, depth+1)).join("") + '</div>' : '')
       + '</div>';
@@ -1965,6 +2000,22 @@ function _updateHighlight() {
 }
 
 // ── compose ────────────────────────────────────────────────────────────────
+function composeShowTab(tab) {
+  const isPreview = tab === 'preview';
+  document.getElementById("compose-body-wrap").hidden = isPreview;
+  document.getElementById("compose-preview-wrap").hidden = !isPreview;
+  document.getElementById("compose-tab-write").style.cssText =
+    "background:none;border:none;border-bottom:2px solid " + (isPreview ? "transparent" : "#4285f4") + ";color:" + (isPreview ? "#888" : "#e0e0e0") + ";padding:0.3rem 0.75rem;cursor:pointer;font-size:0.85rem";
+  document.getElementById("compose-tab-preview").style.cssText =
+    "background:none;border:none;border-bottom:2px solid " + (isPreview ? "#4285f4" : "transparent") + ";color:" + (isPreview ? "#e0e0e0" : "#888") + ";padding:0.3rem 0.75rem;cursor:pointer;font-size:0.85rem";
+  if (isPreview) {
+    const body = document.getElementById("compose-body").value;
+    document.getElementById("compose-preview-wrap").innerHTML = renderBodyText(body) || '<em style="color:#555">Nothing to preview.</em>';
+  } else {
+    document.getElementById("compose-body").focus();
+  }
+}
+
 function openCompose() {
   _mentionCtx = COMPOSE_CTX;
   pendingFiles = [];
@@ -1976,6 +2027,7 @@ function openCompose() {
   document.getElementById("compose-progress").innerHTML = "";
   document.getElementById("compose-submit").disabled = false;
   document.getElementById("file-list").innerHTML = "";
+  composeShowTab('write');
   document.getElementById("compose-overlay").hidden = false;
   document.getElementById("compose-body").focus();
 }

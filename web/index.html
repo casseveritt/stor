@@ -256,14 +256,22 @@
   <div class="modal" id="compose-modal">
     <button class="modal-close" onclick="closeCompose()">&#x2715;</button>
     <h3>New post</h3>
+    <div style="display:flex;gap:0;border-bottom:1px solid #2a2a2a;margin-bottom:0.5rem">
+      <button id="compose-tab-write" onclick="composeShowTab('write')"
+        style="background:none;border:none;border-bottom:2px solid #4285f4;color:#e0e0e0;padding:0.3rem 0.75rem;cursor:pointer;font-size:0.85rem">Write</button>
+      <button id="compose-tab-preview" onclick="composeShowTab('preview')"
+        style="background:none;border:none;border-bottom:2px solid transparent;color:#888;padding:0.3rem 0.75rem;cursor:pointer;font-size:0.85rem">Preview</button>
+    </div>
     <div id="compose-body-wrap">
       <div id="compose-highlight" aria-hidden="true"></div>
-      <textarea id="compose-body" placeholder="What's on your mind?"
+      <textarea id="compose-body" placeholder="What's on your mind? Markdown supported."
                 oninput="_mentionCtx=COMPOSE_CTX;onComposeInput()" onkeydown="_mentionCtx=COMPOSE_CTX;onComposeKeydown(event)"
                 onscroll="_updateHighlight()"
                 onblur="setTimeout(hideMentionDropdown,150)"></textarea>
       <div id="compose-mention-dropdown" class="mention-dropdown" hidden></div>
     </div>
+    <div id="compose-preview-wrap" hidden
+         style="min-height:6rem;max-height:16rem;overflow-y:auto;border:1px solid #333;border-radius:4px;padding:0.5rem 0.75rem;font-size:0.9rem;color:#e0e0e0;background:#141414;margin-bottom:0.5rem"></div>
     <div class="drop-zone" id="drop-zone"
          onclick="document.getElementById('file-picker').click()"
          ondragover="dzOver(event)" ondragleave="dzOut(event)" ondrop="dzDrop(event)">
@@ -497,6 +505,8 @@
 
 <div id="comment-mention-dropdown" class="mention-dropdown" hidden style="position:fixed"></div>
 
+  <script src="/marked.min.js"></script>
+  <script src="/purify.min.js"></script>
   <script src="/app.js?v=196fa8a-dm-expand"></script>
 </body>
 </html>
