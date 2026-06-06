@@ -382,6 +382,10 @@ def init_schema(con: sqlcipher3.Connection) -> None:
     """)
     con.commit()
 
+    # Purge anonymous reactions — only attributed reactions are kept.
+    con.execute("DELETE FROM reactions WHERE reactor_identity IN ('<anon>', '__anon__')")
+    con.commit()
+
     # Migrate recipients.identity and comments.author_identity from server_url to node_id.
     # Only updates rows where a matching users entry has a node_id; leaves the rest unchanged.
     _recipients_migrated = con.execute("""

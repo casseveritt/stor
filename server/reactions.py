@@ -12,8 +12,8 @@ router = APIRouter()
 ALLOWED_EMOJI = None  # any emoji allowed
 
 
-def _reactor(identity, request: Request) -> str:
-    """Return a non-null reactor identity string: '' for owner, node_id for federated, '<anon>' otherwise."""
+def _reactor(identity, request: Request) -> str | None:
+    """Return reactor identity: '' for owner, node_id for federated, None if unidentifiable."""
     if identity.is_owner:
         return ""
     pub_key_header = request.headers.get("X-Public-Key", "")
@@ -22,7 +22,7 @@ def _reactor(identity, request: Request) -> str:
         row = db.execute("SELECT node_id FROM users WHERE public_key = ?", (pub_key_header,)).fetchone()
         if row and row[0]:
             return row[0]
-    return "<anon>"
+    return None
 
 
 def get_reactions(db, post_id: str, comment_id: str, viewer: str) -> list[dict]:
@@ -70,6 +70,8 @@ def toggle_reaction(post_id: str, payload: _ReactBody, request: Request, identit
             raise HTTPException(status_code=404, detail="Comment not found")
 
     reactor = _reactor(identity, request)
+    if reactor is None:
+        raise HTTPException(status_code=401, detail="Reactions require an authenticated identity")
     existing = db.execute(
         "SELECT id FROM reactions WHERE post_id = ? AND comment_id = ? AND emoji = ? AND reactor_identity = ?",
         (post_id, payload.comment_id, payload.emoji, reactor),
