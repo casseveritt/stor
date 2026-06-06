@@ -2025,7 +2025,12 @@ function composeShowTab(tab) {
     "background:none;border:none;border-bottom:2px solid " + (isPreview ? "#4285f4" : "transparent") + ";color:" + (isPreview ? "#e0e0e0" : "#888") + ";padding:0.3rem 0.75rem;cursor:pointer;font-size:0.85rem";
   if (isPreview) {
     const body = document.getElementById("compose-body").value;
-    document.getElementById("compose-preview-wrap").innerHTML = renderBodyText(body) || '<em style="color:#555">Nothing to preview.</em>';
+    const previewPost = {
+      body,
+      assets: _uploadedAssets.filter(a => a.id).map(a => ({id: a.id, media_type: a.media_type, title: a.title})),
+      _server_url: CFG?.own_server,
+    };
+    document.getElementById("compose-preview-wrap").innerHTML = renderPostBody(previewPost) || '<em style="color:#555">Nothing to preview.</em>';
   } else {
     document.getElementById("compose-body").focus();
   }
@@ -2047,9 +2052,16 @@ function openCompose() {
   document.getElementById("file-list").innerHTML = "";
   composeShowTab('write');
   document.getElementById("compose-overlay").hidden = false;
-  document.getElementById("compose-body").focus();
+  const ta = document.getElementById("compose-body");
+  ta.addEventListener('paste', _composePasteHandler);
+  ta.focus();
 }
-function closeCompose() { hideMentionDropdown(); _saveDraft(); document.getElementById("compose-overlay").hidden = true; }
+function closeCompose() {
+  hideMentionDropdown();
+  _saveDraft();
+  document.getElementById("compose-body").removeEventListener('paste', _composePasteHandler);
+  document.getElementById("compose-overlay").hidden = true;
+}
 function _renderFileList() {
   document.getElementById("file-list").innerHTML = _uploadedAssets.map((a, i) => {
     const statusHtml = a.uploading
@@ -2067,6 +2079,19 @@ function _renderFileList() {
 
 function _copyAssetMarkup(i) {
   navigator.clipboard.writeText(_uploadedAssets[i].markup).catch(() => {});
+}
+
+function _composePasteHandler(e) {
+  const items = e.clipboardData?.items;
+  if (!items) return;
+  for (const item of items) {
+    if (item.kind === 'file' && item.type.startsWith('image/')) {
+      e.preventDefault();
+      const file = item.getAsFile();
+      if (file) addFiles([file]);
+      return;
+    }
+  }
 }
 
 function _insertAtCursor(ta, text) {
