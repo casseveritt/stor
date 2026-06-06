@@ -63,6 +63,7 @@ Implementation notes:
   successfully added, without closing the popup.
 - The message button should work even before a DM thread exists (the DM panel handles
   first-message creation).
+- Also change the existing "+Add" button in the contacts panel header to "+👤" to match.
 
 **3. Mark mention as read on selection**
 
