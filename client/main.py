@@ -807,6 +807,21 @@ def create_app(config_path: str | Path) -> FastAPI:
         asyncio.create_task(_background_fetch_one(config.own_server, own_poll_id))
         return post
 
+    @api.get("/posts/{post_id}")
+    async def api_get_post(post_id: str, server: str = ""):
+        src = server or config.own_server
+        is_own = src == config.own_server
+        fetch_url = _call_url(src) if is_own else src
+        hdrs = {**_headers(src), **await _sign_federated("GET", f"/posts/{post_id}", b"")}
+        async with httpx.AsyncClient() as hc:
+            r = await hc.get(fetch_url + f"/posts/{post_id}", headers=hdrs, timeout=10.0)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        post = r.json()
+        post["_server_url"] = src
+        post["_server_name"] = _server_name(src)
+        return post
+
     @api.patch("/posts/{post_id}")
     async def api_update_post(post_id: str, request: Request):
         if not _token(config.own_server):
