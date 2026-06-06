@@ -662,7 +662,9 @@ def create_app(config_path: str | Path) -> FastAPI:
 
         def _contact_dict(c):
             d = {"name": c.name, "url": c.url, "handle": c.handle, "public_key": c.public_key,
-                 "tag": tags.get(c.url), "description": c.description,
+                 "node_id": c.node_id,
+                 "tag": tags.get(c.node_id) if c.node_id else None,
+                 "description": c.description,
                  "poll_weight": _contact_weight(c)}
             for f in _CAT_FIELDS:
                 d[f] = getattr(c, f, 0.0)
@@ -670,6 +672,7 @@ def create_app(config_path: str | Path) -> FastAPI:
 
         return {
             "own_server": config.own_server,
+            "own_node_id": config.own_node_id,
             "own_display_name": own_display_name,
             "own_handle": own_handle,
             "identity_proxy_url": os.environ.get("CONTACC_IDENTITY_PROXY_URL", ""),
@@ -1251,6 +1254,19 @@ def create_app(config_path: str | Path) -> FastAPI:
             "photo_url": record.get("photo_url"),
             "public_key": record.get("public_key"),
         }
+
+    @api.get("/registry/node/{node_id}")
+    async def api_registry_node(node_id: str):
+        """Proxy GET /nodes/{node_id} from the registry — avoids CORS from the browser."""
+        reg = _registry_url()
+        try:
+            async with httpx.AsyncClient() as hc:
+                r = await hc.get(f"{reg}/nodes/{node_id}", timeout=5)
+            if r.is_success:
+                return r.json()
+        except Exception:
+            pass
+        raise HTTPException(status_code=404, detail="Node not found")
 
     @api.get("/contacts/search")
     async def api_search_contacts(q: str = Query(...)):

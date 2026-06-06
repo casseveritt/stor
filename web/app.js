@@ -55,10 +55,8 @@ function _isNodeId(s) {
 
 function _lookupNodeFromRegistry(nodeId) {
   if (_nodeIdToProfile[nodeId] !== undefined || _pendingNodeLookups.has(nodeId)) return;
-  const registryUrl = (CFG?.identity_proxy_url || '').replace(/\/$/, '');
-  if (!registryUrl) { _nodeIdToProfile[nodeId] = {}; return; }
   _pendingNodeLookups.add(nodeId);
-  fetch(registryUrl + '/nodes/' + encodeURIComponent(nodeId))
+  apiFetch('/api/registry/node/' + encodeURIComponent(nodeId))
     .then(r => r.ok ? r.json() : null)
     .then(d => { _nodeIdToProfile[nodeId] = d || {}; _pendingNodeLookups.delete(nodeId); })
     .catch(() => { _nodeIdToProfile[nodeId] = {}; _pendingNodeLookups.delete(nodeId); });
