@@ -86,6 +86,25 @@ def toggle_reaction(post_id: str, payload: _ReactBody, request: Request, identit
         reacted = True
     db.commit()
 
+    if reacted and not identity.is_owner:
+        _pub = request.headers.get("X-Public-Key", "")
+        _actor = None
+        if _pub:
+            _row = db.execute("SELECT name FROM users WHERE public_key = ?", (_pub,)).fetchone()
+            _actor = _row[0] if _row else None
+        elif identity.recipient_id:
+            _row = db.execute("SELECT display_name FROM recipients WHERE id = ?", (identity.recipient_id,)).fetchone()
+            _actor = _row[0] if _row else None
+        import hashlib as _hl
+        _nid = _hl.sha256(f"reaction:{post_id}:{reactor}:{payload.emoji}".encode()).hexdigest()[:36]
+        db.execute(
+            "INSERT OR IGNORE INTO mention_notifications "
+            "(id, post_id, author_server, author_handle, received_at, notif_type, actor_name, emoji) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (_nid, post_id, '', '', now_ns(), 'reaction', _actor, payload.emoji)
+        )
+        db.commit()
+
     result = {"reactions": get_reactions(db, post_id, payload.comment_id, reactor), "reacted": reacted}
     from .posts import _push_post_update
     _push_post_update(post_id, "reaction", {"comment_id": payload.comment_id or "", "reactions": result["reactions"]}, request.app)

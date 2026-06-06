@@ -616,6 +616,19 @@ async def post_comment(post_id: str, payload: _CommentBody, request: Request, id
     )
     db.commit()
 
+    if not identity.is_owner:
+        _actor = None
+        if author_identity:
+            _row = db.execute("SELECT name FROM users WHERE server_url = ?", (author_identity,)).fetchone()
+            _actor = _row[0] if _row else author_identity
+        db.execute(
+            "INSERT OR IGNORE INTO mention_notifications "
+            "(id, post_id, author_server, author_handle, received_at, notif_type, actor_name, emoji) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (comment_id, post_id, author_identity or '', '', now_ns(), 'comment', _actor, None)
+        )
+        db.commit()
+
     _notify_mentions(payload.body, post_id, request.app)
     result = {
         "id": comment_id, "content_hash": content_hash,

@@ -434,12 +434,13 @@ def create_app(config_path: str | Path) -> FastAPI:
         """Return recent mention notifications for the owner."""
         db = app.state.db
         rows = db.execute(
-            "SELECT id, post_id, author_server, author_handle, received_at, seen "
+            "SELECT id, post_id, author_server, author_handle, received_at, seen, notif_type, actor_name, emoji "
             "FROM mention_notifications ORDER BY received_at DESC LIMIT 50"
         ).fetchall()
         return {"notifications": [
             {"id": r[0], "post_id": r[1], "author_server": r[2],
-             "author_handle": r[3], "received_at": r[4], "seen": bool(r[5])}
+             "author_handle": r[3], "received_at": r[4], "seen": bool(r[5]),
+             "notif_type": r[6] or "mention", "actor_name": r[7], "emoji": r[8]}
             for r in rows
         ]}
 

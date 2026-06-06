@@ -327,6 +327,12 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             con.commit()
         except Exception:
             pass
+    for _col in ["notif_type TEXT DEFAULT 'mention'", "actor_name TEXT", "emoji TEXT"]:
+        try:
+            con.execute(f"ALTER TABLE mention_notifications ADD COLUMN {_col}")
+            con.commit()
+        except Exception:
+            pass
     con.execute("""
         CREATE TABLE IF NOT EXISTS mention_notifications (
             id           TEXT PRIMARY KEY,

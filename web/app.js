@@ -56,21 +56,45 @@ let _pendingKeyLookups = new Set();
 // ── emoji hover preview ────────────────────────────────────────────────────
 (function() {
   let _active = false;
-  const _EMOJI_CLASSES = ['reaction-btn', 'reaction-btn-active', 'emoji-pick-btn'];
+  const _REACT = ['reaction-btn', 'reaction-btn-active'];
+  const _ALL   = [..._REACT, 'emoji-pick-btn'];
   document.addEventListener('mouseover', e => {
-    const btn = e.target.closest('.' + _EMOJI_CLASSES.join(',.'));
+    const btn = e.target.closest('.' + _ALL.join(',.'));
     if (!btn) return;
+    const emojiEl = document.getElementById('emoji-preview-char');
+    const namesEl = document.getElementById('emoji-preview-names');
+    const el = document.getElementById('emoji-preview');
+    if (!emojiEl || !el) return;
     const emoji = (btn.childNodes[0]?.textContent || btn.textContent || '').trim().split(/\s/)[0];
     if (!emoji) return;
-    const el = document.getElementById('emoji-preview');
-    el.textContent = emoji;
+    emojiEl.textContent = emoji;
+    const isReaction = _REACT.some(c => btn.classList.contains(c));
+    if (isReaction && namesEl) {
+      const reactors = JSON.parse(btn.dataset.reactors || '[]');
+      const serverUrl = btn.dataset.server || '';
+      if (reactors.length) {
+        namesEl.textContent = reactors.map(id => _reactorName(id, serverUrl)).join('\n');
+        namesEl.hidden = false;
+        let n = 0;
+        const retry = () => {
+          if (!_active || n++ > 5) return;
+          const upd = reactors.map(id => _reactorName(id, serverUrl)).join('\n');
+          if (upd !== namesEl.textContent) namesEl.textContent = upd;
+          setTimeout(retry, 600 * n);
+        };
+        setTimeout(retry, 600);
+      } else {
+        namesEl.hidden = true;
+      }
+    } else if (namesEl) {
+      namesEl.hidden = true;
+    }
     el.hidden = false;
     _active = true;
   });
   document.addEventListener('mouseout', e => {
     if (!_active) return;
-    const btn = e.target.closest('.' + _EMOJI_CLASSES.join(',.'));
-    if (!btn) return;
+    if (!e.target.closest('.' + _ALL.join(',.'))) return;
     document.getElementById('emoji-preview').hidden = true;
     _active = false;
   });
@@ -78,8 +102,8 @@ let _pendingKeyLookups = new Set();
     if (!_active) return;
     const el = document.getElementById('emoji-preview');
     const vw = window.innerWidth, vh = window.innerHeight;
-    el.style.left = Math.min(e.clientX + 12, vw - 80) + 'px';
-    el.style.top = Math.max(e.clientY - 64, 4) + 'px';
+    el.style.left = Math.min(e.clientX + 12, vw - 200) + 'px';
+    el.style.top  = Math.max(e.clientY - 90, 4) + 'px';
   });
 })();
 
@@ -2343,18 +2367,22 @@ function _closeMentionsPanelOutside(e) {
 function _renderMentionsList() {
   const list = document.getElementById("mentions-list");
   if (!_mentionsData.length) {
-    list.innerHTML = '<div style="padding:0.75rem;font-size:0.85rem;color:#555;text-align:center">No mentions yet</div>';
+    list.innerHTML = '<div style="padding:0.75rem;font-size:0.85rem;color:#555;text-align:center">Nothing yet</div>';
     return;
   }
   list.innerHTML = _mentionsData.map(m => {
     const contact = (CFG?.contacts || []).find(c => c.url === m.author_server);
-    const name = contact ? (contact.name || m.author_handle) : (m.author_handle || m.author_server);
+    const name = m.actor_name || (contact ? (contact.name || m.author_handle) : (m.author_handle || m.author_server || 'Someone'));
     const time = fmtDate(m.received_at);
     const dot = m.seen ? '' : '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#4285f4;flex-shrink:0;margin-top:3px"></span>';
+    let text;
+    if (m.notif_type === 'reaction') text = `${name} reacted ${m.emoji || ''} to your post`;
+    else if (m.notif_type === 'comment') text = `${name} commented on your post`;
+    else text = `${name} mentioned you`;
     return `<div onclick="_jumpToMention('${esc(m.post_id)}','${esc(m.author_server)}')" style="display:flex;gap:0.5rem;align-items:flex-start;padding:0.55rem 0.75rem;cursor:pointer;border-bottom:1px solid #1e1e1e" onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
       ${dot || '<span style="display:inline-block;width:7px;flex-shrink:0"></span>'}
       <div style="flex:1;min-width:0">
-        <div style="font-size:0.85rem;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(name)} mentioned you</div>
+        <div style="font-size:0.85rem;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(text)}</div>
         <div style="font-size:0.75rem;color:#555">${esc(time)}</div>
       </div>
     </div>`;
