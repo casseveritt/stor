@@ -2449,6 +2449,28 @@ let _dmThreads = [];
 let _dmActiveThread = null;
 let _dmMessages = [];
 let _dmPollTimer = null;
+let _dmHighlightIdx = -1;
+
+function _dmHighlightUpdate(idx) {
+  const items = document.querySelectorAll('#dm-threads-list [data-tid]');
+  _dmHighlightIdx = Math.max(-1, Math.min(idx, items.length - 1));
+  items.forEach((el, i) => {
+    el.style.background = i === _dmHighlightIdx ? '#2a2a2a' : '';
+  });
+  if (_dmHighlightIdx >= 0) items[_dmHighlightIdx].scrollIntoView({block: 'nearest'});
+}
+
+function _dmKeyNav(e) {
+  const listView = document.getElementById('dm-thread-list-view');
+  if (!listView || listView.hidden) return;
+  if (e.key === 'ArrowDown') { e.preventDefault(); _dmHighlightUpdate(_dmHighlightIdx + 1); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); _dmHighlightUpdate(_dmHighlightIdx - 1); }
+  else if (e.key === 'Enter' && _dmHighlightIdx >= 0) {
+    const items = document.querySelectorAll('#dm-threads-list [data-tid]');
+    const el = items[_dmHighlightIdx];
+    if (el) _dmOpenThread(el.dataset.tid, el.dataset.pname);
+  }
+}
 
 function _dmToggleExpand() {
   const panel = document.getElementById("dm-panel");
@@ -2482,12 +2504,16 @@ function _toggleDmPanel() {
   panel.hidden = !wasHidden;
   if (!wasHidden) {
     _dmActiveThread = null;
+    _dmHighlightIdx = -1;
+    document.removeEventListener('keydown', _dmKeyNav);
     _dmResetExpand();
     if (_openPanels.size === 0) _stopDetailPoll();
     return;
   }
   panel.style.top = _panelTop("dm-btn");
   _openSSE();  // ensure SSE is active while DM panel is open
+  _dmHighlightIdx = -1;
+  document.addEventListener('keydown', _dmKeyNav);
   _dmBackToThreads();
   _loadDmThreads();  // fresh fetch when panel opens
   setTimeout(() => document.addEventListener('click', _closeDmPanelOutside, {once: true}), 0);
@@ -2503,6 +2529,8 @@ function _closeDmPanelOutside(e) {
   }
   panel.hidden = true;
   _dmActiveThread = null;
+  _dmHighlightIdx = -1;
+  document.removeEventListener('keydown', _dmKeyNav);
   _dmResetExpand();
   if (_openPanels.size === 0) _stopDetailPoll();
 }
@@ -2555,10 +2583,12 @@ function _renderDmThreads() {
 
 async function _dmOpenThread(threadId, peerName) {
   _dmActiveThread = threadId;
+  _dmHighlightIdx = -1;
   document.getElementById("dm-conv-name").textContent = peerName;
   document.getElementById("dm-thread-list-view").hidden = true;
   document.getElementById("dm-conversation-view").hidden = false;
   await _loadDmMessages(threadId);
+  document.getElementById("dm-compose").focus();
   await apiFetch("/api/dm/threads/" + threadId + "/seen", {method: "POST"});
   await _loadDmThreads();
 }
