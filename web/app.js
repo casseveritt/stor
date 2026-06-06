@@ -55,15 +55,15 @@ let _pendingKeyLookups = new Set();
 
 // ── emoji hover preview ────────────────────────────────────────────────────
 (function() {
-  let _active = false;
+  let _session = 0;   // incremented on each hide; retries check this to self-cancel
+  let _activeBtn = null;
   const _REACT = ['reaction-btn', 'reaction-btn-active'];
   const _ALL   = [..._REACT, 'emoji-pick-btn'];
-  let _activeBtn = null;
   document.addEventListener('mouseover', e => {
     const btn = e.target.closest('.' + _ALL.join(',.'));
-    if (!btn) return;
-    if (btn === _activeBtn) return;  // already showing for this button
+    if (!btn || btn === _activeBtn) return;
     _activeBtn = btn;
+    const mySession = ++_session;
     const emojiEl = document.getElementById('emoji-preview-char');
     const namesEl = document.getElementById('emoji-preview-names');
     const el = document.getElementById('emoji-preview');
@@ -80,7 +80,7 @@ let _pendingKeyLookups = new Set();
         namesEl.hidden = false;
         let n = 0;
         const retry = () => {
-          if (!_active || n++ > 5) return;
+          if (_session !== mySession || n++ > 5) return;  // stale session — stop
           const upd = reactors.map(id => _reactorName(id, serverUrl)).join('\n');
           if (upd !== namesEl.textContent) namesEl.textContent = upd;
           setTimeout(retry, 600 * n);
@@ -93,19 +93,17 @@ let _pendingKeyLookups = new Set();
       namesEl.hidden = true;
     }
     el.hidden = false;
-    _active = true;
   });
   document.addEventListener('mouseout', e => {
-    if (!_active) return;
     const btn = e.target.closest('.' + _ALL.join(',.'));
     if (!btn) return;
     if (btn.contains(e.relatedTarget)) return;  // cursor moved to child element, stay open
-    document.getElementById('emoji-preview').hidden = true;
-    _active = false;
+    _session++;   // invalidate any pending retries from the previous hover
     _activeBtn = null;
+    document.getElementById('emoji-preview').hidden = true;
   });
   document.addEventListener('mousemove', e => {
-    if (!_active) return;
+    if (!_activeBtn) return;
     const el = document.getElementById('emoji-preview');
     const vw = window.innerWidth, vh = window.innerHeight;
     el.style.left = Math.min(e.clientX + 12, vw - 200) + 'px';
