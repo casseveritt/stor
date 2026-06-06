@@ -152,6 +152,20 @@ def create_app(config_path: str | Path) -> FastAPI:
                                 if nd.get("public_key") and not c.public_key:
                                     c.public_key = nd["public_key"]
                                 dirty = True
+                                try:
+                                    tok = _token(config.own_server)
+                                    if tok:
+                                        async with httpx.AsyncClient() as _hc2:
+                                            await _hc2.post(
+                                                _server + "/users",
+                                                json={"server_url": c.url, "name": c.name,
+                                                      "handle": c.handle, "node_id": nid,
+                                                      "public_key": c.public_key},
+                                                headers=_headers(config.own_server),
+                                                timeout=5,
+                                            )
+                                except Exception:
+                                    pass
                     except Exception:
                         pass
 

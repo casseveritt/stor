@@ -12,16 +12,34 @@ router = APIRouter()
 ALLOWED_EMOJI = None  # any emoji allowed
 
 
-def _reactor(identity, request: Request) -> str | None:
+async def _reactor(identity, request: Request) -> str | None:
     """Return reactor identity: '' for owner, node_id for federated, None if unidentifiable."""
     if identity.is_owner:
         return ""
     pub_key_header = request.headers.get("X-Public-Key", "")
-    if pub_key_header:
-        db = request.app.state.db
-        row = db.execute("SELECT node_id FROM users WHERE public_key = ?", (pub_key_header,)).fetchone()
-        if row and row[0]:
-            return row[0]
+    if not pub_key_header:
+        return None
+    db = request.app.state.db
+    row = db.execute("SELECT node_id, server_url FROM users WHERE public_key = ?", (pub_key_header,)).fetchone()
+    if not row:
+        return None
+    node_id, server_url = row
+    if node_id:
+        return node_id
+    # Known contact but node_id not yet stored — fetch it on the fly.
+    origin = server_url or request.headers.get("X-Origin-Server", "")
+    if origin:
+        try:
+            import httpx as _httpx
+            nr = await _httpx.AsyncClient().get(origin.rstrip("/") + "/node", timeout=3.0)
+            if nr.is_success:
+                nid = nr.json().get("node_id") or nr.json().get("user_id")
+                if nid:
+                    db.execute("UPDATE users SET node_id = ? WHERE public_key = ?", (nid, pub_key_header))
+                    db.commit()
+                    return nid
+        except Exception:
+            pass
     return None
 
 
@@ -54,7 +72,7 @@ class _ReactBody(BaseModel):
 
 
 @router.post("/posts/{post_id}/react", status_code=200)
-def toggle_reaction(post_id: str, payload: _ReactBody, request: Request, identity: OptionalAuthDep, _sig: FederatedSigDep = None):
+async def toggle_reaction(post_id: str, payload: _ReactBody, request: Request, identity: OptionalAuthDep, _sig: FederatedSigDep = None):
     if not payload.emoji:
         raise HTTPException(status_code=422, detail="emoji is required")
 
@@ -69,7 +87,7 @@ def toggle_reaction(post_id: str, payload: _ReactBody, request: Request, identit
         ).fetchone() is None:
             raise HTTPException(status_code=404, detail="Comment not found")
 
-    reactor = _reactor(identity, request)
+    reactor = await _reactor(identity, request)
     if reactor is None:
         raise HTTPException(status_code=401, detail="Reactions require an authenticated identity")
     existing = db.execute(
