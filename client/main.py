@@ -16,6 +16,7 @@ Server OAuth flow:
   2. Browser completes OAuth; server redirects to /auth/callback#token=<token>
   3. callback.html POSTs server token to /client/session, stores client token
 """
+import asyncio
 import base64
 import hashlib
 import json
@@ -105,9 +106,9 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     @app.on_event("startup")
     async def _warm_caches():
-        import asyncio
         asyncio.create_task(_refresh_contact_photos())
         asyncio.create_task(_startup_consistency_check())
+        asyncio.create_task(_dm_sse_poller())
 
     async def _startup_consistency_check():
         """Run all startup consistency checks. Add new checks here as needed."""
@@ -152,6 +153,22 @@ def create_app(config_path: str | Path) -> FastAPI:
         if dirty:
             config.save(config_path)
         asyncio.create_task(_backfill_contact_pubkeys())
+
+    async def _dm_sse_poller():
+        """When SSE connections are open, poll server for DM updates and push to queues."""
+        while True:
+            await asyncio.sleep(1.0)
+            if not _sse_queues:
+                continue
+            try:
+                async with httpx.AsyncClient() as hc:
+                    r = await hc.get(_server + "/dm/updates",
+                                     headers=_internal_headers(), timeout=3)
+                if r.is_success:
+                    for upd in r.json().get("updates", []):
+                        _push_to_sse(upd)
+            except Exception:
+                pass
 
     async def _backfill_contact_pubkeys():
         """Fetch public key from /node for any contact that's missing one, then sync to server."""
@@ -867,26 +884,83 @@ def create_app(config_path: str | Path) -> FastAPI:
             headers={"Content-Disposition": "attachment; filename=contacc-private-key.pem"},
         )
 
-    # ── post subscriptions ────────────────────────────────────────────────────
-    _pending_post_updates: list[dict] = []
+    # ── SSE event bus ─────────────────────────────────────────────────────────
+    _pending_post_updates: list[dict] = []   # fallback queue (no SSE connected)
+    _pending_dm_updates: list[dict] = []     # fallback queue for DM events
     _active_subs: dict[str, float] = {}
+    _sse_queues: list[asyncio.Queue] = []    # one per open SSE connection
+
+    def _push_to_sse(event: dict) -> None:
+        """Push event to all open SSE connections."""
+        for q in list(_sse_queues):
+            try:
+                q.put_nowait(event)
+            except asyncio.QueueFull:
+                pass
 
     @app.post("/notifications/post-update", status_code=204)
     async def receive_post_update(request: Request):
         try:
             body = await request.json()
             if body.get("post_id") and body.get("event"):
-                _pending_post_updates.append(body)
-                if len(_pending_post_updates) > 200:
-                    del _pending_post_updates[:100]
+                if _sse_queues:
+                    _push_to_sse(body)
+                else:
+                    _pending_post_updates.append(body)
+                    if len(_pending_post_updates) > 200:
+                        del _pending_post_updates[:100]
         except Exception:
             pass
 
+    @app.post("/notifications/dm-update", status_code=204)
+    async def receive_dm_update(request: Request):
+        try:
+            body = await request.json()
+            event = {"type": "dm", "thread_id": body.get("thread_id", "")}
+            if _sse_queues:
+                _push_to_sse(event)
+            else:
+                _pending_dm_updates.append(event)
+                if len(_pending_dm_updates) > 50:
+                    del _pending_dm_updates[:25]
+        except Exception:
+            pass
+
+    @api.get("/events")
+    async def sse_events(request: Request):
+        """SSE stream — browser holds this open to receive push events."""
+        import asyncio as _aio
+        queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        _sse_queues.append(queue)
+
+        async def _generate():
+            try:
+                while True:
+                    try:
+                        event = await asyncio.wait_for(queue.get(), timeout=20.0)
+                        yield f"data: {json.dumps(event)}\n\n"
+                    except asyncio.TimeoutError:
+                        yield ": keepalive\n\n"
+            except asyncio.CancelledError:
+                pass  # client disconnected — task cancelled
+            finally:
+                try:
+                    _sse_queues.remove(queue)
+                except ValueError:
+                    pass
+
+        return StreamingResponse(
+            _generate(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     @api.get("/subscribed-updates")
     async def get_subscribed_updates():
-        updates = list(_pending_post_updates)
+        updates = list(_pending_post_updates) + list(_pending_dm_updates)
         _pending_post_updates.clear()
-        # Also pull any inbound DM updates from server
+        _pending_dm_updates.clear()
+        # Also pull any inbound DM updates from server (legacy path, no SSE)
         try:
             async with httpx.AsyncClient() as hc:
                 r = await hc.get(_server + "/dm/updates", headers=_internal_headers(), timeout=3)

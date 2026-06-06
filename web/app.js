@@ -842,6 +842,7 @@ async function loadFeed() {
   loadTagSidebar();
   fetchServerHandles().then(() => _startBgFetch());
   fetchServerProfiles();
+  _openSSE();
 
   if (allPosts.length === 0) {
     // No cache — block until we have something to show.
@@ -1432,10 +1433,8 @@ function renderPostBody(post) {
   return rendered;
 }
 
-// ── polling ────────────────────────────────────────────────────────────────
-const POLL_DETAIL_MS    = 120_000; // fallback poll for open panels (push covers the first 5 min)
-const SUB_POLL_MS       = 2_000;   // cheap in-memory check for pushed updates
-let _subPollTimer = null;
+// ── polling / SSE ──────────────────────────────────────────────────────────
+const POLL_DETAIL_MS    = 120_000; // fallback poll for open panels (SSE covers live updates)
 const BG_CHECK_MS       = 60_000;   // how often the scheduler wakes to check due servers
 const DEFAULT_POLL_MS   = 30 * 60_000;
 const MIN_POLL_MS       =  5 * 60_000;
@@ -1449,6 +1448,8 @@ let _serverPollIntervals = {};    // url → ms (computed from node activity)
 const _openPanels = new Map();    // postId → post
 let _newestKnownAt = 0;           // created_at of newest post we've ever seen; survives allPosts = []
 
+let _sseSource = null;  // active EventSource, or null
+
 function _computePollInterval(activity7d, poll_weight) {
   const weight = Math.max(0.1, poll_weight ?? 0.5);
   const base = activity7d
@@ -1457,55 +1458,77 @@ function _computePollInterval(activity7d, poll_weight) {
   return Math.max(MIN_POLL_MS, Math.min(MAX_POLL_MS, Math.round(base / weight)));
 }
 
+function _sseToken() { return getClientToken() || ''; }
+
+function _openSSE() {
+  if (_sseSource) return;
+  const token = _sseToken();
+  if (!token) return;
+  _sseSource = new EventSource(`/api/events?client_token=${encodeURIComponent(token)}`);
+  _sseSource.onmessage = (e) => {
+    try { _handleSSEEvent(JSON.parse(e.data)); } catch (_) {}
+  };
+  _sseSource.onerror = () => {
+    // Browser will auto-retry; close and reopen on visibility change
+    _sseSource.close();
+    _sseSource = null;
+  };
+}
+
+function _closeSSE() {
+  if (_sseSource) { _sseSource.close(); _sseSource = null; }
+}
+
+function _handleSSEEvent(upd) {
+  if (upd.type === 'dm') {
+    _loadDmThreads();
+    if (_dmActiveThread && upd.thread_id === _dmActiveThread) {
+      _loadDmMessages(_dmActiveThread);
+    }
+    return;
+  }
+  if (_openPanels.size === 0) return;
+  const post = _openPanels.get(upd.post_id);
+  if (!post) return;
+  if (upd.event === 'comment') {
+    const panel = document.querySelector(`.comments-panel[data-post-id="${upd.post_id}"]`);
+    if (panel && !panel.hidden) _loadCommentsIntoPanel(post, panel);
+  } else if (upd.event === 'reaction') {
+    const cid = upd.data?.comment_id || '';
+    const reactions = upd.data?.reactions;
+    if (reactions) {
+      const serverUrl = post._server_url || CFG.own_server;
+      document.querySelectorAll(`.reaction-bar[data-post-id="${upd.post_id}"][data-comment-id="${cid}"]`).forEach(bar => {
+        const tmp = document.createElement('div');
+        tmp.innerHTML = reactionBarHtml(reactions, upd.post_id, serverUrl, cid);
+        bar.replaceWith(tmp.firstChild);
+      });
+    }
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') {
+    _openSSE();
+  } else {
+    _closeSSE();
+  }
+});
+
 function _startDetailPoll() {
   clearInterval(_detailPollTimer);
   if (_openPanels.size === 0) return;
   _detailPollTimer = setInterval(_pollOpenPanels, POLL_DETAIL_MS);
-  // Also start the cheap subscription update poll
-  clearInterval(_subPollTimer);
-  _subPollTimer = setInterval(_applySubscribedUpdates, SUB_POLL_MS);
+  _openSSE();
 }
 function _stopDetailPoll() {
-  // Don't stop if DM panel is still open — it also needs the 2s poll
+  // Don't close SSE if DM panel is still open
   const dmPanel = document.getElementById("dm-panel");
   if (dmPanel && !dmPanel.hidden) return;
   clearInterval(_detailPollTimer); _detailPollTimer = null;
-  clearInterval(_subPollTimer); _subPollTimer = null;
+  if (_openPanels.size === 0) _closeSSE();
 }
-async function _applySubscribedUpdates() {
-  const r = await apiFetch('/api/subscribed-updates').catch(() => null);
-  if (!r || !r.ok) return;
-  const { updates } = await r.json();
-  for (const upd of updates) {
-    // DM event — refresh thread list and active conversation
-    if (upd.type === 'dm') {
-      _loadDmThreads();
-      if (_dmActiveThread && upd.thread_id === _dmActiveThread) {
-        _loadDmMessages(_dmActiveThread);
-      }
-      continue;
-    }
-    if (_openPanels.size === 0) continue;
-    const post = _openPanels.get(upd.post_id);
-    if (!post) continue;
-    if (upd.event === 'comment') {
-      // Reload comments panel to show new comment
-      const panel = document.querySelector(`.comments-panel[data-post-id="${upd.post_id}"]`);
-      if (panel && !panel.hidden) _loadCommentsIntoPanel(post, panel);
-    } else if (upd.event === 'reaction') {
-      const cid = upd.data?.comment_id || '';
-      const reactions = upd.data?.reactions;
-      if (reactions) {
-        const serverUrl = post._server_url || CFG.own_server;
-        document.querySelectorAll(`.reaction-bar[data-post-id="${upd.post_id}"][data-comment-id="${cid}"]`).forEach(bar => {
-          const tmp = document.createElement('div');
-          tmp.innerHTML = reactionBarHtml(reactions, upd.post_id, serverUrl, cid);
-          bar.replaceWith(tmp.firstChild);
-        });
-      }
-    }
-  }
-}
+// _applySubscribedUpdates removed — replaced by SSE (_handleSSEEvent)
 
 function _startBgFetch() {
   clearInterval(_bgFetchTimer);
@@ -2436,7 +2459,7 @@ function _toggleDmPanel() {
     return;
   }
   panel.style.top = _panelTop("dm-btn");
-  _startDetailPoll();  // ensure 2s subscribed-updates poll runs while panel is open
+  _openSSE();  // ensure SSE is active while DM panel is open
   _dmBackToThreads();
   _loadDmThreads();  // fresh fetch when panel opens
   setTimeout(() => document.addEventListener('click', _closeDmPanelOutside, {once: true}), 0);
