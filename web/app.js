@@ -34,6 +34,16 @@ let serverStatuses = {};
 let serverOnline = {};  // server_url → boolean, from server_status in feed response
 let serverHandles = {};
 let serverProfiles = {};
+function _profileCacheKey() { return 'profilesv1:' + (CFG?.own_server || ''); }
+function _saveProfileCache() {
+  try { localStorage.setItem(_profileCacheKey(), JSON.stringify(serverProfiles)); } catch(e) {}
+}
+function _loadProfileCache() {
+  try {
+    const d = JSON.parse(localStorage.getItem(_profileCacheKey()) || 'null');
+    if (d) Object.assign(serverProfiles, d);
+  } catch(e) {}
+}
 let serverPublicKeys = {}; // base64 pubkey → server url
 let _keyToProfile = {};   // base64 pubkey → {username, display_name} from registry
 let _pendingKeyLookups = new Set();
@@ -618,6 +628,7 @@ async function fetchServerProfiles() {
         }
         serverProfiles[url] = profile;
         serverStatuses[url] = "ok";
+        _saveProfileCache();
         renderServerList();
         document.querySelectorAll(".post-author").forEach(el => {
           if (el.dataset.server === url) _renderAuthorInto(el, url);
@@ -833,6 +844,9 @@ async function loadFeed() {
   renderServerList();
   checkDefaultPassphrase();
   loadMentions();
+
+  // Restore cached profiles so avatars show immediately without a flash.
+  _loadProfileCache();
 
   // Render from cache immediately so the page is populated before any network calls.
   if (allPosts.length === 0 && !activeServer && !currentSearch && activeTags.size === 0) {
