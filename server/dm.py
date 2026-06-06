@@ -146,27 +146,12 @@ def dedup_threads(request: Request, _: InternalOrOwnerDep):
     app = request.app
     merged_count = 0
 
-    # Collect groups of thread_ids that belong to the same peer.
-    # Key: canonical peer identity → list of (thread_id, last_msg_at)
+    # Group threads by peer_node_id
     groups: dict[str, list[tuple[str, int]]] = {}
-    for row in db.execute("SELECT thread_id, peer_node_id, peer_url, last_msg_at FROM dm_threads").fetchall():
-        tid, nid, url, ts = row
-        key = nid or url or tid  # node_id is authoritative; fall back to url
-        groups.setdefault(key, []).append((tid, ts))
-
-    # Also unify groups that share a peer_url across different node_ids
-    url_to_key: dict[str, str] = {}
-    for row in db.execute("SELECT thread_id, peer_node_id, peer_url FROM dm_threads").fetchall():
-        tid, nid, url = row
-        key = nid or url or tid
-        if url:
-            existing = url_to_key.get(url)
-            if existing and existing != key:
-                # Merge the two groups
-                groups.setdefault(key, []).extend(groups.pop(existing, []))
-                url_to_key[url] = key
-            else:
-                url_to_key[url] = key
+    for row in db.execute("SELECT thread_id, peer_node_id, last_msg_at FROM dm_threads").fetchall():
+        tid, nid, ts = row
+        if nid:
+            groups.setdefault(nid, []).append((tid, ts))
 
     for group in groups.values():
         if len(group) < 2:

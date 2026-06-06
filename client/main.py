@@ -997,6 +997,31 @@ def create_app(config_path: str | Path) -> FastAPI:
             raise HTTPException(status_code=502, detail="Registry search failed")
         return r.json()
 
+    @api.post("/contacts/refresh-node-ids", status_code=200)
+    async def api_refresh_contact_node_ids():
+        """Back-fill node_id for contacts that don't have one yet."""
+        updated = 0
+        async with httpx.AsyncClient() as hc:
+            for c in config.contacts:
+                if c.node_id:
+                    continue
+                try:
+                    r = await hc.get(c.url.rstrip("/") + "/node", timeout=4)
+                    if r.is_success:
+                        nd = r.json()
+                        nid = nd.get("node_id") or nd.get("user_id")
+                        pub = nd.get("public_key")
+                        if nid and not any(x.node_id == nid for x in config.contacts if x is not c):
+                            c.node_id = nid
+                            if pub and not c.public_key:
+                                c.public_key = pub
+                            updated += 1
+                except Exception:
+                    pass
+        if updated:
+            config.save(config_path)
+        return {"updated": updated}
+
     class ContactBody(BaseModel):
         name: str
         url: str
@@ -1162,20 +1187,16 @@ def create_app(config_path: str | Path) -> FastAPI:
             r = await hc.get(_server + "/dm/threads", headers=_headers(config.own_server), timeout=10)
         data = r.json() if r.is_success else {"threads": []}
         threads = data.get("threads", [])
-        # Auto-dedup: merge threads sharing peer_node_id OR peer_url
+        # Auto-dedup: merge threads sharing the same peer_node_id
         seen_nodes: set[str] = set()
-        seen_urls: set[str] = set()
         has_dupes = False
         for t in threads:
             nid = t.get("peer_node_id") or ""
-            url = t.get("peer_url") or ""
-            if (nid and nid in seen_nodes) or (url and url in seen_urls):
+            if nid and nid in seen_nodes:
                 has_dupes = True
                 break
             if nid:
                 seen_nodes.add(nid)
-            if url:
-                seen_urls.add(url)
         if has_dupes:
             async with httpx.AsyncClient() as hc:
                 await hc.post(_server + "/dm/threads/dedup", headers=_headers(config.own_server), timeout=15)
