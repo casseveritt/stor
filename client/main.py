@@ -1135,12 +1135,13 @@ def create_app(config_path: str | Path) -> FastAPI:
         data = r.json() if r.is_success else {"threads": []}
         contact_by_node_id = {c.node_id: c for c in config.contacts if c.node_id}
         contact_by_url = {c.url: c for c in config.contacts}
+        tags = get_all_tags(_client_db)
         for t in data.get("threads", []):
             contact = contact_by_node_id.get(t.get("peer_node_id", "")) \
                    or contact_by_url.get(t.get("peer_url", ""))
             t["is_contact"] = contact is not None
             if contact and not t.get("peer_name"):
-                t["peer_name"] = contact.tag or contact.name
+                t["peer_name"] = tags.get(contact.url) or contact.name
         return data
 
     class DmSendBody(BaseModel):
