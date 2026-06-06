@@ -354,6 +354,21 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             unread_count INTEGER NOT NULL DEFAULT 0
         )
     """)
+    # Dedup dm_threads by peer_node_id before enforcing uniqueness
+    dupes = con.execute("""
+        SELECT peer_node_id FROM dm_threads
+        GROUP BY peer_node_id HAVING COUNT(*) > 1
+    """).fetchall()
+    for (nid,) in dupes:
+        threads = con.execute(
+            "SELECT thread_id FROM dm_threads WHERE peer_node_id = ? ORDER BY last_msg_at DESC",
+            (nid,)
+        ).fetchall()
+        for (tid,) in threads[1:]:
+            con.execute("DELETE FROM dm_messages WHERE thread_id = ?", (tid,))
+            con.execute("DELETE FROM dm_threads WHERE thread_id = ?", (tid,))
+    if dupes:
+        con.commit()
     con.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS dm_threads_peer_node_id
         ON dm_threads(peer_node_id)
