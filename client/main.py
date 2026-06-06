@@ -229,7 +229,8 @@ def create_app(config_path: str | Path) -> FastAPI:
                                 await hc2.post(
                                     _server + "/users",
                                     json={"server_url": contact.url, "name": contact.name,
-                                          "handle": contact.handle, "public_key": pub_key},
+                                          "handle": contact.handle, "public_key": pub_key,
+                                          "node_id": contact.node_id},
                                     headers=_headers(config.own_server),
                                     timeout=5,
                                 )
@@ -1316,7 +1317,7 @@ def create_app(config_path: str | Path) -> FastAPI:
             async with httpx.AsyncClient() as hc:
                 await hc.post(
                     _server + "/users",
-                    json={"server_url": body.url, "name": body.name, "handle": body.handle, "public_key": pub_key},
+                    json={"server_url": body.url, "name": body.name, "handle": body.handle, "public_key": pub_key, "node_id": node_id},
                     headers=_headers(config.own_server),
                     timeout=10.0,
                 )

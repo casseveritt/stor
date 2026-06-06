@@ -320,8 +320,8 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         con.execute("INSERT OR IGNORE INTO schema_version VALUES (10)")
         con.commit()
 
-    # Add user_id and weight to users table
-    for _col in ["user_id TEXT", "weight REAL"]:
+    # Add user_id, weight, and node_id to users table
+    for _col in ["user_id TEXT", "weight REAL", "node_id TEXT"]:
         try:
             con.execute(f"ALTER TABLE users ADD COLUMN {_col}")
             con.commit()
@@ -381,3 +381,34 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         )
     """)
     con.commit()
+
+    # Migrate recipients.identity and comments.author_identity from server_url to node_id.
+    # Only updates rows where a matching users entry has a node_id; leaves the rest unchanged.
+    _recipients_migrated = con.execute("""
+        UPDATE recipients SET identity = (
+            SELECT u.node_id FROM users u WHERE u.server_url = recipients.identity AND u.node_id IS NOT NULL
+        )
+        WHERE (
+            SELECT u.node_id FROM users u WHERE u.server_url = recipients.identity AND u.node_id IS NOT NULL
+        ) IS NOT NULL
+    """).rowcount
+    if _recipients_migrated:
+        con.execute("""
+            UPDATE comments SET author_identity = (
+                SELECT u.node_id FROM users u WHERE u.server_url = comments.author_identity AND u.node_id IS NOT NULL
+            )
+            WHERE author_identity IS NOT NULL AND author_identity != ''
+              AND (
+                SELECT u.node_id FROM users u WHERE u.server_url = comments.author_identity AND u.node_id IS NOT NULL
+              ) IS NOT NULL
+        """)
+        con.execute("""
+            UPDATE mention_notifications SET author_server = (
+                SELECT u.node_id FROM users u WHERE u.server_url = mention_notifications.author_server AND u.node_id IS NOT NULL
+            )
+            WHERE author_server != ''
+              AND (
+                SELECT u.node_id FROM users u WHERE u.server_url = mention_notifications.author_server AND u.node_id IS NOT NULL
+              ) IS NOT NULL
+        """)
+        con.commit()

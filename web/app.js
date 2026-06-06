@@ -1079,7 +1079,7 @@ function _reactorPhotoUrl(id, postServerUrl) {
   if (!id) base = postServerUrl;
   else if (id.startsWith('http')) base = id;
   else {
-    const c = (CFG?.contacts || []).find(c => c.public_key === id);
+    const c = (CFG?.contacts || []).find(c => (c.node_id && c.node_id === id) || (c.public_key && c.public_key === id));
     base = c?.url || serverPublicKeys[id] || null;
   }
   return base ? base.replace(/\/+$/, '') + '/profile/photo' : null;
@@ -1186,6 +1186,12 @@ function _resolveIdentity(identity, postServerUrl) {
     if (reg?.display_name || reg?.username) return { name: reg.display_name || ('@' + reg.username), photoUrl: null };
     _lookupKeyFromRegistry(identity);
     try { return { name: new URL(identity).hostname, photoUrl: null }; } catch { return { name: identity.slice(0, 20), photoUrl: null }; }
+  }
+  // node_id: contacts by node_id
+  const byNodeId = (CFG.contacts || []).find(c => c.node_id && c.node_id === identity);
+  if (byNodeId) {
+    const prof = serverProfiles[byNodeId.url] || {};
+    return { name: prof.display_name || byNodeId.name, photoUrl: prof.photo_url || null };
   }
   // public key: contacts by key, registry cache, server profiles by key→url
   const byKey = (CFG.contacts || []).find(c => c.public_key && c.public_key === identity);
@@ -1336,6 +1342,7 @@ function _levelIconHtml(level, title) {
 
 // ── post card ──────────────────────────────────────────────────────────────
 function _isPostCached(post) {
+  if (post._server_url === CFG?.own_server) return false;
   return post._is_cached || serverOnline[post._server_url] === false;
 }
 
@@ -2527,15 +2534,16 @@ function _renderMentionsList() {
     return;
   }
   list.innerHTML = _mentionsData.map(m => {
-    const contact = (CFG?.contacts || []).find(c => c.url === m.author_server);
-    const name = m.actor_name || (contact ? (contact.name || m.author_handle) : (m.author_handle || m.author_server || 'Someone'));
+    const contact = (CFG?.contacts || []).find(c => c.node_id === m.author_server || c.url === m.author_server);
+    const name = m.actor_name || (contact ? (contact.name || m.author_handle) : (m.author_handle || 'Someone'));
     const time = fmtDate(m.received_at);
     const dot = m.seen ? '' : '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#4285f4;flex-shrink:0;margin-top:3px"></span>';
     let text;
     if (m.notif_type === 'reaction') text = `${name} reacted ${m.emoji || ''} to your post`;
     else if (m.notif_type === 'comment') text = `${name} commented on your post`;
     else text = `${name} mentioned you`;
-    return `<div onclick="_jumpToMention('${esc(m.post_id)}','${esc(m.author_server)}')" style="display:flex;gap:0.5rem;align-items:flex-start;padding:0.55rem 0.75rem;cursor:pointer;border-bottom:1px solid #1e1e1e" onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
+    const _jumpServer = contact?.url || (m.author_server.startsWith('http') ? m.author_server : '');
+    return `<div onclick="_jumpToMention('${esc(m.post_id)}','${esc(_jumpServer)}')" style="display:flex;gap:0.5rem;align-items:flex-start;padding:0.55rem 0.75rem;cursor:pointer;border-bottom:1px solid #1e1e1e" onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
       ${dot || '<span style="display:inline-block;width:7px;flex-shrink:0"></span>'}
       <div style="flex:1;min-width:0">
         <div style="font-size:0.85rem;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(text)}</div>

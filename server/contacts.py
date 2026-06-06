@@ -12,6 +12,7 @@ class _UserBody(BaseModel):
     name: str | None = None
     handle: str | None = None
     public_key: str | None = None
+    node_id: str | None = None
     relationship: str = "contact"
     weight: float | None = None  # [0,1] derived from contact category
 
@@ -20,25 +21,26 @@ class _UserBody(BaseModel):
 def list_users(request: Request, _: OwnerDep):
     db = request.app.state.db
     rows = db.execute(
-        "SELECT server_url, name, handle, public_key, relationship, weight FROM users ORDER BY id"
+        "SELECT server_url, name, handle, public_key, relationship, weight, node_id FROM users ORDER BY id"
     ).fetchall()
     return {"users": [{"server_url": r[0], "name": r[1], "handle": r[2],
-                       "public_key": r[3], "relationship": r[4], "weight": r[5]} for r in rows]}
+                       "public_key": r[3], "relationship": r[4], "weight": r[5], "node_id": r[6]} for r in rows]}
 
 
 @router.post("/users", status_code=201)
 def add_user(payload: _UserBody, request: Request, _: OwnerDep):
     db = request.app.state.db
     db.execute(
-        """INSERT INTO users (server_url, name, handle, public_key, relationship, weight)
-           VALUES (?, ?, ?, ?, ?, ?)
+        """INSERT INTO users (server_url, name, handle, public_key, node_id, relationship, weight)
+           VALUES (?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT(server_url) DO UPDATE SET
                relationship = excluded.relationship,
                public_key = COALESCE(excluded.public_key, public_key),
+               node_id = COALESCE(excluded.node_id, node_id),
                name = COALESCE(excluded.name, name),
                weight = COALESCE(excluded.weight, weight)
         """,
-        (payload.server_url, payload.name, payload.handle, payload.public_key, payload.relationship, payload.weight),
+        (payload.server_url, payload.name, payload.handle, payload.public_key, payload.node_id, payload.relationship, payload.weight),
     )
     db.commit()
     return {"server_url": payload.server_url}

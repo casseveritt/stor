@@ -253,7 +253,7 @@ async def get_identity_or_federated(
 
     db = request.app.state.db
     row = db.execute(
-        "SELECT public_key, server_url FROM users WHERE public_key = ?", (pub_key_header,)
+        "SELECT public_key, server_url, node_id FROM users WHERE public_key = ?", (pub_key_header,)
     ).fetchone()
     if not row:
         # Unknown key — try to verify it against the origin server on the fly.
@@ -268,13 +268,14 @@ async def get_identity_or_federated(
             node_data = nr.json()
             if node_data.get("public_key") != pub_key_header:
                 return _GUEST  # claimed key doesn't match the server's actual key
+            node_id = node_data.get("node_id") or node_data.get("user_id")
             # Key verified — register as 'external' (not a contact; won't pass contact-level ACL).
             db.execute(
-                "INSERT OR IGNORE INTO users (server_url, name, handle, public_key, relationship) VALUES (?, ?, ?, ?, 'external')",
-                (origin, node_data.get("handle") or origin, node_data.get("handle") or "", pub_key_header),
+                "INSERT OR IGNORE INTO users (server_url, name, handle, public_key, node_id, relationship) VALUES (?, ?, ?, ?, ?, 'external')",
+                (origin, node_data.get("handle") or origin, node_data.get("handle") or "", pub_key_header, node_id),
             )
             db.commit()
-            row = (pub_key_header, origin)
+            row = (pub_key_header, origin, node_id)
         except Exception:
             return _GUEST
 
@@ -297,11 +298,13 @@ async def get_identity_or_federated(
     except Exception:
         return _GUEST  # invalid signature — treat as guest
 
-    # Signature is valid. Find or create a recipient for this server URL.
+    # Signature is valid. Find or create a recipient keyed by node_id.
+    node_id = row[2]
     server_url = row[1] or request.headers.get("X-Origin-Server", "")
-    if not server_url:
+    recipient_identity = node_id or server_url  # node_id preferred; fall back for legacy contacts without one
+    if not recipient_identity:
         return _GUEST
-    rec = db.execute("SELECT id FROM recipients WHERE identity = ?", (server_url,)).fetchone()
+    rec = db.execute("SELECT id FROM recipients WHERE identity = ?", (recipient_identity,)).fetchone()
     if rec:
         return TokenIdentity(is_owner=False, recipient_id=rec[0])
 
@@ -309,7 +312,7 @@ async def get_identity_or_federated(
     recipient_id = str(uuid.uuid4())
     db.execute(
         "INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
-        (recipient_id, server_url, server_url),
+        (recipient_id, recipient_identity, recipient_identity),
     )
     db.commit()
     return TokenIdentity(is_owner=False, recipient_id=recipient_id)

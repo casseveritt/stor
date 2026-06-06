@@ -13,13 +13,13 @@ ALLOWED_EMOJI = None  # any emoji allowed
 
 
 def _reactor(identity, request: Request) -> str:
-    """Return a non-null reactor identity string: '' for owner, public key for federated, '<anon>' otherwise."""
+    """Return a non-null reactor identity string: '' for owner, node_id for federated, '<anon>' otherwise."""
     if identity.is_owner:
         return ""
     pub_key_header = request.headers.get("X-Public-Key", "")
     if pub_key_header:
         db = request.app.state.db
-        row = db.execute("SELECT public_key FROM users WHERE public_key = ?", (pub_key_header,)).fetchone()
+        row = db.execute("SELECT node_id FROM users WHERE public_key = ?", (pub_key_header,)).fetchone()
         if row and row[0]:
             return row[0]
     return "<anon>"

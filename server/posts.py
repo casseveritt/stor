@@ -638,7 +638,7 @@ async def post_comment(post_id: str, payload: _CommentBody, request: Request, id
     if not identity.is_owner:
         _actor = None
         if author_identity:
-            _row = db.execute("SELECT name FROM users WHERE server_url = ?", (author_identity,)).fetchone()
+            _row = db.execute("SELECT name FROM users WHERE node_id = ?", (author_identity,)).fetchone()
             _actor = _row[0] if _row else author_identity
         db.execute(
             "INSERT OR IGNORE INTO mention_notifications "
