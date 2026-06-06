@@ -151,7 +151,7 @@ disconnected for more than N minutes, on reconnect have the client scan
 
 | # | Issue                              | Severity          | Status  |
 |---|------------------------------------|-------------------|---------|
-| 1 | Unbounded feed fetch concurrency   | Critical @1k      | open    |
+| 1 | Unbounded feed fetch concurrency   | Critical @1k      | done    |
 | 2 | Unbounded photo refresh            | Critical @1k      | open    |
 | 3 | O(n) contact list scans            | Significant @1k   | open    |
 | 4 | Registry LIKE full table scan      | Critical @1M      | open    |

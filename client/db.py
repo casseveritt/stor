@@ -86,6 +86,13 @@ def _init_schema(db) -> None:
         db.execute("UPDATE users SET updated_at = updated_at * 1000000000 WHERE updated_at < 1000000000000")
     except Exception:
         pass
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS contact_poll (
+            node_id     TEXT PRIMARY KEY,
+            last_update INTEGER DEFAULT 0,
+            last_check  INTEGER DEFAULT 0
+        )
+    """)
     db.commit()
 
 
@@ -106,3 +113,22 @@ def set_tag(db, server_url: str, tag: str | None) -> None:
 def get_all_tags(db) -> dict[str, str | None]:
     rows = db.execute("SELECT server_url, tag FROM users").fetchall()
     return {row["server_url"]: row["tag"] for row in rows}
+
+
+def get_contact_poll(db, node_id: str) -> tuple[int, int]:
+    """Returns (last_update_ns, last_check_ns). Both 0 if never polled."""
+    row = db.execute(
+        "SELECT last_update, last_check FROM contact_poll WHERE node_id = ?", (node_id,)
+    ).fetchone()
+    return (row["last_update"], row["last_check"]) if row else (0, 0)
+
+
+def set_contact_poll(db, node_id: str, *, last_update: int | None = None, last_check: int | None = None) -> None:
+    db.execute(
+        "INSERT INTO contact_poll (node_id) VALUES (?) ON CONFLICT(node_id) DO NOTHING", (node_id,)
+    )
+    if last_update is not None:
+        db.execute("UPDATE contact_poll SET last_update = ? WHERE node_id = ?", (last_update, node_id))
+    if last_check is not None:
+        db.execute("UPDATE contact_poll SET last_check = ? WHERE node_id = ?", (last_check, node_id))
+    db.commit()

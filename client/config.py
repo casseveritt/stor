@@ -34,6 +34,7 @@ class ClientConfig:
     contacts: list[ContactEntry] = field(default_factory=list)
     node_key: NodeKey | None = None
     internal_token: str | None = None
+    own_node_id: str | None = None
 
     @classmethod
     def load(cls, path: str | Path) -> "ClientConfig":
@@ -62,6 +63,7 @@ class ClientConfig:
             contacts=contacts,
             node_key=node_key,
             internal_token=data.get("internal_token"),
+            own_node_id=data.get("own_node_id"),
         )
 
     @staticmethod
@@ -83,6 +85,8 @@ class ClientConfig:
             data["node_key"] = dataclasses.asdict(self.node_key)
         if self.internal_token:
             data["internal_token"] = self.internal_token
+        if self.own_node_id:
+            data["own_node_id"] = self.own_node_id
         Path(path).write_text(json.dumps(data, indent=2) + "\n")
 
 

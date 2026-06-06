@@ -195,6 +195,7 @@ def setup_new(body: NewBody, request: Request):
     return {
         "status": "ok",
         "node_address": node_address,
+        "node_id": key_material["node_id"],
         "node_key": {
             "argon2_salt": key_material["argon2_salt"],
             "argon2_time_cost": key_material["argon2_time_cost"],
@@ -376,6 +377,7 @@ def setup_new_for_owner(body: NewForOwnerBody, request: Request):
     return {
         "status": "ok",
         "node_address": node_address,
+        "node_id": new_node_id,
         "node_key": {
             "argon2_salt": salt.hex(),
             "argon2_time_cost": ARGON2_TIME_COST,

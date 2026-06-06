@@ -38,7 +38,7 @@ from pydantic import BaseModel
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from client.config import ClientConfig, NodeKey, load_tokens, save_tokens
-from client.db import open_client_db, open_client_db_memory, get_all_tags, get_tag, set_tag as db_set_tag
+from client.db import open_client_db, open_client_db_memory, get_all_tags, get_tag, set_tag as db_set_tag, get_contact_poll, set_contact_poll
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("contacc")
@@ -106,9 +106,22 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     @app.on_event("startup")
     async def _warm_caches():
+        if not config.own_node_id:
+            try:
+                async with httpx.AsyncClient() as hc:
+                    r = await hc.get(_server + "/node", timeout=5)
+                if r.is_success:
+                    nid = r.json().get("node_id")
+                    if nid:
+                        config.own_node_id = nid
+                        config.save(config_path)
+                        log.info("Migrated own_node_id=%s into client config", nid)
+            except Exception:
+                pass
         asyncio.create_task(_refresh_contact_photos())
         asyncio.create_task(_startup_consistency_check())
         asyncio.create_task(_dm_sse_subscriber())
+        asyncio.create_task(_background_poller())
 
     async def _startup_consistency_check():
         """Run all startup consistency checks. Add new checks here as needed."""
@@ -389,6 +402,66 @@ def create_app(config_path: str | Path) -> FastAPI:
                 urls.append(url)
         return urls
 
+    # ── background poll state ─────────────────────────────────────────────
+    _fetch_in_flight: set[str] = set()   # node_ids currently being fetched
+    _contact_status: dict[str, str] = {} # node_id -> "online" | "offline"
+
+    def _poll_interval_s(last_update_ns: int) -> float:
+        """Adaptive interval: half the age of the newest seen post, clamped 5min–1day.
+        Returns 0 when the node has never been checked so it fires immediately."""
+        if last_update_ns == 0:
+            return 0.0
+        age_s = (time.time_ns() - last_update_ns) / 1e9
+        return max(300.0, min(86400.0, age_s / 2.0))
+
+    async def _background_fetch_one(url: str, node_id: str) -> None:
+        if node_id in _fetch_in_flight:
+            return
+        _fetch_in_flight.add(node_id)
+        try:
+            set_contact_poll(_client_db, node_id, last_check=time.time_ns())
+            contact = next((c for c in config.contacts if c.url == url), None)
+            contact_key = (contact.public_key if contact else None) or hashlib.sha256(url.encode()).hexdigest()
+            fetch_target = _call_url(url)
+            hdrs = {**_headers(url), **await _sign_federated("GET", "/posts", b"")}
+            async with httpx.AsyncClient() as hc:
+                r = await hc.get(fetch_target + "/posts", headers=hdrs, timeout=10.0)
+            if r.is_success:
+                _contact_status[node_id] = "online"
+                posts = r.json().get("posts", [])
+                name = _server_name(url)
+                for post in posts:
+                    post["_server_url"] = url
+                    post["_server_name"] = name
+                _cache_posts(contact_key, posts)
+                if posts:
+                    newest = max(p.get("created_at", 0) for p in posts)
+                    set_contact_poll(_client_db, node_id, last_update=newest)
+            else:
+                _contact_status[node_id] = "offline"
+        except Exception:
+            _contact_status[node_id] = "offline"
+        finally:
+            _fetch_in_flight.discard(node_id)
+
+    async def _background_poller() -> None:
+        await asyncio.sleep(5)
+        while True:
+            now_ns = time.time_ns()
+            if config.own_node_id:
+                last_update, last_check = get_contact_poll(_client_db, config.own_node_id)
+                elapsed_s = (now_ns - last_check) / 1e9
+                if elapsed_s >= _poll_interval_s(last_update):
+                    asyncio.create_task(_background_fetch_one(config.own_server, config.own_node_id))
+            for c in config.contacts:
+                if not c.node_id:
+                    continue
+                last_update, last_check = get_contact_poll(_client_db, c.node_id)
+                elapsed_s = (now_ns - last_check) / 1e9
+                if elapsed_s >= _poll_interval_s(last_update):
+                    asyncio.create_task(_background_fetch_one(c.url, c.node_id))
+            await asyncio.sleep(60)
+
     # ── local post/asset cache ────────────────────────────────────────────
     _POST_CACHE_DIR = Path("/data/post_cache")
     _ASSET_CACHE_DIR = Path("/data/asset_cache")
@@ -632,75 +705,51 @@ def create_app(config_path: str | Path) -> FastAPI:
                 post["_server_name"] = name
             return data
 
-        # aggregate all servers
+        # aggregate all servers — serve from cache, fire background refreshes for visible nodes
         servers = _all_servers()
-        params_base: list[tuple[str, str]] = [("limit", str(limit))]
-        if cursor: params_base.append(("cursor", cursor))
-        if q: params_base.append(("q", q))
-        for t in tags: params_base.append(("tags", t))
 
-        async def _fetch_one(url: str) -> tuple[list, bool]:
-            """Returns (posts, server_was_live)."""
-            if not _token(url) and url == config.own_server:
-                return [], True
+        def _node_id_for_url(url: str) -> str | None:
+            if url == config.own_server:
+                return config.own_node_id
+            c = next((c for c in config.contacts if c.url == url), None)
+            return c.node_id if c else None
+
+        all_posts: list[dict] = []
+        for url in servers:
             contact = next((c for c in config.contacts if c.url == url), None)
             contact_key = (contact.public_key if contact else None) or hashlib.sha256(url.encode()).hexdigest()
-            is_contact_node = url != config.own_server
+            cached = _read_cached_posts(contact_key) or _read_cached_posts(contact_key, allow_expired=True)
+            all_posts.extend(cached)
 
-            async def _try_fetch(fetch_target: str) -> list | None:
-                try:
-                    actual_url = _server if fetch_target == config.own_server else fetch_target
-                    hdrs = {**_headers(fetch_target), "X-Origin-Server": config.own_server,
-                            **await _sign_federated("GET", "/posts", b"")}
-                    async with httpx.AsyncClient() as hc:
-                        r = await hc.get(actual_url + "/posts", params=params_base, headers=hdrs, timeout=10.0)
-                    if r.is_success:
-                        data = r.json()
-                        name = _server_name(fetch_target)
-                        posts = data.get("posts", [])
-                        for post in posts:
-                            post["_server_url"] = fetch_target
-                            post["_server_name"] = name
-                        if is_contact_node and not cursor and not q and not tags:
-                            _cache_posts(contact_key, posts)
-                        return posts
-                except Exception:
-                    pass
-                return None
+        if cursor:
+            try:
+                cursor_ts = int(cursor)
+                all_posts = [p for p in all_posts if p.get("created_at", 0) < cursor_ts]
+            except (ValueError, TypeError):
+                pass
+        if q:
+            q_lower = q.lower()
+            all_posts = [p for p in all_posts if q_lower in (p.get("body") or "").lower()]
+        if tags:
+            tag_set = set(tags)
+            all_posts = [p for p in all_posts if tag_set.intersection(p.get("tags") or [])]
 
-            result = await _try_fetch(url)
-            if result is not None:
-                return result, True
-            # Fetch failed — try refreshing URL from registry
-            if contact and contact.public_key:
-                new_url = await _refresh_url_for_pubkey(contact.public_key)
-                if new_url and new_url != url:
-                    result = await _try_fetch(new_url)
-                    if result is not None:
-                        return result, True
-            # Fall back to cached posts (serve expired as last resort)
-            if is_contact_node:
-                cached = _read_cached_posts(contact_key) or _read_cached_posts(contact_key, allow_expired=True)
-                if cached:
-                    log.info("Serving %d cached posts for %s", len(cached), url)
-                    for p in cached:
-                        p["_is_cached"] = True
-                    return cached, False
-            return [], not is_contact_node  # own server empty = live; contact empty = unknown, treat as offline
-
-        import asyncio
-        raw_results = await asyncio.gather(*[_fetch_one(url) for url in servers])
-        server_status = {url: ("online" if live else "offline") for url, (_, live) in zip(servers, raw_results)}
         seen_ids: set[str] = set()
-        deduped = []
-        for posts, _ in raw_results:
-            for p in posts:
-                pid = p.get("id", "")
-                if pid not in seen_ids:
-                    seen_ids.add(pid)
-                    deduped.append(p)
+        deduped: list[dict] = []
+        for p in all_posts:
+            pid = p.get("id", "")
+            if pid not in seen_ids:
+                seen_ids.add(pid)
+                deduped.append(p)
         merged = sorted(deduped, key=lambda p: p.get("created_at", 0), reverse=True)[:limit]
 
+        visible_urls = {p["_server_url"] for p in merged if p.get("_server_url")}
+        for vis_url in visible_urls:
+            nid = _node_id_for_url(vis_url)
+            if nid:
+                asyncio.create_task(_background_fetch_one(vis_url, nid))
+
+        server_status = {url: _contact_status.get(_node_id_for_url(url) or "", "unknown") for url in servers}
         next_cursor = str(merged[-1]["created_at"]) if len(merged) == limit else None
         return {"posts": merged, "server_status": server_status, "next_cursor": next_cursor}
 
@@ -1435,6 +1484,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         if r.is_success and "node_key" in data:
             config.node_key = NodeKey(**data["node_key"])
             config.internal_token = data.get("internal_token")
+            config.own_node_id = data.get("node_id")
             config.save(config_path)
             passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
             if passphrase:
@@ -1455,6 +1505,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         if r.is_success and "node_key" in data:
             config.node_key = NodeKey(**data["node_key"])
             config.internal_token = data.get("internal_token")
+            config.own_node_id = data.get("node_id")
             config.save(config_path)
             passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
             if passphrase:
@@ -1474,8 +1525,10 @@ def create_app(config_path: str | Path) -> FastAPI:
             zf = zipfile.ZipFile(io.BytesIO(data))
             if "client_config.json" in zf.namelist():
                 client_data = _json.loads(zf.read("client_config.json"))
-                # Restore contacts; keep own_server from current bootstrap
+                # Restore contacts and own_node_id; keep own_server from current bootstrap
                 config.contacts = [ContactEntry(**c) for c in client_data.get("contacts", [])]
+                if client_data.get("own_node_id"):
+                    config.own_node_id = client_data["own_node_id"]
                 config.save(config_path)
         except Exception:
             pass

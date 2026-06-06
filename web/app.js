@@ -1481,9 +1481,12 @@ function _closeSSE() {
 
 function _handleSSEEvent(upd) {
   if (upd.type === 'dm') {
-    _loadDmThreads();
     if (_dmActiveThread && upd.thread_id === _dmActiveThread) {
       _loadDmMessages(_dmActiveThread);
+      apiFetch("/api/dm/threads/" + _dmActiveThread + "/seen", {method: "POST"})
+        .then(() => _loadDmThreads());
+    } else {
+      _loadDmThreads();
     }
     return;
   }
