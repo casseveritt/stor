@@ -327,7 +327,8 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             con.commit()
         except Exception:
             pass
-    for _col in ["notif_type TEXT DEFAULT 'mention'", "actor_name TEXT", "emoji TEXT"]:
+    for _col in ["notif_type TEXT DEFAULT 'mention'", "actor_name TEXT", "emoji TEXT",
+                  "post_server TEXT DEFAULT ''"]:
         try:
             con.execute(f"ALTER TABLE mention_notifications ADD COLUMN {_col}")
             con.commit()
@@ -374,6 +375,13 @@ def init_schema(con: sqlcipher3.Connection) -> None:
     con.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS dm_threads_peer_node_id
         ON dm_threads(peer_node_id)
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS registry_cache (
+            node_id    TEXT PRIMARY KEY,
+            record     TEXT NOT NULL,
+            cached_at  INTEGER NOT NULL
+        )
     """)
     con.execute("""
         CREATE TABLE IF NOT EXISTS dm_messages (

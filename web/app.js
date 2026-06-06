@@ -63,24 +63,84 @@ function _lookupNodeFromRegistry(nodeId) {
 }
 let _pendingKeyLookups = new Set();
 
-// ── avatar hover preview ───────────────────────────────────────────────────
+// ── profile hover popup ────────────────────────────────────────────────────
+function _showProfilePopup(serverUrl, anchorEl) {
+  document.querySelectorAll('.profile-popup').forEach(p => p.remove());
+  const prof = serverProfiles[serverUrl] || {};
+  const contact = (CFG?.contacts || []).find(c => c.url === serverUrl);
+  const isOwn = serverUrl === CFG?.own_server;
+  const name = prof.display_name || contact?.name || (isOwn ? (CFG?.own_display_name || 'Me') : (prof.handle ? '@'+prof.handle : serverUrl));
+  const handle = prof.handle || contact?.handle;
+  const photoUrl = prof.photo_url;
+  const initials = (name[0] || '?').toUpperCase();
+  const imgSize = 'calc(3em * 1.4)';
+  const avatarStyle = `width:${imgSize};height:${imgSize};border-radius:50%;flex-shrink:0`;
+
+  const popup = document.createElement('div');
+  popup.className = 'profile-popup mention-popup';
+  popup.onmouseenter = () => clearTimeout(_avatarHideTimer);
+  popup.onmouseleave = () => { _avatarHideTimer = setTimeout(() => popup.remove(), 100); };
+
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;gap:0.65rem;align-items:center;margin-bottom:0.5rem';
+  if (photoUrl) {
+    const img = document.createElement('img');
+    img.src = photoUrl; img.style.cssText = avatarStyle + ';object-fit:cover';
+    img.onerror = () => { const d = document.createElement('div'); d.style.cssText = avatarStyle + ';background:var(--avatar-bg);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--avatar-text)'; d.textContent = initials; img.replaceWith(d); };
+    row.appendChild(img);
+  } else {
+    const d = document.createElement('div');
+    d.style.cssText = avatarStyle + ';background:var(--avatar-bg);display:flex;align-items:center;justify-content:center;font-size:1.1rem;color:var(--avatar-text)';
+    d.textContent = initials; row.appendChild(d);
+  }
+  const info = document.createElement('div'); info.style.minWidth = '0';
+  const nameEl = document.createElement('div');
+  nameEl.style.cssText = 'font-size:0.95rem;font-weight:500;color:#e0e0e0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+  nameEl.textContent = name; info.appendChild(nameEl);
+  if (handle) { const hEl = document.createElement('div'); hEl.style.cssText = 'font-size:0.8rem;color:#666'; hEl.textContent = '@' + handle; info.appendChild(hEl); }
+  row.appendChild(info); popup.appendChild(row);
+
+  if (!isOwn) {
+    const btns = document.createElement('div'); btns.style.cssText = 'display:flex;gap:0.35rem;margin-top:0.35rem';
+    const dmBtn = document.createElement('button');
+    dmBtn.className = 'btn btn-muted btn-sm'; dmBtn.style.fontSize = '0.8rem'; dmBtn.textContent = '✉'; dmBtn.title = 'Send message';
+    dmBtn.onclick = e => { e.stopPropagation(); popup.remove(); _dmStartNew(serverUrl); };
+    btns.appendChild(dmBtn);
+    if (!contact) {
+      const addBtn = document.createElement('button');
+      addBtn.className = 'btn btn-muted btn-sm'; addBtn.style.fontSize = '0.8rem'; addBtn.textContent = '+👤'; addBtn.title = 'Add as contact';
+      addBtn.onclick = e => { e.stopPropagation(); popup.remove(); openAddContact(); const inp = document.getElementById('add-contact-handle'); if (inp) { inp.value = serverUrl; scheduleContactSearch(serverUrl); } };
+      btns.appendChild(addBtn);
+    }
+    popup.appendChild(btns);
+  }
+
+  document.body.appendChild(popup);
+  const r = anchorEl.getBoundingClientRect();
+  popup.style.visibility = 'hidden';
+  requestAnimationFrame(() => {
+    const pw = popup.offsetWidth;
+    popup.style.top = (r.bottom + 6 + window.scrollY) + 'px';
+    popup.style.left = Math.max(4, Math.min(r.left + window.scrollX, window.innerWidth - pw - 8)) + 'px';
+    popup.style.visibility = '';
+  });
+}
+
+let _avatarHideTimer = null;
 (function() {
-  let _previewActive = false;
+  let _hoverTimer = null;
   document.addEventListener('mouseover', e => {
     const av = e.target.closest('.post-author-avatar');
-    if (!av || !av.src || av.src.endsWith('/')) return;
-    const preview = document.getElementById('avatar-preview');
-    const img = document.getElementById('avatar-preview-img');
-    img.src = av.src;
-    preview.hidden = false;
-    _previewActive = true;
+    if (!av) return;
+    clearTimeout(_hoverTimer); clearTimeout(_avatarHideTimer);
+    const serverUrl = av.closest('[data-server]')?.dataset.server || '';
+    _hoverTimer = setTimeout(() => _showProfilePopup(serverUrl, av), 300);
   });
   document.addEventListener('mouseout', e => {
-    if (!_previewActive) return;
     const av = e.target.closest('.post-author-avatar');
     if (!av) return;
-    document.getElementById('avatar-preview').hidden = true;
-    _previewActive = false;
+    clearTimeout(_hoverTimer);
+    _avatarHideTimer = setTimeout(() => document.querySelectorAll('.profile-popup').forEach(p => p.remove()), 150);
   });
   document.addEventListener('mousemove', e => {
     if (!_previewActive) return;
@@ -303,6 +363,13 @@ function _showMentionPopup(event, span) {
     }
     row.appendChild(info);
     popup.appendChild(row);
+
+    const btns = document.createElement('div'); btns.style.cssText = 'display:flex;gap:0.35rem;margin-top:0.35rem';
+    const dmBtn = document.createElement('button');
+    dmBtn.className = 'btn btn-muted btn-sm'; dmBtn.style.fontSize = '0.8rem'; dmBtn.textContent = '✉'; dmBtn.title = 'Send message';
+    dmBtn.onclick = e => { e.stopPropagation(); popup.remove(); _dmStartNew(contact.url); };
+    btns.appendChild(dmBtn);
+    popup.appendChild(btns);
 
     document.body.appendChild(popup);
     const sr = span.getBoundingClientRect();
@@ -1544,7 +1611,8 @@ function renderBodyText(text) {
   let pi = 0;
   const withPh = text.replace(/\[([^|\]]+)\|([^\]]+)\]/g, (_, id, disptext) => {
     const ph = `CCPH${pi++}END`;
-    phMap.set(ph, `<span class="mention-tag" data-mention-id="${esc(id)}" onmouseenter="_showMentionPopup(event,this)" onmouseleave="_hideMentionPopup(event)">${esc(disptext)}</span>`);
+    const _name = disptext || _resolveIdentity(id, '').name;
+    phMap.set(ph, `<span class="mention-tag" data-mention-id="${esc(id)}" onmouseenter="_showMentionPopup(event,this)" onmouseleave="_hideMentionPopup(event)">🔗${esc(_name)}</span>`);
     return ph;
   });
   let html = mdRender(withPh);
@@ -2026,7 +2094,8 @@ function _renderMentions(text) {
     const m = part.match(/^\[([^|\]]+)\|([^\]]+)\]$/);
     if (!m) return esc(part);
     const id = m[1], disptext = m[2];
-    return `<span class="mention-tag" data-mention-id="${esc(id)}" onmouseenter="_showMentionPopup(event,this)" onmouseleave="_hideMentionPopup(event)">${esc(disptext)}</span>`;
+    const _n = disptext || _resolveIdentity(id, '').name;
+    return `<span class="mention-tag" data-mention-id="${esc(id)}" onmouseenter="_showMentionPopup(event,this)" onmouseleave="_hideMentionPopup(event)">🔗${esc(_n)}</span>`;
   }).join('');
 }
 
@@ -2121,13 +2190,16 @@ function _updateHighlight() {
   if (!ta) return;
   const hl = _mentionCtx.hlId ? document.getElementById(_mentionCtx.hlId) : null;
   if (_mentionCtx.hlId && !hl) return;
-  const knownPubkeys = new Set((CFG?.contacts || []).map(c => c.public_key).filter(Boolean));
+  const knownIds = new Set([
+    ...(CFG?.contacts || []).map(c => c.node_id).filter(Boolean),
+    ...(CFG?.contacts || []).map(c => c.public_key).filter(Boolean),
+  ]);
   const escaped = ta.value
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const highlighted = escaped
-    .replace(/\[([^|\]]*)\|([^\]]*)\]/g, (full, pubkey, disptext) => {
-      return knownPubkeys.has(pubkey)
-        ? `<span class="mention-dim">[${pubkey}|</span>${disptext}<span class="mention-dim">]</span>`
+    .replace(/\[([^|\]]*)\|([^\]]*)\]/g, (full, id, disptext) => {
+      return knownIds.has(id)
+        ? `<span class="mention-dim">[</span>🔗${disptext}<span class="mention-dim">]</span>`
         : full;
     });
   if (hl) { hl.innerHTML = highlighted + '​'; hl.scrollTop = ta.scrollTop; }
@@ -2668,7 +2740,12 @@ function _renderMentionsList() {
     list.innerHTML = '<div style="padding:0.75rem;font-size:0.85rem;color:#555;text-align:center">Nothing yet</div>';
     return;
   }
-  list.innerHTML = _mentionsData.map(m => {
+  const unread = _mentionsData.filter(m => !m.seen).length;
+  const header = `<div style="display:flex;justify-content:space-between;align-items:center;padding:0.4rem 0.75rem;border-bottom:1px solid #252525;font-size:0.75rem;color:#555">
+    <span>${unread > 0 ? unread + ' unread' : 'All caught up'}</span>
+    ${unread > 0 ? `<button onclick="_markMentionsSeen()" style="background:none;border:none;color:#555;cursor:pointer;font-size:0.75rem;padding:0" onmouseover="this.style.color='#aaa'" onmouseout="this.style.color='#555'">Clear all</button>` : ''}
+  </div>`;
+  list.innerHTML = header + _mentionsData.map(m => {
     const _actorId = m.author_node_id || m.author_server || '';
     const contact = (CFG?.contacts || []).find(c => c.node_id === _actorId || c.url === _actorId);
     const _resolved = _actorId ? _resolveIdentity(_actorId, '') : null;
@@ -2678,9 +2755,10 @@ function _renderMentionsList() {
     let text;
     if (m.notif_type === 'reaction') text = `${name} reacted ${m.emoji || ''} to your post`;
     else if (m.notif_type === 'comment') text = `${name} commented on your post`;
+    else if (m.notif_type === 'thread') text = `${name} also commented on a post you commented on`;
     else text = `${name} mentioned you`;
-    const _jumpServer = contact?.url || (_actorId.startsWith('http') ? _actorId : '');
-    return `<div onclick="_jumpToMention('${esc(m.post_id)}','${esc(_jumpServer)}')" style="display:flex;gap:0.5rem;align-items:flex-start;padding:0.55rem 0.75rem;cursor:pointer;border-bottom:1px solid #1e1e1e" onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
+    const _jumpServer = m.post_server || contact?.url || (_actorId.startsWith('http') ? _actorId : '');
+    return `<div onclick="_jumpToMention('${esc(m.post_id)}','${esc(_jumpServer)}','${esc(m.id)}')" style="display:flex;gap:0.5rem;align-items:flex-start;padding:0.55rem 0.75rem;cursor:pointer;border-bottom:1px solid #1e1e1e" onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
       ${dot || '<span style="display:inline-block;width:7px;flex-shrink:0"></span>'}
       <div style="flex:1;min-width:0">
         <div style="font-size:0.85rem;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(text)}</div>
@@ -2698,8 +2776,18 @@ async function _markMentionsSeen() {
   _renderMentionsList();
 }
 
-async function _jumpToMention(postId, serverUrl) {
+async function _jumpToMention(postId, serverUrl, notifId) {
   document.getElementById("mentions-panel").hidden = true;
+  if (notifId) {
+    apiFetch("/api/notifications/mentions/" + encodeURIComponent(notifId) + "/seen", {method: "POST"}).catch(() => {});
+    const notif = _mentionsData.find(m => m.id === notifId);
+    if (notif && !notif.seen) {
+      notif.seen = true;
+      const unread = _mentionsData.filter(m => !m.seen).length;
+      const badge = document.getElementById("mentions-badge");
+      if (badge) { badge.hidden = unread === 0; badge.textContent = unread > 9 ? "9+" : String(unread || ''); }
+    }
+  }
   // Fetch the post and open it in the detail overlay
   const params = serverUrl && serverUrl !== CFG.own_server
     ? "?server=" + encodeURIComponent(serverUrl) : "";

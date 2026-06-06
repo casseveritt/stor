@@ -147,6 +147,38 @@ def create_app(db_path: str) -> FastAPI:
     con.execute("CREATE INDEX IF NOT EXISTS handles_username ON handles (username)")
 
     con.execute("""
+        CREATE TABLE IF NOT EXISTS registry_keys (
+            id          INTEGER PRIMARY KEY DEFAULT 1,
+            private_key TEXT NOT NULL,
+            public_key  TEXT NOT NULL
+        )
+    """)
+    _reg_key_row = con.execute("SELECT private_key, public_key FROM registry_keys WHERE id = 1").fetchone()
+    if not _reg_key_row:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _EPK
+        from cryptography.hazmat.primitives.serialization import Encoding as _E, PublicFormat as _PF, PrivateFormat as _PRF, NoEncryption as _NE
+        _rk = _EPK.generate()
+        _rk_priv_hex = _rk.private_bytes(_E.Raw, _PRF.Raw, _NE()).hex()
+        _rk_pub_b64 = base64.b64encode(_rk.public_key().public_bytes(_E.Raw, _PF.Raw)).decode()
+        con.execute("INSERT INTO registry_keys (id, private_key, public_key) VALUES (1, ?, ?)", (_rk_priv_hex, _rk_pub_b64))
+        con.commit()
+        _registry_signing_key = _rk
+        _registry_pub_b64 = _rk_pub_b64
+    else:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _EPK
+        _registry_signing_key = _EPK.from_private_bytes(bytes.fromhex(_reg_key_row[0]))
+        _registry_pub_b64 = _reg_key_row[1]
+
+    def _sign_record(record: dict) -> dict:
+        queried_at = int(time.time())
+        canonical = (f"contacc:node-record:{queried_at}:{record.get('node_id','')}:"
+                     f"{record.get('owner_id','')}:{record.get('server_url','')}:"
+                     f"{record.get('handle','') or ''}:{record.get('display_name','') or ''}")
+        sig = base64.b64encode(_registry_signing_key.sign(canonical.encode())).decode()
+        return {**record, "queried_at": queried_at, "registry_signature": sig,
+                "registry_public_key": _registry_pub_b64}
+
+    con.execute("""
         CREATE TABLE IF NOT EXISTS tang_keys (
             node_id    TEXT PRIMARY KEY,
             t_priv     BLOB NOT NULL,
@@ -381,6 +413,10 @@ def create_app(db_path: str) -> FastAPI:
         handle: str | None = None
         display_name: str | None = None
 
+    @app.get("/meta")
+    def registry_meta():
+        return {"public_key": _registry_pub_b64, "version": 1}
+
     @app.get("/nodes/{node_id}")
     def get_node(node_id: str):
         row = con.execute(
@@ -396,10 +432,12 @@ def create_app(db_path: str) -> FastAPI:
             ).fetchone()
             if not row2:
                 raise HTTPException(404, "Node not found")
-            return {"node_id": row2[5], "owner_id": row2[4], "user_id": row2[4],
-                    "server_url": row2[0], "web_url": row2[1], "handle": row2[2], "display_name": row2[3]}
-        return {"node_id": node_id, "owner_id": row[4], "user_id": row[4],
-                "server_url": row[0], "web_url": row[1], "handle": row[2], "display_name": row[3]}
+            rec = {"node_id": row2[5], "owner_id": row2[4], "user_id": row2[4],
+                   "server_url": row2[0], "web_url": row2[1], "handle": row2[2], "display_name": row2[3]}
+            return _sign_record(rec)
+        rec = {"node_id": node_id, "owner_id": row[4], "user_id": row[4],
+               "server_url": row[0], "web_url": row[1], "handle": row[2], "display_name": row[3]}
+        return _sign_record(rec)
 
     @app.patch("/nodes/{node_id}", status_code=204)
     def update_node(node_id: str, body: UpdateNodeBody, request: Request):

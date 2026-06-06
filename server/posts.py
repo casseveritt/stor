@@ -75,6 +75,50 @@ def subscribe_post(post_id: str, body: SubscribeBody):
         existing.append((body.callback_url, expires))
 
 
+def _notify_thread_participants(post_id: str, new_commenter_identity: str, app) -> None:
+    """Push a 'thread' notification to all prior commenters on the post (excluding the new commenter)."""
+    import threading
+    node_address = getattr(app.state, "node_address", "") or ""
+    own_node_id = getattr(app.state, "node_id", "") or ""
+
+    def _send():
+        import httpx as _hx, time as _t, base64 as _b64
+        db = app.state.db
+        priv = getattr(app.state, "private_key", None)
+        rows = db.execute(
+            """SELECT DISTINCT author_identity FROM comments
+               WHERE post_id = ? AND deleted = 0
+               AND author_identity IS NOT NULL AND author_identity != ''
+               AND author_identity != ?""",
+            (post_id, new_commenter_identity or "__none__"),
+        ).fetchall()
+        for (follower_node_id,) in rows:
+            try:
+                row = db.execute("SELECT server_url FROM users WHERE node_id = ?", (follower_node_id,)).fetchone()
+                if not row:
+                    continue
+                ts = int(_t.time())
+                payload = {
+                    "post_id": post_id,
+                    "author_node_id": own_node_id,
+                    "notif_type": "thread",
+                    "post_server": node_address,
+                    "timestamp": ts,
+                }
+                headers = {"Content-Type": "application/json"}
+                if priv:
+                    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+                    sig = _b64.b64encode(priv.sign(f"contacc:mention:{post_id}:{ts}".encode())).decode()
+                    pub_b64 = _b64.b64encode(priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)).decode()
+                    headers.update({"X-Public-Key": pub_b64, "X-Timestamp": str(ts),
+                                    "X-Signature": sig, "X-Origin-Server": node_address})
+                _hx.post(row[0].rstrip("/") + "/notifications/mention",
+                         json=payload, headers=headers, timeout=5)
+            except Exception:
+                pass
+    threading.Thread(target=_send, daemon=True).start()
+
+
 def _notify_mentions(body: str, post_id: str, app) -> None:
     """Best-effort federated notification to any nodes mentioned in body."""
     import threading
@@ -650,6 +694,8 @@ async def post_comment(post_id: str, payload: _CommentBody, request: Request, id
         db.commit()
 
     _notify_mentions(payload.body, post_id, request.app)
+    if author_identity:
+        _notify_thread_participants(post_id, author_identity, request.app)
     result = {
         "id": comment_id, "content_hash": content_hash,
         "post_id": post_id, "parent_id": payload.parent_id,

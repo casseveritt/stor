@@ -414,13 +414,17 @@ def create_app(config_path: str | Path) -> FastAPI:
             post_id = body.get("post_id", "")
             author_node_id = body.get("author_node_id") or body.get("author_server", "")
             author_handle = body.get("author_handle", "")
+            notif_type = body.get("notif_type", "mention")
+            post_server = body.get("post_server", "")
             if not post_id or not author_node_id:
                 return JSONResponse({"detail": "missing fields"}, status_code=400)
             db = app.state.db
             notif_id = str(__import__("uuid").uuid4())
             db.execute(
-                "INSERT OR IGNORE INTO mention_notifications (id, post_id, author_node_id, author_handle, received_at) VALUES (?, ?, ?, ?, ?)",
-                (notif_id, post_id, author_node_id, author_handle, int(time.time_ns()))
+                "INSERT OR IGNORE INTO mention_notifications "
+                "(id, post_id, author_node_id, author_handle, received_at, notif_type, post_server) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (notif_id, post_id, author_node_id, author_handle, int(time.time_ns()), notif_type, post_server)
             )
             db.commit()
         except Exception:
@@ -431,13 +435,14 @@ def create_app(config_path: str | Path) -> FastAPI:
         """Return recent mention notifications for the owner."""
         db = app.state.db
         rows = db.execute(
-            "SELECT id, post_id, author_node_id, author_handle, received_at, seen, notif_type, actor_name, emoji "
+            "SELECT id, post_id, author_node_id, author_handle, received_at, seen, notif_type, actor_name, emoji, post_server "
             "FROM mention_notifications ORDER BY received_at DESC LIMIT 50"
         ).fetchall()
         return {"notifications": [
             {"id": r[0], "post_id": r[1], "author_node_id": r[2],
              "author_handle": r[3], "received_at": r[4], "seen": bool(r[5]),
-             "notif_type": r[6] or "mention", "actor_name": r[7], "emoji": r[8]}
+             "notif_type": r[6] or "mention", "actor_name": r[7], "emoji": r[8],
+             "post_server": r[9] or ""}
             for r in rows
         ]}
 
@@ -446,6 +451,26 @@ def create_app(config_path: str | Path) -> FastAPI:
         db = app.state.db
         db.execute("UPDATE mention_notifications SET seen = 1 WHERE seen = 0")
         db.commit()
+
+    @app.post("/api/notifications/mentions/{notif_id}/seen", status_code=204)
+    def mark_mention_seen(notif_id: str, request: Request):
+        db = app.state.db
+        db.execute("UPDATE mention_notifications SET seen = 1 WHERE id = ?", (notif_id,))
+        db.commit()
+
+    @app.get("/registry-cache/{node_id}")
+    def registry_cache_get(node_id: str, request: Request):
+        """Return our locally-cached signed registry record for this node_id (for peer sharing)."""
+        import json as _json
+        db = request.app.state.db
+        row = db.execute("SELECT record, cached_at FROM registry_cache WHERE node_id = ?", (node_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Not in cache")
+        record = _json.loads(row[0])
+        queried_at = record.get("queried_at", 0)
+        if time.time() - queried_at > 8 * 3600:
+            raise HTTPException(status_code=404, detail="Cache entry too stale")
+        return record
 
     @app.post("/tang/deliver")
     async def tang_deliver(request: Request):
