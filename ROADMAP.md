@@ -28,7 +28,24 @@ Design sketch:
 - Staleness threshold: records older than TTL are considered stale and trigger a refresh;
   records older than 2× TTL are rejected even from peers.
 
-**1. Chat / direct messages — remaining work**
+**1. Mention rendering: hide node_id, show link emoji + display text**
+
+Mentions are stored as `[node_id|disptext]` but currently the raw token is visible in the
+compose/edit highlight layer and—when the node_id can't be resolved—in rendered posts.
+The rendered form should always be `[🔗disptext]` (or similar link-style pill), never
+exposing the node_id to the reader.
+
+Scope:
+- `renderBodyText` / `mdRender` post-processing: replace `[node_id|disptext]` with a
+  styled inline element showing only the display text, with a hover popup (already
+  implemented) and a small link indicator (emoji or icon). The node_id moves to a
+  `data-mention-id` attribute, invisible to the reader.
+- Compose/edit highlight overlay (`_updateHighlight`): already dims the `[node_id|` prefix;
+  verify it fully hides the UUID and only shows the display text in the live preview.
+- If `disptext` is empty or stale, fall back to resolving the node_id via
+  `_resolveIdentity` at render time so the name is always current.
+
+**2. Chat / direct messages — remaining work**
 
 The DM feature is implemented (see Completed). Remaining:
 - Small-group messaging (3+ participants)
