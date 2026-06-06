@@ -64,7 +64,20 @@ Implementation notes:
 - The message button should work even before a DM thread exists (the DM panel handles
   first-message creation).
 
-**3. Chat / direct messages — remaining work**
+**3. Mark mention as read on selection**
+
+Clicking a notification in the mentions/reactions dropdown currently jumps to the post but
+does not mark that individual notification as read. The unread dot should clear immediately
+on click, and the badge count should decrement.
+
+Currently `_markMentionsSeen` marks *all* notifications seen at once (called when the panel
+is opened). Instead:
+- Mark the individual notification seen on click (optimistic UI update + API call).
+- The badge count should reflect only truly-unseen notifications.
+- Bulk "mark all read" can remain as a secondary action (e.g. a small "clear all" link in
+  the panel header).
+
+**4. Chat / direct messages — remaining work**
 
 The DM feature is implemented (see Completed). Remaining:
 - Small-group messaging (3+ participants)
