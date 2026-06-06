@@ -838,10 +838,6 @@ async function loadFeed() {
     }
   }
 
-  // Auth check — redirect to login if unauthenticated.
-  const authCheck = await apiFetch("/api/feed?limit=1");
-  if (authCheck.status === 401) { showView("login"); return false; }
-
   loadIdentity();
   loadTagSidebar();
   fetchServerHandles().then(() => _startBgFetch());
@@ -852,17 +848,16 @@ async function loadFeed() {
     const ok = await resetFeed(true);
     if (!ok) { showView("login"); return false; }
   } else {
-    // Cache is warm — let the UI settle, then refresh from servers in the background.
+    // Cache is warm — refresh from servers immediately in the background.
     const servers = activeServer ? [activeServer] : [CFG.own_server, ...(CFG.contacts || []).map(c => c.url)];
     for (const url of servers) _serverLastFetched[url] = 0;
-    setTimeout(async () => {
-      await _runBgFetch();
+    _runBgFetch().then(() => {
       const el = document.getElementById("feed-status");
       if (el && el.textContent.includes('refreshing')) {
         const n = allPosts.length;
         el.textContent = n ? n + " post" + (n !== 1 ? "s" : "") : "";
       }
-    }, 3000);
+    });
   }
 
   return true;
