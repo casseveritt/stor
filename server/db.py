@@ -335,14 +335,20 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             pass
     con.execute("""
         CREATE TABLE IF NOT EXISTS mention_notifications (
-            id           TEXT PRIMARY KEY,
-            post_id      TEXT NOT NULL,
-            author_server TEXT NOT NULL,
+            id            TEXT PRIMARY KEY,
+            post_id       TEXT NOT NULL,
+            author_node_id TEXT NOT NULL DEFAULT '',
             author_handle TEXT,
-            received_at  INTEGER NOT NULL,
-            seen         INTEGER NOT NULL DEFAULT 0
+            received_at   INTEGER NOT NULL,
+            seen          INTEGER NOT NULL DEFAULT 0
         )
     """)
+    # Rename legacy author_server column to author_node_id.
+    try:
+        con.execute("ALTER TABLE mention_notifications RENAME COLUMN author_server TO author_node_id")
+        con.commit()
+    except Exception:
+        pass
     con.execute("""
         CREATE TABLE IF NOT EXISTS dm_threads (
             thread_id    TEXT PRIMARY KEY,
@@ -441,12 +447,12 @@ def init_schema(con: sqlcipher3.Connection) -> None:
               ) IS NOT NULL
         """)
         con.execute("""
-            UPDATE mention_notifications SET author_server = (
-                SELECT u.node_id FROM users u WHERE u.server_url = mention_notifications.author_server AND u.node_id IS NOT NULL
+            UPDATE mention_notifications SET author_node_id = (
+                SELECT u.node_id FROM users u WHERE u.server_url = mention_notifications.author_node_id AND u.node_id IS NOT NULL
             )
-            WHERE author_server != ''
+            WHERE author_node_id != ''
               AND (
-                SELECT u.node_id FROM users u WHERE u.server_url = mention_notifications.author_server AND u.node_id IS NOT NULL
+                SELECT u.node_id FROM users u WHERE u.server_url = mention_notifications.author_node_id AND u.node_id IS NOT NULL
               ) IS NOT NULL
         """)
         con.commit()

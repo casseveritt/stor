@@ -412,15 +412,15 @@ def create_app(config_path: str | Path) -> FastAPI:
         try:
             body = await request.json()
             post_id = body.get("post_id", "")
-            author_server = body.get("author_server", "")
+            author_node_id = body.get("author_node_id") or body.get("author_server", "")
             author_handle = body.get("author_handle", "")
-            if not post_id or not author_server:
+            if not post_id or not author_node_id:
                 return JSONResponse({"detail": "missing fields"}, status_code=400)
             db = app.state.db
             notif_id = str(__import__("uuid").uuid4())
             db.execute(
-                "INSERT OR IGNORE INTO mention_notifications (id, post_id, author_server, author_handle, received_at) VALUES (?, ?, ?, ?, ?)",
-                (notif_id, post_id, author_server, author_handle, int(time.time_ns()))
+                "INSERT OR IGNORE INTO mention_notifications (id, post_id, author_node_id, author_handle, received_at) VALUES (?, ?, ?, ?, ?)",
+                (notif_id, post_id, author_node_id, author_handle, int(time.time_ns()))
             )
             db.commit()
         except Exception:
@@ -431,11 +431,11 @@ def create_app(config_path: str | Path) -> FastAPI:
         """Return recent mention notifications for the owner."""
         db = app.state.db
         rows = db.execute(
-            "SELECT id, post_id, author_server, author_handle, received_at, seen, notif_type, actor_name, emoji "
+            "SELECT id, post_id, author_node_id, author_handle, received_at, seen, notif_type, actor_name, emoji "
             "FROM mention_notifications ORDER BY received_at DESC LIMIT 50"
         ).fetchall()
         return {"notifications": [
-            {"id": r[0], "post_id": r[1], "author_server": r[2],
+            {"id": r[0], "post_id": r[1], "author_node_id": r[2],
              "author_handle": r[3], "received_at": r[4], "seen": bool(r[5]),
              "notif_type": r[6] or "mention", "actor_name": r[7], "emoji": r[8]}
             for r in rows

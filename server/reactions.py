@@ -119,7 +119,7 @@ async def toggle_reaction(post_id: str, payload: _ReactBody, request: Request, i
         _nid = _hl.sha256(f"reaction:{post_id}:{reactor}:{payload.emoji}".encode()).hexdigest()[:36]
         db.execute(
             "INSERT OR IGNORE INTO mention_notifications "
-            "(id, post_id, author_server, author_handle, received_at, notif_type, actor_name, emoji) "
+            "(id, post_id, author_node_id, author_handle, received_at, notif_type, actor_name, emoji) "
             "VALUES (?,?,?,?,?,?,?,?)",
             (_nid, post_id, '', '', now_ns(), 'reaction', _actor, payload.emoji)
         )

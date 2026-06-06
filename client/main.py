@@ -92,12 +92,14 @@ def create_app(config_path: str | Path) -> FastAPI:
     else:
         _client_db = open_client_db_memory()
 
-    # One-time migration: move any tags from config JSON into client DB
+    # One-time migration: move any tags from config JSON into client DB (keyed by node_id)
+    _url_to_node_id = {c.url: c.node_id for c in config.contacts if c.node_id}
     for raw_contact in raw_config_data.get("contacts", []):
         tag = raw_contact.get("tag")
         url = raw_contact.get("url")
-        if tag and url and not get_tag(_client_db, url):
-            db_set_tag(_client_db, url, tag)
+        node_id = _url_to_node_id.get(url or "")
+        if tag and node_id and not get_tag(_client_db, node_id):
+            db_set_tag(_client_db, node_id, tag)
 
     app = FastAPI(title="contacc client")
     app.state.config = config
@@ -134,6 +136,17 @@ def create_app(config_path: str | Path) -> FastAPI:
         import asyncio as _asyncio
         await _asyncio.sleep(5)  # let the server finish starting up
         dirty = False
+
+        # ── migrate: copy server_url-keyed tags from legacy users table to contact_tags ──
+        for c in config.contacts:
+            if c.node_id:
+                old_row = _client_db.execute("SELECT tag FROM users WHERE server_url = ?", (c.url,)).fetchone()
+                if old_row and old_row["tag"]:
+                    _client_db.execute(
+                        "INSERT OR IGNORE INTO contact_tags (node_id, tag, updated_at) VALUES (?, ?, ?)",
+                        (c.node_id, old_row["tag"], time.time_ns())
+                    )
+        _client_db.commit()
 
         # ── check: contacts missing node_id ──────────────────────────────────
         contacts_need_node_id = [c for c in config.contacts if not c.node_id]
@@ -639,7 +652,7 @@ def create_app(config_path: str | Path) -> FastAPI:
             entry: dict = {"name": _server_name(url), "url": url, "authenticated": bool(_token(url))}
             c = contact_by_url.get(url)
             if c:
-                entry["tag"] = tags.get(url)
+                entry["tag"] = tags.get(c.node_id) if c.node_id else None
                 entry["handle"] = c.handle
                 entry["description"] = c.description
                 entry["poll_weight"] = _contact_weight(c)
@@ -1360,7 +1373,7 @@ def create_app(config_path: str | Path) -> FastAPI:
             raise HTTPException(status_code=404, detail="Contact not found")
         dirty = False
         if body.tag is not None:
-            db_set_tag(_client_db, body.url, body.tag or None)
+            db_set_tag(_client_db, contact.node_id or body.url, body.tag or None)
         if body.node_id is not None and not contact.node_id:
             contact.node_id = body.node_id
             dirty = True
@@ -1476,7 +1489,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                    or contact_by_url.get(t.get("peer_url", ""))
             t["is_contact"] = contact is not None
             if contact and not t.get("peer_name"):
-                t["peer_name"] = tags.get(contact.url) or contact.name
+                t["peer_name"] = (tags.get(contact.node_id) if contact.node_id else None) or contact.name
         return data
 
     class DmSendBody(BaseModel):

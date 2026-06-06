@@ -83,6 +83,7 @@ def _notify_mentions(body: str, post_id: str, app) -> None:
         return
     config = app.state.config if hasattr(app.state, "config") else None
     node_address = getattr(app.state, "node_address", "") or ""
+    own_node_id = getattr(app.state, "node_id", "") or ""
     registry_url = ""
     handle = ""
     if config:
@@ -112,7 +113,7 @@ def _notify_mentions(body: str, post_id: str, app) -> None:
 
                 payload = {
                     "post_id": post_id,
-                    "author_server": node_address,
+                    "author_node_id": own_node_id,
                     "author_handle": handle,
                     "timestamp": int(_t.time()),
                 }
@@ -642,7 +643,7 @@ async def post_comment(post_id: str, payload: _CommentBody, request: Request, id
             _actor = _row[0] if _row else author_identity
         db.execute(
             "INSERT OR IGNORE INTO mention_notifications "
-            "(id, post_id, author_server, author_handle, received_at, notif_type, actor_name, emoji) "
+            "(id, post_id, author_node_id, author_handle, received_at, notif_type, actor_name, emoji) "
             "VALUES (?,?,?,?,?,?,?,?)",
             (comment_id, post_id, author_identity or '', '', now_ns(), 'comment', _actor, None)
         )

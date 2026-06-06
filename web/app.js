@@ -46,6 +46,23 @@ function _loadProfileCache() {
 }
 let serverPublicKeys = {}; // base64 pubkey → server url
 let _keyToProfile = {};   // base64 pubkey → {username, display_name} from registry
+let _nodeIdToProfile = {}; // node_id → {handle, display_name} from registry
+const _pendingNodeLookups = new Set();
+
+function _isNodeId(s) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+}
+
+function _lookupNodeFromRegistry(nodeId) {
+  if (_nodeIdToProfile[nodeId] !== undefined || _pendingNodeLookups.has(nodeId)) return;
+  const registryUrl = (CFG?.identity_proxy_url || '').replace(/\/$/, '');
+  if (!registryUrl) { _nodeIdToProfile[nodeId] = {}; return; }
+  _pendingNodeLookups.add(nodeId);
+  fetch(registryUrl + '/nodes/' + encodeURIComponent(nodeId))
+    .then(r => r.ok ? r.json() : null)
+    .then(d => { _nodeIdToProfile[nodeId] = d || {}; _pendingNodeLookups.delete(nodeId); })
+    .catch(() => { _nodeIdToProfile[nodeId] = {}; _pendingNodeLookups.delete(nodeId); });
+}
 let _pendingKeyLookups = new Set();
 
 // ── avatar hover preview ───────────────────────────────────────────────────
@@ -1194,11 +1211,21 @@ function _resolveIdentity(identity, postServerUrl) {
     _lookupKeyFromRegistry(identity);
     try { return { name: new URL(identity).hostname, photoUrl: null }; } catch { return { name: identity.slice(0, 20), photoUrl: null }; }
   }
-  // node_id: contacts by node_id
-  const byNodeId = (CFG.contacts || []).find(c => c.node_id && c.node_id === identity);
-  if (byNodeId) {
-    const prof = serverProfiles[byNodeId.url] || {};
-    return { name: prof.display_name || byNodeId.name, photoUrl: prof.photo_url || null };
+  // node_id: own node, contacts, then registry
+  if (_isNodeId(identity)) {
+    if (identity === CFG?.own_node_id) {
+      const ownProf = serverProfiles[CFG.own_server] || {};
+      return { name: ownProf.display_name || CFG.own_display_name || 'Me', photoUrl: ownProf.photo_url || null };
+    }
+    const byNodeId = (CFG.contacts || []).find(c => c.node_id && c.node_id === identity);
+    if (byNodeId) {
+      const prof = serverProfiles[byNodeId.url] || {};
+      return { name: prof.display_name || byNodeId.name, photoUrl: prof.photo_url || null };
+    }
+    const cached = _nodeIdToProfile[identity];
+    if (cached?.display_name || cached?.handle) return { name: cached.display_name || ('@' + cached.handle), photoUrl: null };
+    _lookupNodeFromRegistry(identity);
+    return { name: identity.slice(0, 8), photoUrl: null };
   }
   // public key: contacts by key, registry cache, server profiles by key→url
   const byKey = (CFG.contacts || []).find(c => c.public_key && c.public_key === identity);
@@ -2644,15 +2671,17 @@ function _renderMentionsList() {
     return;
   }
   list.innerHTML = _mentionsData.map(m => {
-    const contact = (CFG?.contacts || []).find(c => c.node_id === m.author_server || c.url === m.author_server);
-    const name = m.actor_name || (contact ? (contact.name || m.author_handle) : (m.author_handle || 'Someone'));
+    const _actorId = m.author_node_id || m.author_server || '';
+    const contact = (CFG?.contacts || []).find(c => c.node_id === _actorId || c.url === _actorId);
+    const _resolved = _actorId ? _resolveIdentity(_actorId, '') : null;
+    const name = m.actor_name || (contact ? (contact.name || m.author_handle) : (_resolved?.name || m.author_handle || 'Someone'));
     const time = fmtDate(m.received_at);
     const dot = m.seen ? '' : '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#4285f4;flex-shrink:0;margin-top:3px"></span>';
     let text;
     if (m.notif_type === 'reaction') text = `${name} reacted ${m.emoji || ''} to your post`;
     else if (m.notif_type === 'comment') text = `${name} commented on your post`;
     else text = `${name} mentioned you`;
-    const _jumpServer = contact?.url || (m.author_server.startsWith('http') ? m.author_server : '');
+    const _jumpServer = contact?.url || (_actorId.startsWith('http') ? _actorId : '');
     return `<div onclick="_jumpToMention('${esc(m.post_id)}','${esc(_jumpServer)}')" style="display:flex;gap:0.5rem;align-items:flex-start;padding:0.55rem 0.75rem;cursor:pointer;border-bottom:1px solid #1e1e1e" onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
       ${dot || '<span style="display:inline-block;width:7px;flex-shrink:0"></span>'}
       <div style="flex:1;min-width:0">

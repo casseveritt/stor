@@ -87,6 +87,13 @@ def _init_schema(db) -> None:
     except Exception:
         pass
     db.execute("""
+        CREATE TABLE IF NOT EXISTS contact_tags (
+            node_id     TEXT PRIMARY KEY,
+            tag         TEXT,
+            updated_at  INTEGER DEFAULT 0
+        )
+    """)
+    db.execute("""
         CREATE TABLE IF NOT EXISTS contact_poll (
             node_id     TEXT PRIMARY KEY,
             last_update INTEGER DEFAULT 0,
@@ -96,23 +103,23 @@ def _init_schema(db) -> None:
     db.commit()
 
 
-def get_tag(db, server_url: str) -> str | None:
-    row = db.execute("SELECT tag FROM users WHERE server_url = ?", (server_url,)).fetchone()
+def get_tag(db, node_id: str) -> str | None:
+    row = db.execute("SELECT tag FROM contact_tags WHERE node_id = ?", (node_id,)).fetchone()
     return row["tag"] if row else None
 
 
-def set_tag(db, server_url: str, tag: str | None) -> None:
+def set_tag(db, node_id: str, tag: str | None) -> None:
     db.execute(
-        "INSERT INTO users (server_url, tag, updated_at) VALUES (?, ?, ?)"
-        " ON CONFLICT(server_url) DO UPDATE SET tag = excluded.tag, updated_at = excluded.updated_at",
-        (server_url, tag or None, time.time_ns()),
+        "INSERT INTO contact_tags (node_id, tag, updated_at) VALUES (?, ?, ?)"
+        " ON CONFLICT(node_id) DO UPDATE SET tag = excluded.tag, updated_at = excluded.updated_at",
+        (node_id, tag or None, time.time_ns()),
     )
     db.commit()
 
 
 def get_all_tags(db) -> dict[str, str | None]:
-    rows = db.execute("SELECT server_url, tag FROM users").fetchall()
-    return {row["server_url"]: row["tag"] for row in rows}
+    rows = db.execute("SELECT node_id, tag FROM contact_tags").fetchall()
+    return {row["node_id"]: row["tag"] for row in rows}
 
 
 def get_contact_poll(db, node_id: str) -> tuple[int, int]:
