@@ -413,24 +413,24 @@ function openContactMenu(e, url, tag, description, category) {
   const wrap = btn.parentElement;
   const popup = document.createElement('div');
   popup.className = 'post-menu-popup';
+  popup.style.cssText = 'display:flex;flex-direction:row;padding:0.15rem;gap:1px;min-width:0';
 
-  const msgBtn = document.createElement('button');
-  msgBtn.textContent = 'Message';
-  msgBtn.onclick = () => { closeAllPostMenus(); _dmStartNew(url); };
-  const editBtn = document.createElement('button');
-  editBtn.textContent = 'Edit contact…';
-  editBtn.onclick = () => { closeAllPostMenus(); openContactEdit(url); };
-  popup.appendChild(msgBtn);
-  popup.appendChild(editBtn);
-
-  const removeWrap = document.createElement('div');
-  removeWrap.style.cssText = 'border-top:1px solid #2a2a2a;margin:2px 0';
-  popup.appendChild(removeWrap);
-  const removeBtn = document.createElement('button');
-  removeBtn.className = 'danger';
-  removeBtn.textContent = 'Remove';
-  removeBtn.onclick = () => { closeAllPostMenus(); removeContact(url); };
-  popup.appendChild(removeBtn);
+  const items = [
+    { icon: '✉️', title: 'Message',        onclick: () => { closeAllPostMenus(); _dmStartNew(url); } },
+    { icon: '✏️',  title: 'Edit contact',   onclick: () => { closeAllPostMenus(); openContactEdit(url); } },
+    { icon: '🗑️', title: 'Remove contact', onclick: () => { closeAllPostMenus(); removeContact(url); }, danger: true },
+  ];
+  for (const item of items) {
+    const b = document.createElement('button');
+    b.textContent = item.icon;
+    b.title = item.title;
+    b.style.cssText = 'font-size:1.05rem;padding:0.25rem 0.4rem;background:none;border:none;cursor:pointer;border-radius:4px;line-height:1';
+    b.style.color = item.danger ? '#c0392b' : '#ccc';
+    b.onmouseenter = () => b.style.background = '#2a2a2a';
+    b.onmouseleave = () => b.style.background = 'none';
+    b.onclick = item.onclick;
+    popup.appendChild(b);
+  }
 
   wrap.appendChild(popup);
   const dismiss = ev => { if (!popup.contains(ev.target) && ev.target !== btn) { closeAllPostMenus(); document.removeEventListener('click', dismiss, true); } };
