@@ -66,16 +66,13 @@ def _registry_heartbeat(
         if google_identity:
             payload["google_identity"] = google_identity
         r = httpx.put(f"{registry_url.rstrip('/')}/update/{handle}", json=payload, timeout=10.0)
-        if r.status_code == 404:
-            # Not registered yet — register for the first time
+        if r.status_code in (404, 410):
+            # Not registered, or previous entry was superseded — register fresh
             pub_b64 = base64.b64encode(pub_bytes).decode()
             reg_msg = f"contacc:register:{handle}:{node_address}:{timestamp}"
             reg_sig = base64.b64encode(private_key.sign(reg_msg.encode())).decode()
             reg_payload = {**payload, "public_key": pub_b64, "signature": reg_sig}
             r = httpx.post(f"{registry_url.rstrip('/')}/register/{handle}", json=reg_payload, timeout=10.0)
-        if r.status_code == 410:
-            log.warning("Registry: this node has been marked superseded — heartbeat rejected")
-            return
         if r.is_success:
             log.info("Registry heartbeat OK: %s → %s", handle, node_address)
         else:
