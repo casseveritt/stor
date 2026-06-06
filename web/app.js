@@ -2481,6 +2481,7 @@ function _toggleDmPanel() {
   document.getElementById("mentions-panel").hidden = true;
   panel.hidden = !wasHidden;
   if (!wasHidden) {
+    _dmActiveThread = null;
     _dmResetExpand();
     if (_openPanels.size === 0) _stopDetailPoll();
     return;
@@ -2501,6 +2502,7 @@ function _closeDmPanelOutside(e) {
     return;
   }
   panel.hidden = true;
+  _dmActiveThread = null;
   _dmResetExpand();
   if (_openPanels.size === 0) _stopDetailPoll();
 }
