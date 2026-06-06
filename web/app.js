@@ -2578,6 +2578,10 @@ async function _dmSend() {
         const nd = await nr.json();
         peer_node_id = nd.node_id || nd.user_id;
         if (!peer_node_id) { alert("Contact's node doesn't report a node ID."); return; }
+        // Persist node_id on the contact so future DMs use the same thread_id
+        if (contact) apiFetch("/api/contacts", {method:"PATCH",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({url: peer_url, node_id: peer_node_id})});
       } catch { alert("Could not reach contact's node."); return; }
     }
   } else {

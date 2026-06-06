@@ -1033,6 +1033,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         description: str | None = None
         category: str | None = None       # predefined key or custom; "" to clear
         poll_weight: float | None = None  # explicit override; None = derive from category
+        node_id: str | None = None
 
     @api.patch("/contacts")
     async def api_patch_contact(body: ContactPatchBody):
@@ -1042,6 +1043,9 @@ def create_app(config_path: str | Path) -> FastAPI:
         dirty = False
         if body.tag is not None:
             db_set_tag(_client_db, body.url, body.tag or None)
+        if body.node_id is not None and not contact.node_id:
+            contact.node_id = body.node_id
+            dirty = True
         if body.description is not None:
             contact.description = body.description or None
             dirty = True
