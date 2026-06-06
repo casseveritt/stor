@@ -1469,9 +1469,9 @@ function _openSSE() {
     try { _handleSSEEvent(JSON.parse(e.data)); } catch (_) {}
   };
   _sseSource.onerror = () => {
-    // Browser will auto-retry; close and reopen on visibility change
     _sseSource.close();
     _sseSource = null;
+    if (document.visibilityState === 'visible') setTimeout(_openSSE, 5000);
   };
 }
 
@@ -1525,11 +1525,9 @@ function _startDetailPoll() {
   _openSSE();
 }
 function _stopDetailPoll() {
-  // Don't close SSE if DM panel is still open
   const dmPanel = document.getElementById("dm-panel");
   if (dmPanel && !dmPanel.hidden) return;
   clearInterval(_detailPollTimer); _detailPollTimer = null;
-  if (_openPanels.size === 0) _closeSSE();
 }
 // _applySubscribedUpdates removed — replaced by SSE (_handleSSEEvent)
 
