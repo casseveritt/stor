@@ -386,6 +386,40 @@ def init_schema(con: sqlcipher3.Connection) -> None:
     con.execute("DELETE FROM reactions WHERE reactor_identity IN ('<anon>', '__anon__')")
     con.commit()
 
+    # Migrate reactions: convert public-key reactor_identity to node_id where possible,
+    # and delete any reaction whose identity can't be resolved to a known node_id.
+    _special_ids = {"", "<anon>", "__anon__"}
+    _nid_set = {r[0] for r in con.execute(
+        "SELECT node_id FROM users WHERE node_id IS NOT NULL").fetchall()}
+    _pub_to_nid = {r[0]: r[1] for r in con.execute(
+        "SELECT public_key, node_id FROM users WHERE public_key IS NOT NULL AND node_id IS NOT NULL"
+    ).fetchall()}
+    _stale_identities = [
+        r[0] for r in con.execute("SELECT DISTINCT reactor_identity FROM reactions").fetchall()
+        if r[0] not in _special_ids and r[0] not in _nid_set
+    ]
+    for _rid in _stale_identities:
+        if _rid in _pub_to_nid:
+            _nid = _pub_to_nid[_rid]
+            # Remove pubkey reaction wherever a node_id reaction already covers the same slot.
+            con.execute("""
+                DELETE FROM reactions WHERE reactor_identity = ?
+                AND EXISTS (
+                    SELECT 1 FROM reactions r2
+                    WHERE r2.post_id = reactions.post_id
+                    AND r2.comment_id = reactions.comment_id
+                    AND r2.emoji = reactions.emoji
+                    AND r2.reactor_identity = ?
+                )
+            """, (_rid, _nid))
+            con.execute(
+                "UPDATE reactions SET reactor_identity = ? WHERE reactor_identity = ?",
+                (_nid, _rid))
+        else:
+            con.execute("DELETE FROM reactions WHERE reactor_identity = ?", (_rid,))
+    if _stale_identities:
+        con.commit()
+
     # Migrate recipients.identity and comments.author_identity from server_url to node_id.
     # Only updates rows where a matching users entry has a node_id; leaves the rest unchanged.
     _recipients_migrated = con.execute("""
