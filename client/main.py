@@ -122,6 +122,12 @@ def create_app(config_path: str | Path) -> FastAPI:
         asyncio.create_task(_startup_consistency_check())
         asyncio.create_task(_dm_sse_subscriber())
         asyncio.create_task(_background_poller())
+        # Warm the post cache immediately so the "all" feed has data on first load.
+        own_poll_id = config.own_node_id or hashlib.sha256(config.own_server.encode()).hexdigest()[:16]
+        asyncio.create_task(_background_fetch_one(config.own_server, own_poll_id))
+        for c in config.contacts:
+            if c.node_id:
+                asyncio.create_task(_background_fetch_one(c.url, c.node_id))
 
     async def _startup_consistency_check():
         """Run all startup consistency checks. Add new checks here as needed."""
@@ -448,11 +454,13 @@ def create_app(config_path: str | Path) -> FastAPI:
         await asyncio.sleep(5)
         while True:
             now_ns = time.time_ns()
-            if config.own_node_id:
-                last_update, last_check = get_contact_poll(_client_db, config.own_node_id)
-                elapsed_s = (now_ns - last_check) / 1e9
-                if elapsed_s >= _poll_interval_s(last_update):
-                    asyncio.create_task(_background_fetch_one(config.own_server, config.own_node_id))
+            # Use a URL-derived fallback key if own_node_id is not yet known (e.g.,
+            # startup /node fetch failed because the server started after the client).
+            own_poll_id = config.own_node_id or hashlib.sha256(config.own_server.encode()).hexdigest()[:16]
+            last_update, last_check = get_contact_poll(_client_db, own_poll_id)
+            elapsed_s = (now_ns - last_check) / 1e9
+            if elapsed_s >= _poll_interval_s(last_update):
+                asyncio.create_task(_background_fetch_one(config.own_server, own_poll_id))
             for c in config.contacts:
                 if not c.node_id:
                     continue
@@ -721,6 +729,26 @@ def create_app(config_path: str | Path) -> FastAPI:
             cached = _read_cached_posts(contact_key) or _read_cached_posts(contact_key, allow_expired=True)
             all_posts.extend(cached)
 
+        # If own server has no cached posts, do a synchronous live fetch so the
+        # feed isn't empty on first load or after posting (before the bg poller runs).
+        if not any(p.get("_server_url") == config.own_server for p in all_posts):
+            try:
+                own_key = hashlib.sha256(config.own_server.encode()).hexdigest()
+                fetch_hdrs = {**_headers(config.own_server), **await _sign_federated("GET", "/posts", b"")}
+                async with httpx.AsyncClient() as hc:
+                    r = await hc.get(_call_url(config.own_server) + "/posts",
+                                     params=[("limit", str(limit))], headers=fetch_hdrs, timeout=5.0)
+                if r.is_success:
+                    own_posts = r.json().get("posts", [])
+                    name = _server_name(config.own_server)
+                    for p in own_posts:
+                        p["_server_url"] = config.own_server
+                        p["_server_name"] = name
+                    _cache_posts(own_key, own_posts)
+                    all_posts.extend(own_posts)
+            except Exception:
+                pass
+
         if cursor:
             try:
                 cursor_ts = int(cursor)
@@ -744,10 +772,12 @@ def create_app(config_path: str | Path) -> FastAPI:
         merged = sorted(deduped, key=lambda p: p.get("created_at", 0), reverse=True)[:limit]
 
         visible_urls = {p["_server_url"] for p in merged if p.get("_server_url")}
-        for vis_url in visible_urls:
-            nid = _node_id_for_url(vis_url)
+        # Always refresh all servers when nothing is visible (empty cache); otherwise
+        # only refresh servers whose posts are currently shown.
+        for url in (visible_urls or servers):
+            nid = _node_id_for_url(url)
             if nid:
-                asyncio.create_task(_background_fetch_one(vis_url, nid))
+                asyncio.create_task(_background_fetch_one(url, nid))
 
         server_status = {url: _contact_status.get(_node_id_for_url(url) or "", "unknown") for url in servers}
         next_cursor = str(merged[-1]["created_at"]) if len(merged) == limit else None
@@ -773,8 +803,8 @@ def create_app(config_path: str | Path) -> FastAPI:
         post = r.json()
         post["_server_url"] = config.own_server
         post["_server_name"] = "me"
-        if config.own_node_id:
-            asyncio.create_task(_background_fetch_one(config.own_server, config.own_node_id))
+        own_poll_id = config.own_node_id or hashlib.sha256(config.own_server.encode()).hexdigest()[:16]
+        asyncio.create_task(_background_fetch_one(config.own_server, own_poll_id))
         return post
 
     @api.patch("/posts/{post_id}")
