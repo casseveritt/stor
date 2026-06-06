@@ -1305,6 +1305,73 @@ async function showEmojiPicker(event, postId, serverUrl, commentId) {
   }), 0);
 }
 
+async function showInlineEmojiPicker(event, taId) {
+  event.stopPropagation();
+  const ta = document.getElementById(taId);
+  if (!ta) return;
+  await _loadEmojiList();
+  document.querySelectorAll('.emoji-picker').forEach(p => p.remove());
+  const picker = document.createElement('div');
+  picker.className = 'emoji-picker';
+  picker.style.cssText = 'position:fixed;z-index:1000';
+
+  const insert = emoji => { picker.remove(); _trackEmojiUsed(emoji); _insertAtCursor(ta, emoji); ta.focus(); };
+
+  const topEmoji = _topEmoji();
+  if (topEmoji.length) {
+    const freqRow = document.createElement('div');
+    freqRow.className = 'emoji-freq-row';
+    for (const emoji of topEmoji) {
+      const b = document.createElement('button');
+      b.className = 'emoji-pick-btn'; b.textContent = emoji; b.title = 'Recently used';
+      b.onclick = e => { e.stopPropagation(); insert(emoji); };
+      freqRow.appendChild(b);
+    }
+    picker.appendChild(freqRow);
+    const sep = document.createElement('div');
+    sep.style.cssText = 'border-top:1px solid #333;margin:0.25rem 0';
+    picker.appendChild(sep);
+  }
+
+  const search = document.createElement('input');
+  search.type = 'text'; search.placeholder = 'Search emoji…'; search.className = 'emoji-search';
+  search.onclick = e => e.stopPropagation();
+  picker.appendChild(search);
+
+  const grid = document.createElement('div');
+  grid.className = 'emoji-grid';
+  const renderEmoji = filter => {
+    grid.innerHTML = '';
+    const list = filter
+      ? ALL_EMOJI.filter(([, ...kw]) => kw.some(k => k.includes(filter)) || (kw[0] || '').startsWith(filter))
+      : ALL_EMOJI;
+    for (const [emoji] of list.slice(0, 120)) {
+      const b = document.createElement('button');
+      b.className = 'emoji-pick-btn'; b.textContent = emoji;
+      b.onclick = e => { e.stopPropagation(); insert(emoji); };
+      grid.appendChild(b);
+    }
+  };
+  renderEmoji('');
+  search.oninput = () => renderEmoji(search.value.toLowerCase().trim());
+  picker.appendChild(grid);
+  document.body.appendChild(picker);
+
+  const btn = event.currentTarget || event.target.closest('button') || event.target;
+  const r = btn.getBoundingClientRect();
+  const pickerW = 280, pickerH = 320;
+  picker.style.top = (r.bottom + window.scrollY + 4) + 'px';
+  picker.style.left = Math.max(4, Math.min(r.left, window.innerWidth - pickerW - 8)) + 'px';
+  if (r.bottom + pickerH + 4 > window.innerHeight) {
+    picker.style.top = Math.max(4, r.top + window.scrollY - pickerH - 4) + 'px';
+  }
+
+  setTimeout(() => search.focus(), 0);
+  setTimeout(() => document.addEventListener('click', function close(e) {
+    if (!picker.contains(e.target)) { picker.remove(); document.removeEventListener('click', close); }
+  }), 0);
+}
+
 async function toggleReaction(postId, serverUrl, emoji, commentId, _btn) {
   const params = serverUrl !== CFG.own_server ? '?server=' + encodeURIComponent(serverUrl) : '';
   const r = await apiFetch('/api/posts/' + postId + '/react' + params, {
@@ -1808,11 +1875,13 @@ function _renderCommentsInto(post, comments, panel) {
       + '</div>';
   }
   const roots = byParent["__root__"] || [];
+  const _ctaId = 'comment-ta-' + post.id;
   panel.innerHTML =
     roots.map(c => renderOne(c, 0)).join("")
     + '<div class="comment-form">'
-    + '<textarea class="comment-input" data-post-id="' + esc(post.id) + '" placeholder="Add a comment…"></textarea>'
-    + '<div class="comment-form-actions"><button class="btn btn-primary btn-sm comment-submit" data-post-id="' + esc(post.id) + '" onclick="submitComment(\'' + esc(post.id) + '\',\'' + esc(post._server_url) + '\')">Post</button>'
+    + '<textarea id="' + esc(_ctaId) + '" class="comment-input" data-post-id="' + esc(post.id) + '" placeholder="Add a comment…"></textarea>'
+    + '<div class="comment-form-actions"><button class="btn btn-muted btn-sm" onclick="showInlineEmojiPicker(event,\'' + esc(_ctaId) + '\')" title="Insert emoji">😊</button>'
+    + '<button class="btn btn-primary btn-sm comment-submit" data-post-id="' + esc(post.id) + '" onclick="submitComment(\'' + esc(post.id) + '\',\'' + esc(post._server_url) + '\')">Post</button>'
     + '<span class="comment-error" data-post-id="' + esc(post.id) + '" style="color:#e06c6c;font-size:0.82rem"></span></div>'
     + '</div>';
 }

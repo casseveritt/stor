@@ -228,6 +228,7 @@
           onblur="setTimeout(()=>{hideMentionDropdown();document.getElementById('inline-expand-btn').hidden=true},200)"
           style="flex:1;resize:none;overflow:hidden;min-height:2rem;max-height:12rem"></textarea>
         <button id="inline-expand-btn" class="btn btn-muted btn-sm" hidden onclick="openCompose()" title="Full compose panel">⊞</button>
+        <button class="btn btn-muted btn-sm" onclick="showInlineEmojiPicker(event,'inline-compose-body')" title="Insert emoji">😊</button>
         <button class="btn btn-primary btn-sm" onclick="submitInlinePost()">Post</button>
         </div>
       </div>
@@ -296,6 +297,7 @@
     <div class="upload-progress" id="compose-progress"></div>
     <div style="display:flex;gap:0.5rem;justify-content:flex-end">
       <button class="btn btn-muted" onclick="closeCompose()">Cancel</button>
+      <button class="btn btn-muted" onclick="showInlineEmojiPicker(event,'compose-body')" title="Insert emoji">😊</button>
       <button class="btn btn-primary" id="compose-submit" onclick="submitPost()">Post</button>
     </div>
   </div>
@@ -476,6 +478,7 @@
     <div class="upload-progress" id="edit-status"></div>
     <div style="display:flex;gap:0.5rem;justify-content:flex-end;margin-top:0.75rem">
       <button class="btn btn-muted" onclick="closeEdit()">Cancel</button>
+      <button class="btn btn-muted" onclick="showInlineEmojiPicker(event,'edit-body')" title="Insert emoji">😊</button>
       <button class="btn btn-primary" id="edit-submit" onclick="submitEdit()">Save</button>
     </div>
   </div>
