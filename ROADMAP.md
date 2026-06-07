@@ -2,100 +2,6 @@
 
 ## Pending
 
-**0. Signed registry records / peer-to-peer registry cache**
-
-The registry signs each node-lookup response with a timestamp so any node that holds the
-record can prove its authenticity to a third party. Other nodes can answer registry queries
-from their cache; a node should only go to the registry directly if no peer has a fresh
-enough record.
-
-Design sketch:
-- Registry `GET /nodes/{node_id}` response gains two new fields:
-  `queried_at` (Unix seconds, set by registry at query time) and
-  `registry_signature` (Ed25519 signature over a canonical serialisation of the record
-  including `queried_at`, signed by the registry's own node key, whose public key is
-  published at `GET /meta`).
-- Nodes cache signed records locally (keyed by `node_id`).
-- New inter-node endpoint `GET /registry-cache/{node_id}`: returns the node's cached signed
-  record for that `node_id`, or 404 if not held.
-- When a node needs a registry entry it:
-  1. Checks its own cache — if fresh (within a configurable TTL, e.g. 4 h) uses it.
-  2. Asks known contacts' `/registry-cache/{node_id}` — accepts the first valid, fresh,
-     correctly-signed response.
-  3. Falls back to querying the registry directly and caches the result.
-- Browser-side: `_lookupNodeFromRegistry` tries the existing proxy first, which now checks
-  the node's local cache before hitting the registry.
-- Staleness threshold: records older than TTL are considered stale and trigger a refresh;
-  records older than 2× TTL are rejected even from peers.
-
-**1. Mention rendering: hide node_id, show link emoji + display text**
-
-Mentions are stored as `[node_id|disptext]` but currently the raw token is visible in the
-compose/edit highlight layer and—when the node_id can't be resolved—in rendered posts.
-The rendered form should always be `[🔗disptext]` (or similar link-style pill), never
-exposing the node_id to the reader.
-
-Scope:
-- `renderBodyText` / `mdRender` post-processing: replace `[node_id|disptext]` with a
-  styled inline element showing only the display text, with a hover popup (already
-  implemented) and a small link indicator (emoji or icon). The node_id moves to a
-  `data-mention-id` attribute, invisible to the reader.
-- Compose/edit highlight overlay (`_updateHighlight`): already dims the `[node_id|` prefix;
-  verify it fully hides the UUID and only shows the display text in the live preview.
-- If `disptext` is empty or stale, fall back to resolving the node_id via
-  `_resolveIdentity` at render time so the name is always current.
-
-**2. Profile hover popup — message and add-contact actions**
-
-The profile hover popup (shown when hovering over an avatar) currently displays name,
-handle, and photo. Add two action buttons:
-
-- **✉ (envelope)** — opens the DM panel for that contact, or initiates a new thread if
-  none exists yet. Visible for all nodes (own and contacts).
-- **➕👤 (add-contact)** — adds the node as a contact. Only shown when the node is *not*
-  already a contact and is not the viewer's own node. Tapping it runs the same flow as
-  the "Add contact" dialog, pre-filled with the node's URL.
-
-Implementation notes:
-- The popup already has the node's `server_url` (from `post._server_url` or the author
-  element's `data-server`). That's sufficient to drive both actions.
-- The add-contact button should grey out / change to a checkmark after the contact is
-  successfully added, without closing the popup.
-- The message button should work even before a DM thread exists (the DM panel handles
-  first-message creation).
-- Also change the existing "+Add" button in the contacts panel header to "+👤" to match.
-
-**3. Mark mention as read on selection**
-
-Clicking a notification in the mentions/reactions dropdown currently jumps to the post but
-does not mark that individual notification as read. The unread dot should clear immediately
-on click, and the badge count should decrement.
-
-Currently `_markMentionsSeen` marks *all* notifications seen at once (called when the panel
-is opened). Instead:
-- Mark the individual notification seen on click (optimistic UI update + API call).
-- The badge count should reflect only truly-unseen notifications.
-- Bulk "mark all read" can remain as a secondary action (e.g. a small "clear all" link in
-  the panel header).
-
-**4. Thread follow notifications**
-
-If you have commented on a post, subsequent comments on that post by others should appear
-in your notifications — you're implicitly "following" the thread.
-
-Design:
-- Server tracks which nodes have commented on each post (already available via
-  `comments.author_identity`).
-- When a new comment is added, push a notification to every node that has previously
-  commented on the post (excluding the post owner, who already gets comment notifications,
-  and the commenter themselves).
-- Notification type: new entry in `mention_notifications` with `notif_type = 'thread'`
-  (or reuse `'comment'`) and `post_id` pointing to the post.
-- Client renders it in the mentions/reactions panel: "X also commented on a post you
-  commented on" with a click-to-jump action.
-- Opt-out: consider a per-post "unfollow thread" action so users can stop notifications
-  for a specific thread without leaving a comment.
-
 **5. Chat / direct messages — remaining work**
 
 The DM feature is implemented (see Completed). Remaining:
@@ -167,9 +73,12 @@ model.
 - **API versioning (3)**: GET /node includes api_version + extensions; registry GET /meta returns same.
 - **Upload identity escrow from settings (4)**: profile panel "Upload identity escrow" section calls /setup/escrow-identity-key.
 - **Profile photo hover preview (4)**: 100×100 popup on hover over any .post-author-avatar; event delegation, viewport-clamped.
-- **Chat / direct messages (6)**: 1:1 E2E encrypted DMs. X25519 DH key pair generated at setup; thread key = HKDF(DH(my_priv, peer_pub), thread_id). AES-256-GCM per message. Push delivery to peer's /dm/receive with heartbeat retry. Thread list + conversation view in header panel. "Message" button in contact menu. Static thread key (no ratchet) accepted for v1.
+- **Chat / direct messages (6)**: 1:1 E2E encrypted DMs. X25519 DH key pair generated at setup; thread key = HKDF(DH(my_priv, peer_pub), thread_id). AES-256-GCM per message. Push delivery to peer's /dm/receive with heartbeat retry. Thread list + conversation view in header panel. "Message" button in contact menu. Static thread key (no ratchet) accepted for v1. Message bodies render as markdown (shared `renderBodyText`/`.dm-bubble` styling). Arrow-key thread navigation; emoji picker in the compose field.
 - **SSE real-time updates**: browser holds a persistent `EventSource` to client's `/api/events`; client holds a persistent SSE subscription to server's `/dm/events`. DM events arrive with zero polling latency. Post/comment/reaction updates pushed from server to client's `/notifications/post-update` and forwarded via SSE. Replaces all polling loops.
 - **Reaction emoji + emoji picker**: 1800+ emoji from CDN, search, recently used row.
+- **Inline emoji insert button**: 😊 button beside the post/save action on inline compose,
+  compose modal, edit modal, comment forms, and DM compose — opens a searchable picker that
+  inserts at the cursor position.
 - **@mention notifications**: @ bell in header, dropdown, click-to-jump-to-post.
 
 **Setup flow**
@@ -180,6 +89,26 @@ model.
   registry.
 
 **Feed and contacts**
+- **Signed registry records / peer-to-peer registry cache**: registry generates an Ed25519
+  signing key and signs every `/nodes/{id}` lookup response with `queried_at` +
+  `registry_signature` (public key published at `/meta`). Nodes expose
+  `/registry-cache/{node_id}` so peers can serve cached, verifiable records; the client
+  proxy checks its local cache, then peer caches (verifying signatures), then falls back
+  to the registry directly. Records persist across restarts in a `registry_cache` table.
+- **Mention rendering — link-style pill**: `[node_id|disptext]` mentions render as
+  `🔗disptext`, never exposing the raw node_id to the reader; the highlight overlay in
+  compose/edit dims the `[node_id|` prefix for both UUIDs and public keys.
+- **Profile hover popup — message and add-contact actions**: hovering an avatar shows a
+  rich popup (name, handle, photo) with ✉ (open/start a DM thread) and ➕👤 (add as
+  contact, only shown for non-contacts) actions; the mention popup also gained a ✉ button.
+  Contacts panel "+Add" renamed to "+👤" to match.
+- **Mark individual notification as read on click**: `/api/notifications/mentions/{id}/seen`
+  marks one notification seen with an optimistic UI update; the badge reflects only
+  truly-unseen notifications, with "clear all" as a secondary bulk action.
+- **Thread follow notifications**: commenting on a post implicitly "follows" the thread —
+  subsequent comments by others trigger a `notif_type='thread'` notification ("X also
+  commented on a post you commented on") with click-to-jump, pushed to every prior
+  commenter (excluding the post owner and the new commenter).
 - **Registry heartbeat + auto-register**: node signs and pushes to registry on startup and
   hourly.
 - **Aggregate feed**: client fetches all contacts in parallel, merges by `created_at`.

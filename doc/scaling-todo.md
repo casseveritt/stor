@@ -8,20 +8,19 @@ and what to do about it.
 
 ## Critical at 1000 contacts
 
-### 1. Unbounded concurrent feed fetch
-**File:** `client/main.py:692`
+### 1. Unbounded concurrent feed fetch — RESOLVED via cache-first redesign
+**File:** `client/main.py` — `api_feed`
 
-```python
-raw_results = await asyncio.gather(*[_fetch_one(url) for url in servers])
-```
-
-At 1000 contacts this launches 1001 simultaneous outbound HTTP connections
-on every page load.  httpx's connection pool saturates, OS file descriptors
-run low, and page-load time becomes "slowest contact wins."
-
-**Fix:** wrap `_fetch_one` with `asyncio.Semaphore(20)` so at most 20
-contacts are fetched concurrently.  Contact ordering + caching means the
-first 20 slots serve the most-recently-active contacts while the rest wait.
+The original concern was a page-load-time `asyncio.gather` over every
+contact's server (1001 simultaneous outbound connections at 1000 contacts).
+That code path no longer exists. `api_feed` now serves entirely from the
+on-disk post cache (`_read_cached_posts`) and only schedules background
+refresh tasks (`_background_fetch_one`, fire-and-forget via
+`asyncio.create_task`) for the servers whose posts are actually visible in
+the merged page — typically `limit` (default 20) contacts, not all of them.
+A background poller (`_background_fetch_one` scheduled from the per-contact
+poll loop) keeps the cache warm independent of page loads. Net effect: page
+load is O(cache reads), not O(contacts × HTTP round-trip).
 
 ---
 
@@ -36,16 +35,19 @@ simultaneously.
 ---
 
 ### 3. Contact list stored as JSON — O(n) scans on every request
-**File:** `client/main.py` — 29 linear scans over `config.contacts`
+**File:** `client/main.py` — ~15 linear scans over `config.contacts` remain
 
-Every request that touches contacts (feed fetch, photo proxy, DM thread
-enrichment, add/remove/patch) runs `next(c for c in config.contacts if
-c.url == url)` or similar.  These are individually fast but compound:
-`_fetch_one` is called N times during feed fetch, each doing an O(n) scan
-→ O(n²) total.  Every contact save also rewrites the full JSON blob.
+Down from 29 (some hot paths — `_url_to_node_id` near startup, `api_feed`,
+`api_refresh_contact_node_ids` — now build local dicts like
+`contact_by_url = {c.url: c for c in config.contacts}` per request/loop), but
+most lookups are still `next(c for c in config.contacts if c.url == url)` or
+similar one-off scans (add/remove/patch contact, photo proxy, DM thread
+enrichment, mention resolution). These are individually fast but compound
+under high contact counts. Every contact save also still rewrites the full
+JSON blob.
 
-**Fix:** build two lookup dicts at startup inside `create_app` and keep
-them in sync on mutations:
+**Fix:** build two lookup dicts once at startup inside `create_app` (rather
+than locally per request) and keep them in sync on mutations:
 
 ```python
 _contact_by_url:     dict[str, ContactEntry]
@@ -63,7 +65,7 @@ Replace all `next(c for c in config.contacts if c.url == url)` with
 ## Critical at 1M registry nodes
 
 ### 4. Registry LIKE search is a full table scan
-**File:** `registry/main.py:1232`
+**File:** `registry/main.py:1282`
 
 ```python
 WHERE (LOWER(username) LIKE ? OR LOWER(display_name) LIKE ?)
@@ -151,7 +153,7 @@ disconnected for more than N minutes, on reconnect have the client scan
 
 | # | Issue                              | Severity          | Status  |
 |---|------------------------------------|-------------------|---------|
-| 1 | Unbounded feed fetch concurrency   | Critical @1k      | done    |
+| 1 | Unbounded feed fetch concurrency   | Critical @1k      | resolved (cache redesign) |
 | 2 | Unbounded photo refresh            | Critical @1k      | open    |
 | 3 | O(n) contact list scans            | Significant @1k   | open    |
 | 4 | Registry LIKE full table scan      | Critical @1M      | open    |

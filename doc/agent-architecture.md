@@ -33,7 +33,7 @@ Constraints on this capability:
 - The depth and character of the response is shaped by the relationship context — the me agent knows who is asking and calibrates accordingly.
 - The owner can restrict which contacts may use this interface, and what kinds of questions the agent will engage with.
 
-### What the Server Agent Knows (Me-Private)
+### What the Me Agent Knows (Me-Private)
 
 - Raw access patterns per contact: frequency, depth, what was requested
 - Whether contacts bump against access limits or exhibit anomalous behavior
@@ -48,7 +48,7 @@ This data stays on the server. It informs what the server contributes to the sha
 
 The them agent is responsible for the consumption side of the user's relationships. It aggregates status across all connections and decides what to surface to the user, how, and when. Like the me agent, it adapts its behavior through interaction — what the user engages with, dismisses, or explicitly preferences shapes how it presents content over time.
 
-### What the Client Agent Knows (Them-Private)
+### What the Them Agent Knows (Them-Private)
 
 - What the user expresses interest in seeing more or less of
 - How the user reacts to content from each contact
