@@ -2924,6 +2924,16 @@ async function _loadDmThreads() {
   if (badge) { badge.hidden = unread === 0; badge.textContent = unread > 9 ? "9+" : unread; }
 }
 
+// Resolve a group member's display name the same lazy, best-effort way the
+// rest of the UI resolves identities — from server-supplied member_names
+// (itself just a contact-list lookup, see api_dm_threads), falling back to a
+// truncated node_id. No separate name-caching machinery for groups.
+function _dmMemberName(thread, nodeId) {
+  if (nodeId === CFG?.own_node_id) return 'you';
+  const known = thread?.member_names?.[nodeId];
+  return known || (nodeId ? nodeId.slice(0, 8) : '?');
+}
+
 function _renderDmThreads() {
   const list = document.getElementById("dm-threads-list");
   if (!list) return;
@@ -2932,22 +2942,28 @@ function _renderDmThreads() {
     return;
   }
   list.innerHTML = _dmThreads.map(t => {
-    const name = esc(t.peer_name || t.peer_node_id || '');
-    const initial = esc((t.peer_name || t.peer_node_id || '?')[0].toUpperCase());
+    const isGroup = !!t.group_id;
+    const displayName = isGroup ? (t.group_name || 'Group') : (t.peer_name || t.peer_node_id || '');
+    const name = esc(displayName);
+    const initial = esc((displayName || '?')[0].toUpperCase());
     const unread = t.unread_count || 0;
-    const photoUrl = t.peer_url ? '/api/contacts/photo?url=' + encodeURIComponent(t.peer_url) : '';
-    const avatarHtml = photoUrl
-      ? `<img src="${photoUrl}" class="post-author-avatar" style="width:28px;height:28px" alt=""
-           onerror="this.hidden=true;this.nextElementSibling.hidden=false">
-         <span class="post-author-initials" style="width:28px;height:28px;font-size:0.7rem" hidden>${initial}</span>`
-      : `<span class="post-author-initials" style="width:28px;height:28px;font-size:0.7rem">${initial}</span>`;
-    const contactBadge = t.is_contact
+    const photoUrl = (!isGroup && t.peer_url) ? '/api/contacts/photo?url=' + encodeURIComponent(t.peer_url) : '';
+    const avatarHtml = isGroup
+      ? `<span class="post-author-initials" style="width:28px;height:28px;font-size:0.85rem">👥</span>`
+      : (photoUrl
+        ? `<img src="${photoUrl}" class="post-author-avatar" style="width:28px;height:28px" alt=""
+             onerror="this.hidden=true;this.nextElementSibling.hidden=false">
+           <span class="post-author-initials" style="width:28px;height:28px;font-size:0.7rem" hidden>${initial}</span>`
+        : `<span class="post-author-initials" style="width:28px;height:28px;font-size:0.7rem">${initial}</span>`);
+    const contactBadge = (!isGroup && t.is_contact)
       ? `<span style="font-size:0.65rem;color:#555;border:1px solid #2a2a2a;border-radius:3px;padding:0.05rem 0.3rem;white-space:nowrap">contact</span>`
-      : '';
+      : (isGroup
+        ? `<span style="font-size:0.65rem;color:#555;border:1px solid #2a2a2a;border-radius:3px;padding:0.05rem 0.3rem;white-space:nowrap">${(t.members||[]).length} members</span>`
+        : '');
     const unreadBadge = unread
       ? `<span style="background:#4285f4;color:#fff;border-radius:10px;padding:0.1rem 0.4rem;font-size:0.7rem;font-weight:600">${unread}</span>`
       : '';
-    return `<div data-tid="${esc(t.thread_id)}" data-pname="${esc(t.peer_name||t.peer_node_id||'')}"
+    return `<div data-tid="${esc(t.thread_id)}" data-pname="${esc(displayName)}"
       onclick="_dmOpenThread(this.dataset.tid,this.dataset.pname)"
       style="padding:0.4rem 0.75rem;cursor:pointer;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid #1a1a1a"
       onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
@@ -2962,6 +2978,7 @@ async function _dmOpenThread(threadId, peerName) {
   _dmActiveThread = threadId;
   _dmHighlightIdx = -1;
   document.getElementById("dm-conv-name").textContent = peerName;
+  document.getElementById("dm-conv-members-btn").hidden = !_dmThreads.find(t => t.thread_id === threadId)?.group_id;
   document.getElementById("dm-thread-list-view").hidden = true;
   document.getElementById("dm-conversation-view").hidden = false;
   await _loadDmMessages(threadId);
@@ -2985,11 +3002,21 @@ async function _loadDmMessages(threadId) {
 function _renderDmMessages() {
   const list = document.getElementById("dm-messages-list");
   if (!list) return;
+  const thread = _dmThreads.find(t => t.thread_id === _dmActiveThread);
+  const isGroup = !!thread?.group_id;
   list.innerHTML = _dmMessages.map(m => {
     const out = m.direction === 'out';
     const time = m.created_at ? fmtDate(m.created_at) : '';
     const delivered = out ? (m.delivered_at ? '' : ' style="opacity:0.5"') : '';
+    // Attribution: in a group thread, every inbound bubble names its original
+    // author (the relay only ever exposes their identity via sender_node_id —
+    // see the wire-format note's chat_message section); 1:1 threads need none,
+    // direction alone disambiguates there.
+    const attribution = (isGroup && !out)
+      ? `<span style="font-size:0.7rem;color:#888;margin-bottom:0.1rem">${esc(_dmMemberName(thread, m.sender_node_id))}</span>`
+      : '';
     return `<div style="display:flex;flex-direction:column;align-items:${out?'flex-end':'flex-start'}"${delivered}>
+      ${attribution}
       <div class="dm-bubble" style="max-width:80%;background:${out?'#1a3360':'#252525'};border-radius:8px;padding:0.4rem 0.65rem;font-size:0.88rem;color:#e0e0e0;word-break:break-word">${renderBodyText(m.body)}</div>
       <span style="font-size:0.65rem;color:#555;margin-top:0.15rem">${esc(time)}${out&&!m.delivered_at?' ·':''}</span>
     </div>`;
@@ -3003,25 +3030,27 @@ async function _dmSend() {
   const body = ta.value.trim();
   if (!body) return;
 
-  let peer_node_id, peer_url;
+  let payload;
   if (_dmActiveThread.startsWith("__new__:")) {
-    peer_url = _dmActiveThread.slice("__new__:".length);
+    const peer_url = _dmActiveThread.slice("__new__:".length);
     // Use node_id from contact list if available; otherwise fetch /node
     const contact = (CFG.contacts || []).find(c => c.url === peer_url);
-    peer_node_id = contact?.node_id;
+    const peer_node_id = contact?.node_id;
     if (!peer_node_id) { alert("Contact's node ID is not known — cannot send message."); return; }
+    payload = {peer_node_id, peer_url, body};
   } else {
     const thread = _dmThreads.find(t => t.thread_id === _dmActiveThread);
     if (!thread) return;
-    peer_node_id = thread.peer_node_id;
-    peer_url = thread.peer_url;
+    payload = thread.group_id
+      ? {group_id: thread.group_id, body}
+      : {peer_node_id: thread.peer_node_id, peer_url: thread.peer_url, body};
   }
 
   ta.value = ""; ta.style.height = "";
   const r = await apiFetch("/api/dm/send", {
     method: "POST",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({peer_node_id, peer_url, body}),
+    body: JSON.stringify(payload),
   });
   if (!r.ok) {
     ta.value = body;
@@ -3073,6 +3102,7 @@ async function _dmStartNew(peerUrl) {
     _dmActiveThread = "__new__:" + peerUrl;
     const name = (contact && contact.name) || peerUrl;
     document.getElementById("dm-conv-name").textContent = name;
+    document.getElementById("dm-conv-members-btn").hidden = true;
     document.getElementById("dm-thread-list-view").hidden = true;
     document.getElementById("dm-conversation-view").hidden = false;
     document.getElementById("dm-messages-list").innerHTML =
@@ -3086,6 +3116,134 @@ function _dmBackToThreads() {
   document.getElementById("dm-thread-list-view").hidden = false;
   document.getElementById("dm-conversation-view").hidden = true;
   _renderDmThreads();
+}
+
+// ── group creation ────────────────────────────────────────────────────────────
+
+function _dmShowNewGroup() {
+  const list = document.getElementById("new-group-contacts");
+  const eligible = (CFG.contacts || []).filter(c => c.node_id);
+  if (!eligible.length) {
+    list.innerHTML = '<div style="font-size:0.82rem;color:#555">Add a contact with a known node ID first.</div>';
+  } else {
+    list.innerHTML = eligible.map(c => `
+      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:#ddd;cursor:pointer">
+        <input type="checkbox" value="${esc(c.node_id)}"> ${esc(c.name || c.node_id)}
+      </label>`).join('');
+  }
+  document.getElementById("new-group-name").value = "";
+  document.getElementById("new-group-error").textContent = "";
+  document.getElementById("new-group-overlay").hidden = false;
+}
+
+async function _dmCreateGroup() {
+  const name = document.getElementById("new-group-name").value.trim();
+  const member_node_ids = [...document.querySelectorAll("#new-group-contacts input:checked")].map(el => el.value);
+  const err = document.getElementById("new-group-error");
+  if (!name) { err.textContent = "Enter a group name."; return; }
+  if (!member_node_ids.length) { err.textContent = "Pick at least one member."; return; }
+
+  err.textContent = "";
+  const r = await apiFetch("/api/dm/groups", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({name, member_node_ids}),
+  });
+  if (!r.ok) { err.textContent = "Could not create group — try again."; return; }
+  const d = await r.json();
+  document.getElementById("new-group-overlay").hidden = true;
+  await _loadDmThreads();
+  await _dmOpenThread(d.thread_id, d.group_name);
+}
+
+// ── group membership / management ─────────────────────────────────────────────
+
+function _dmShowGroupMembers() {
+  const thread = _dmThreads.find(t => t.thread_id === _dmActiveThread);
+  if (!thread || !thread.group_id) return;
+  const amCreator = thread.group_creator_id === CFG?.own_node_id;
+
+  document.getElementById("group-members-title").textContent = thread.group_name || "Group members";
+  document.getElementById("group-members-error").textContent = "";
+
+  const renameRow = document.getElementById("group-rename-row");
+  renameRow.hidden = !amCreator;
+  document.getElementById("group-rename-name").value = thread.group_name || "";
+
+  const members = thread.members || [];
+  document.getElementById("group-members-list").innerHTML = members.map(nid => {
+    const label = nid === thread.group_creator_id
+      ? `${esc(_dmMemberName(thread, nid))} <span style="color:#555">(creator)</span>`
+      : esc(_dmMemberName(thread, nid));
+    return `<div style="font-size:0.85rem;color:#ddd;padding:0.2rem 0">${label}</div>`;
+  }).join('');
+
+  // Anyone may ask to add a contact who isn't already a member (v1 add policy:
+  // any current member's request is granted — see request_add_group_member).
+  const addSelect = document.getElementById("group-add-member-select");
+  const candidates = (CFG.contacts || []).filter(c => c.node_id && !members.includes(c.node_id));
+  const addRow = document.getElementById("group-add-member-row");
+  if (candidates.length) {
+    addRow.hidden = false;
+    addSelect.innerHTML = candidates.map(c => `<option value="${esc(c.node_id)}">${esc(c.name || c.node_id)}</option>`).join('');
+  } else {
+    addRow.hidden = true;
+  }
+
+  // The creator can't leave their own group yet (no surrogate-creator failover) —
+  // surfacing that as a disabled control beats letting the request fail silently.
+  const leaveBtn = document.getElementById("group-leave-btn");
+  leaveBtn.disabled = amCreator;
+  leaveBtn.title = amCreator ? "The group's creator can't leave it yet" : "";
+  leaveBtn.style.opacity = amCreator ? "0.5" : "";
+
+  document.getElementById("group-members-overlay").hidden = false;
+}
+
+async function _dmAddGroupMember() {
+  const thread = _dmThreads.find(t => t.thread_id === _dmActiveThread);
+  const node_id = document.getElementById("group-add-member-select").value;
+  const err = document.getElementById("group-members-error");
+  if (!thread || !node_id) return;
+  err.textContent = "";
+  const r = await apiFetch(`/api/dm/groups/${thread.group_id}/members`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({node_id}),
+  });
+  if (!r.ok) { err.textContent = "Could not add member — try again."; return; }
+  await _loadDmThreads();
+  _dmShowGroupMembers();
+}
+
+async function _dmRenameGroup() {
+  const thread = _dmThreads.find(t => t.thread_id === _dmActiveThread);
+  const name = document.getElementById("group-rename-name").value.trim();
+  const err = document.getElementById("group-members-error");
+  if (!thread || !name) return;
+  err.textContent = "";
+  const r = await apiFetch(`/api/dm/groups/${thread.group_id}/rename`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({name}),
+  });
+  if (!r.ok) { err.textContent = "Could not rename group — try again."; return; }
+  await _loadDmThreads();
+  document.getElementById("dm-conv-name").textContent = name;
+  _dmShowGroupMembers();
+}
+
+async function _dmLeaveGroup() {
+  const thread = _dmThreads.find(t => t.thread_id === _dmActiveThread);
+  if (!thread || thread.group_creator_id === CFG?.own_node_id) return;
+  if (!confirm(`Leave "${thread.group_name || 'this group'}"?`)) return;
+  const err = document.getElementById("group-members-error");
+  err.textContent = "";
+  const r = await apiFetch(`/api/dm/groups/${thread.group_id}/leave`, {method: "POST"});
+  if (!r.ok) { err.textContent = "Could not leave group — try again."; return; }
+  document.getElementById("group-members-overlay").hidden = true;
+  _dmBackToThreads();
+  await _loadDmThreads();
 }
 
 // ── contact edit modal ────────────────────────────────────────────────────────

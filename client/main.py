@@ -1609,10 +1609,14 @@ def create_app(config_path: str | Path) -> FastAPI:
             r = await hc.get(_server + "/dm/threads", headers=_headers(config.own_server), timeout=10)
         data = r.json() if r.is_success else {"threads": []}
         threads = data.get("threads", [])
-        # Auto-dedup: merge threads sharing the same peer_node_id
+        # Auto-dedup: merge 1:1 threads sharing the same peer_node_id. Group
+        # threads legitimately reuse their creator's peer_node_id (it names
+        # "the relay hub", not "the conversation") and must never trigger this.
         seen_nodes: set[str] = set()
         has_dupes = False
         for t in threads:
+            if t.get("group_id"):
+                continue
             nid = t.get("peer_node_id") or ""
             if nid and nid in seen_nodes:
                 has_dupes = True
@@ -1629,30 +1633,92 @@ def create_app(config_path: str | Path) -> FastAPI:
         contact_by_node_id = {c.node_id: c for c in config.contacts if c.node_id}
         contact_by_url = {c.url: c for c in config.contacts}
         tags = get_all_tags(_client_db)
+
+        def _name_for(node_id: str) -> str | None:
+            contact = contact_by_node_id.get(node_id)
+            if not contact:
+                return None
+            return (tags.get(contact.node_id) if contact.node_id else None) or contact.name
+
         for t in threads:
             contact = contact_by_node_id.get(t.get("peer_node_id", "")) \
                    or contact_by_url.get(t.get("peer_url", ""))
             t["is_contact"] = contact is not None
             if contact and not t.get("peer_name"):
-                t["peer_name"] = (tags.get(contact.node_id) if contact.node_id else None) or contact.name
+                t["peer_name"] = _name_for(contact.node_id) if contact.node_id else contact.name
+            # Resolve member display names the same lazy, best-effort way the
+            # rest of the UI resolves any node_id — from the local contact
+            # list — so groups need no separate name-caching machinery.
+            if t.get("members") is not None:
+                t["member_names"] = {nid: _name_for(nid) for nid in t["members"]}
         return data
 
     class DmSendBody(BaseModel):
-        peer_node_id: str
-        peer_url: str
+        peer_node_id: str | None = None
+        peer_url: str | None = None
+        group_id: str | None = None
         body: str
 
     @api.post("/dm/send", status_code=201)
     async def api_dm_send(payload: DmSendBody):
+        json_body = {"body": payload.body}
+        if payload.group_id:
+            json_body["group_id"] = payload.group_id
+        else:
+            json_body["peer_node_id"] = payload.peer_node_id
+            json_body["peer_url"] = payload.peer_url
         async with httpx.AsyncClient() as hc:
-            r = await hc.post(_server + "/dm/send",
-                              json={"peer_node_id": payload.peer_node_id,
-                                    "peer_url": payload.peer_url,
-                                    "body": payload.body},
+            r = await hc.post(_server + "/dm/send", json=json_body,
                               headers=_headers(config.own_server), timeout=15)
         if not r.is_success:
             raise HTTPException(status_code=r.status_code, detail=r.text)
         return r.json()
+
+    class CreateGroupBody(BaseModel):
+        name: str
+        member_node_ids: list[str]
+
+    @api.post("/dm/groups", status_code=201)
+    async def api_dm_create_group(payload: CreateGroupBody):
+        async with httpx.AsyncClient() as hc:
+            r = await hc.post(_server + "/dm/groups",
+                              json={"name": payload.name, "member_node_ids": payload.member_node_ids},
+                              headers=_headers(config.own_server), timeout=20)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
+    class GroupMemberBody(BaseModel):
+        node_id: str
+
+    @api.post("/dm/groups/{group_id}/members", status_code=204)
+    async def api_dm_add_group_member(group_id: str, payload: GroupMemberBody):
+        async with httpx.AsyncClient() as hc:
+            r = await hc.post(_server + f"/dm/groups/{group_id}/members",
+                              json={"node_id": payload.node_id},
+                              headers=_headers(config.own_server), timeout=15)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+
+    @api.post("/dm/groups/{group_id}/leave", status_code=204)
+    async def api_dm_leave_group(group_id: str):
+        async with httpx.AsyncClient() as hc:
+            r = await hc.post(_server + f"/dm/groups/{group_id}/leave",
+                              headers=_headers(config.own_server), timeout=15)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+
+    class RenameGroupBody(BaseModel):
+        name: str
+
+    @api.post("/dm/groups/{group_id}/rename", status_code=204)
+    async def api_dm_rename_group(group_id: str, payload: RenameGroupBody):
+        async with httpx.AsyncClient() as hc:
+            r = await hc.post(_server + f"/dm/groups/{group_id}/rename",
+                              json={"name": payload.name},
+                              headers=_headers(config.own_server), timeout=15)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
 
     @api.get("/dm/messages/{thread_id}")
     async def api_dm_messages(thread_id: str, since: int = 0, limit: int = 50):

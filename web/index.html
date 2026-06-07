@@ -169,7 +169,10 @@
           <div id="dm-thread-list-view" style="display:flex;flex-direction:column;flex:1;min-height:0">
             <div style="padding:0.5rem 0.75rem;font-size:0.78rem;color:#555;text-transform:uppercase;letter-spacing:0.06em;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;justify-content:space-between">
               <span>Messages</span>
-              <button class="dm-expand-btn" onclick="_dmToggleExpand()" title="Expand">⤢</button>
+              <span>
+                <button class="btn btn-muted btn-sm" onclick="_dmShowNewGroup()" title="New group" style="padding:0.1rem 0.4rem;font-size:0.85rem">+👥</button>
+                <button class="dm-expand-btn" onclick="_dmToggleExpand()" title="Expand">⤢</button>
+              </span>
             </div>
             <div id="dm-threads-list" style="flex:1;min-height:0;overflow-y:auto;padding:0.25rem 0"></div>
           </div>
@@ -177,6 +180,7 @@
             <div style="padding:0.4rem 0.75rem;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;gap:0.5rem">
               <button onclick="_dmBackToThreads()" style="background:none;border:none;color:#888;cursor:pointer;font-size:0.9rem;padding:0.1rem 0.3rem">‹</button>
               <span id="dm-conv-name" style="font-size:0.88rem;color:#e0e0e0;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+              <button id="dm-conv-members-btn" hidden onclick="_dmShowGroupMembers()" title="Members" style="background:none;border:none;color:#888;cursor:pointer;font-size:0.9rem;padding:0.1rem 0.3rem">👥</button>
               <button class="dm-expand-btn" onclick="_dmToggleExpand()" title="Expand">⤢</button>
             </div>
             <div id="dm-messages-list" style="flex:1;overflow-y:auto;padding:0.5rem 0.75rem;display:flex;flex-direction:column;gap:0.4rem"></div>
@@ -329,6 +333,40 @@
       </div>
       <div id="add-contact-error" style="color:#e06c6c;font-size:0.85rem;min-height:1.2em"></div>
     </div>
+  </div>
+</div>
+
+<!-- ── new group modal ─────────────────────────────────────────────────────── -->
+<div id="new-group-overlay" class="overlay" hidden onclick="maybeClose('new-group-overlay',event)">
+  <div class="modal" style="max-width:400px">
+    <button class="modal-close" onclick="document.getElementById('new-group-overlay').hidden=true">&#x2715;</button>
+    <h3>New group</h3>
+    <div style="display:flex;flex-direction:column;gap:0.75rem">
+      <input type="text" id="new-group-name" placeholder="Group name" style="width:100%">
+      <div style="font-size:0.78rem;color:#888;text-transform:uppercase;letter-spacing:0.05em">Members</div>
+      <div id="new-group-contacts" style="display:flex;flex-direction:column;gap:0.3rem;max-height:240px;overflow-y:auto"></div>
+      <div id="new-group-error" style="color:#e06c6c;font-size:0.85rem;min-height:1.2em"></div>
+      <button class="btn btn-primary" onclick="_dmCreateGroup()">Create group</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── group members / management modal ────────────────────────────────────── -->
+<div id="group-members-overlay" class="overlay" hidden onclick="maybeClose('group-members-overlay',event)">
+  <div class="modal" style="max-width:400px">
+    <button class="modal-close" onclick="document.getElementById('group-members-overlay').hidden=true">&#x2715;</button>
+    <h3 id="group-members-title">Group members</h3>
+    <div id="group-rename-row" style="display:flex;gap:0.4rem;margin-bottom:0.75rem">
+      <input type="text" id="group-rename-name" placeholder="Group name" style="flex:1">
+      <button class="btn btn-muted btn-sm" onclick="_dmRenameGroup()">Rename</button>
+    </div>
+    <div id="group-members-list" style="display:flex;flex-direction:column;gap:0.3rem;margin-bottom:0.75rem"></div>
+    <div id="group-add-member-row" style="display:flex;gap:0.4rem;margin-bottom:0.5rem">
+      <select id="group-add-member-select" style="flex:1"></select>
+      <button class="btn btn-muted btn-sm" onclick="_dmAddGroupMember()">Add</button>
+    </div>
+    <div id="group-members-error" style="color:#e06c6c;font-size:0.85rem;min-height:1.2em"></div>
+    <button id="group-leave-btn" class="btn btn-muted" onclick="_dmLeaveGroup()" style="width:100%">Leave group</button>
   </div>
 </div>
 
