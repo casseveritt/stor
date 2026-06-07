@@ -141,6 +141,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                 _registry_pub_key_b64[0] = _meta_r.json().get("public_key")
         except Exception:
             pass
+        asyncio.create_task(_fetch_cache_key())
         asyncio.create_task(_refresh_contact_photos())
         asyncio.create_task(_startup_consistency_check())
         asyncio.create_task(_dm_sse_subscriber())
@@ -494,6 +495,11 @@ def create_app(config_path: str | Path) -> FastAPI:
         return max(300.0, min(86400.0, age_s / 2.0))
 
     async def _background_fetch_one(url: str, node_id: str) -> None:
+        if not _cache_key_event.is_set():
+            try:
+                await asyncio.wait_for(_cache_key_event.wait(), timeout=60)
+            except asyncio.TimeoutError:
+                pass
         if node_id in _fetch_in_flight:
             return
         _fetch_in_flight.add(node_id)
@@ -549,18 +555,30 @@ def create_app(config_path: str | Path) -> FastAPI:
     _CACHE_TTL = 3 * 86400  # 3 days
     _CACHE_MAX_ASSET_BYTES = 50 * 1024 * 1024  # 50 MB
 
+    _cache_key_bytes: list[bytes | None] = [None]
+    _cache_key_event = asyncio.Event()
+
     def _cache_aes_key() -> bytes | None:
-        private_key = getattr(app.state, "private_key", None)
-        if not private_key:
-            return None
-        try:
-            from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption
-            from cryptography.hazmat.primitives.hashes import SHA256
-            from cryptography.hazmat.primitives.kdf.hkdf import HKDF
-            priv_bytes = private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
-            return HKDF(algorithm=SHA256(), length=32, salt=None, info=b"contacc-local-cache").derive(priv_bytes)
-        except Exception:
-            return None
+        return _cache_key_bytes[0]
+
+    async def _fetch_cache_key() -> None:
+        """Fetch the AES cache key from the co-located me-node. Retries until available."""
+        import asyncio as _aio
+        while True:
+            try:
+                async with httpx.AsyncClient() as hc:
+                    r = await hc.get(_server + "/internal/client-cache-key",
+                                     headers=_internal_headers(), timeout=5)
+                if r.is_success:
+                    raw = base64.b64decode(r.json()["key"])
+                    if len(raw) == 32:
+                        _cache_key_bytes[0] = raw
+                        _cache_key_event.set()
+                        log.info("Client cache key loaded from me-node.")
+                        return
+            except Exception:
+                pass
+            await _aio.sleep(5)
 
     def _cache_write(path: Path, data: bytes) -> None:
         key = _cache_aes_key()

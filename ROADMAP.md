@@ -106,7 +106,37 @@ The DM feature is implemented (see Completed). Remaining:
 **6. Client API test suite**
 Comprehensive pytest suite for every `/api/` route the client exposes to the browser.
 
-**7. Plaintext metadata hardening**
+**7. Key inventory and threat review**
+
+Walk through every key in the system, document where each is derived or stored, and
+identify any threats in how keys are currently held or accessed.
+
+Known keys to cover (at minimum):
+
+- **Node master key** — derived from passphrase via Argon2; used as KDF root
+- **DB key** — derived from master key; key for the SQLCipher database
+- **File key** — derived from master key; AES-GCM key for asset files on disk
+- **Node Ed25519 signing key** — derived from master key; used to sign federation requests,
+  stored encrypted in node config
+- **Identity Ed25519 key** — generated at setup; never stored on node; escrowed at registry
+  encrypted under owner passphrase; signs delegation cert linking identity → node key
+- **Owner passphrase** — used to decrypt identity escrow; same as node passphrase by default
+  (explicit upgrade path exists)
+- **Tang X25519 key pair** — registry holds `t_priv`; node sends ephemeral `C` on startup;
+  shared secret `S` lets the registry deliver the passphrase-equivalent to the node
+- **DM DH key pair** — X25519 key pair for DM thread key derivation; private key derived
+  from master key (or generated at setup?); `dh_public` published in node record
+- **DM thread key** — HKDF(DH(my_priv, peer_pub), thread_id); AES-256-GCM per message
+- **Client cache key** — HKDF(master key, "contacc-client-cache-key"); AES-GCM for post
+  cache on `them` container; delivered in-memory via internal endpoint after Tang unlock
+- **Client DB key** — HKDF(node private key bytes, "contacc-client-db"); SQLite key for
+  contact tags and poll state on `them` container; requires passphrase to derive
+
+Questions to answer for each key: What is it derived from? Where (if anywhere) is it
+persisted? Who can request it and under what conditions? What does an attacker gain if
+they obtain it?
+
+**8. Plaintext metadata hardening**
 Assess what post timestamps and asset filenames leak and whether it matters for the threat
 model.
 

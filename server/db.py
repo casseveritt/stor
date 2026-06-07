@@ -434,6 +434,30 @@ def init_schema(con: sqlcipher3.Connection) -> None:
     if _stale_identities:
         con.commit()
 
+    # Resolve conflicts before migration: if a server_url recipient's target node_id already
+    # exists as another recipient, merge references into the node_id row and delete the stale one.
+    _conflicts = con.execute("""
+        SELECT r_url.id, r_nid.id
+        FROM recipients r_url
+        JOIN users u ON u.server_url = r_url.identity AND u.node_id IS NOT NULL
+        JOIN recipients r_nid ON r_nid.identity = u.node_id
+    """).fetchall()
+    for _url_id, _nid_id in _conflicts:
+        for _tbl, _pk_col, _rec_col in [("acl", "asset_id", "recipient_id"),
+                                         ("post_acl", "post_id", "recipient_id")]:
+            con.execute(
+                f"INSERT OR IGNORE INTO {_tbl} ({_pk_col}, {_rec_col}) "
+                f"SELECT {_pk_col}, ? FROM {_tbl} WHERE {_rec_col} = ?",
+                (_nid_id, _url_id))
+            con.execute(f"DELETE FROM {_tbl} WHERE {_rec_col} = ?", (_url_id,))
+        for _tbl, _col in [("tokens", "recipient_id"), ("comments", "author_recipient_id"),
+                            ("comment_edit_requests", "requester_recipient_id"),
+                            ("access_log", "recipient_id"), ("identity_mappings", "recipient_id")]:
+            con.execute(f"UPDATE {_tbl} SET {_col} = ? WHERE {_col} = ?", (_nid_id, _url_id))
+        con.execute("DELETE FROM recipients WHERE id = ?", (_url_id,))
+    if _conflicts:
+        con.commit()
+
     # Migrate recipients.identity and comments.author_identity from server_url to node_id.
     # Only updates rows where a matching users entry has a node_id; leaves the rest unchanged.
     _recipients_migrated = con.execute("""

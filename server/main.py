@@ -261,6 +261,12 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
     app.state.private_key = private_key
     app.state.internal_token = config.internal_token
 
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF as _HKDF2
+    from cryptography.hazmat.primitives.hashes import SHA256 as _SHA256_2
+    app.state.client_cache_key = base64.b64encode(
+        _HKDF2(_SHA256_2(), 32, None, b"contacc-client-cache-key").derive(master_key)
+    ).decode()
+
     # Load or generate X25519 DH key for DM thread key derivation
     import json as _json_dh
     _config_data_dh = _json_dh.loads(config_path.read_text())
@@ -457,6 +463,14 @@ def create_app(config_path: str | Path) -> FastAPI:
         db = app.state.db
         db.execute("UPDATE mention_notifications SET seen = 1 WHERE id = ?", (notif_id,))
         db.commit()
+
+    @app.get("/internal/client-cache-key")
+    def internal_client_cache_key(request: Request):
+        """Return the AES key the co-located client (them) should use for its post cache."""
+        key = getattr(app.state, "client_cache_key", None)
+        if not key:
+            raise HTTPException(status_code=503, detail="Not initialized")
+        return {"key": key}
 
     @app.get("/registry-cache/{node_id}")
     def registry_cache_get(node_id: str, request: Request):
