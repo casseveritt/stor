@@ -160,7 +160,8 @@ _REGISTRY_MAX_AGE = 8 * 3600    # records older than this are refreshed uncondit
 
 
 def _registry_url(app) -> str:
-    cfg = app.state.config
+    from .config import NodeConfig
+    cfg = NodeConfig.load(app.state.config_path)
     return (cfg.registry_url or cfg.identity_proxy_url or "").rstrip("/")
 
 

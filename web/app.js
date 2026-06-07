@@ -142,15 +142,6 @@ let _avatarHideTimer = null;
     clearTimeout(_hoverTimer);
     _avatarHideTimer = setTimeout(() => document.querySelectorAll('.profile-popup').forEach(p => p.remove()), 150);
   });
-  document.addEventListener('mousemove', e => {
-    if (!_previewActive) return;
-    const p = document.getElementById('avatar-preview');
-    const vw = window.innerWidth, vh = window.innerHeight;
-    const px = Math.min(e.clientX + 14, vw - 110);
-    const py = Math.min(Math.max(e.clientY - 50, 4), vh - 110);
-    p.style.left = px + 'px';
-    p.style.top = py + 'px';
-  });
 })();
 
 // ── emoji hover preview ────────────────────────────────────────────────────
