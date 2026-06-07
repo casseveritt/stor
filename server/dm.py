@@ -681,6 +681,33 @@ async def leave_group(app, db, group_id: str) -> None:
     await _push_envelope(app, info, thread_id, envelope)
 
 
+async def purge_stillborn_group(app, db, group_id: str) -> None:
+    """Delete a group we created whose founding broadcast never reached
+    anyone — `last_msg_at == 0` means no chat message has ever been sent or
+    received on it, which (since group_state pushes don't bump that column)
+    is only possible if every member is still in the dark about the group's
+    existence. Safe to erase with zero network side effects: there's no one
+    to tell, because no one was ever told.
+
+    Scoped to creator + no-activity so this can never make a *live* group
+    disappear out from under members who already know about it — that's
+    "dissolving" a group, a different (and harder, #6-adjacent) operation."""
+    row = db.execute(
+        "SELECT thread_id, group_creator_id, last_msg_at FROM dm_threads WHERE group_id = ?",
+        (group_id,)).fetchone()
+    if not row:
+        raise HTTPException(404, "Group not found")
+    thread_id, creator_id, last_msg_at = row
+    if creator_id != app.state.node_id:
+        raise HTTPException(403, "Only the group's creator can purge it")
+    if last_msg_at:
+        raise HTTPException(400, "This group has activity — purge only covers stillborn groups")
+    db.execute("DELETE FROM group_members WHERE group_id = ?", (group_id,))
+    db.execute("DELETE FROM dm_messages WHERE thread_id = ?", (thread_id,))
+    db.execute("DELETE FROM dm_threads WHERE thread_id = ?", (thread_id,))
+    db.commit()
+
+
 async def _route_group_envelope(app, db, body: "ReceiveBody", envelope: dict, identity) -> None:
     """Branch a decrypted group envelope to creator-side relay/policy handling
     or member-side state application.
@@ -1070,6 +1097,15 @@ async def api_request_add_group_member(group_id: str, payload: AddMemberBody, re
 @router.post("/dm/groups/{group_id}/leave", status_code=204)
 async def api_leave_group(group_id: str, request: Request, _: InternalOrOwnerDep):
     await leave_group(request.app, request.app.state.db, group_id)
+
+
+@router.post("/dm/groups/{group_id}/purge", status_code=204)
+async def api_purge_stillborn_group(group_id: str, request: Request, _: InternalOrOwnerDep):
+    """Clean-up valve for groups whose founding broadcast never went out —
+    e.g. ones created during the app.state.config bug, which committed their
+    dm_threads/group_members rows locally but threw before reaching _push_envelope
+    for any member. See purge_stillborn_group for the safety scoping."""
+    await purge_stillborn_group(request.app, request.app.state.db, group_id)
 
 
 class RenameGroupBody(BaseModel):
