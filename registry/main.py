@@ -1213,6 +1213,7 @@ blockquote p { color: #888; font-style: italic; }
   ├── cindy →  https://strk.xyzw.us:8445
   └── lucas →  https://strk.xyzw.us:8446</div>
 <p>Nodes send a signed heartbeat to the registry every hour to keep their entry current. If you move your node to a new address, the registry updates automatically on the next heartbeat.</p>
+<p>Every directory entry the registry hands out is signed with the registry's own Ed25519 key — owner ID, handle, display name, and node URL, bound together and timestamped. Because the signature travels with the record, any node that already holds one can pass it along to a peer exactly as-is, and the receiving node can verify it directly against the registry's public key without contacting the registry itself. This is how, for example, group members resolve each other's addresses: ask a peer who already knows, verify what comes back, cache it. The registry stays the authority on identity, but it doesn't have to be a bottleneck for every lookup — its signature is portable proof, and proof needs no middleman.</p>
 </div>
 
 <div>
