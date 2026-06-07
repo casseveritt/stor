@@ -1250,6 +1250,7 @@ blockquote p { color: #888; font-style: italic; }
 </ul>
 <p>Both must pass independently. A post visible to contacts can still restrict comments to just you.</p>
 <p>Contacts are node endpoints — you add a specific node, not a person. If someone runs two nodes (personal and professional), you choose which to follow. What you see is what they explicitly shared with you, nothing else.</p>
+<p><em>This is how comments work today. We're exploring a different shape for them: rather than a separate access list the post owner manages, a reply would simply be a post on the replier's own node that names the original as its parent — visible to anyone who could already see what it replies to, with its own audience free to narrow (but never widen) from there. See <a href="/docs/threaded-posts">Threaded posts</a> for the reasoning. Media and other assets aren't part of that shift — they stay squarely owned and served by the node that posted them, exactly as described above.</em></p>
 </div>
 
 <div>
