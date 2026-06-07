@@ -361,20 +361,45 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             unread_count INTEGER NOT NULL DEFAULT 0
         )
     """)
-    # Dedup dm_threads by peer_node_id before enforcing uniqueness
-    _nid_rows = con.execute("SELECT peer_node_id FROM dm_threads GROUP BY peer_node_id HAVING COUNT(*) > 1").fetchall()
+    # Group DM support: group threads reuse peer_node_id/peer_url/peer_dh_pub to
+    # mean "the group's creator" (the relay hub a member exchanges ciphertext
+    # with directly), plus these three group-only columns. group_id is NULL for
+    # ordinary 1:1 threads.
+    for _col in ["group_id TEXT", "group_name TEXT", "group_creator_id TEXT"]:
+        try:
+            con.execute(f"ALTER TABLE dm_threads ADD COLUMN {_col}")
+            con.commit()
+        except Exception:
+            pass
+    # Dedup dm_threads by peer_node_id before enforcing uniqueness — restricted to
+    # 1:1 threads (group_id IS NULL), since a user can legitimately have both a
+    # 1:1 thread and one or more group threads whose relay hub is the same peer.
+    _nid_rows = con.execute(
+        "SELECT peer_node_id FROM dm_threads WHERE group_id IS NULL"
+        " GROUP BY peer_node_id HAVING COUNT(*) > 1"
+    ).fetchall()
     _changed = False
     for (_nid,) in _nid_rows:
-        _threads = con.execute("SELECT thread_id FROM dm_threads WHERE peer_node_id = ? ORDER BY last_msg_at DESC", (_nid,)).fetchall()
+        _threads = con.execute(
+            "SELECT thread_id FROM dm_threads WHERE peer_node_id = ? AND group_id IS NULL"
+            " ORDER BY last_msg_at DESC", (_nid,)
+        ).fetchall()
         for (_tid,) in _threads[1:]:
             con.execute("DELETE FROM dm_messages WHERE thread_id = ?", (_tid,))
             con.execute("DELETE FROM dm_threads WHERE thread_id = ?", (_tid,))
         _changed = True
     if _changed:
         con.commit()
+    # Replace the old whole-column unique index with partial indexes: at most one
+    # 1:1 thread per peer, and at most one thread per group.
+    con.execute("DROP INDEX IF EXISTS dm_threads_peer_node_id")
     con.execute("""
         CREATE UNIQUE INDEX IF NOT EXISTS dm_threads_peer_node_id
-        ON dm_threads(peer_node_id)
+        ON dm_threads(peer_node_id) WHERE group_id IS NULL
+    """)
+    con.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS dm_threads_group_id
+        ON dm_threads(group_id) WHERE group_id IS NOT NULL
     """)
     con.execute("""
         CREATE TABLE IF NOT EXISTS registry_cache (
@@ -392,6 +417,20 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             created_at   INTEGER NOT NULL,
             delivered_at INTEGER,
             seen_at      INTEGER
+        )
+    """)
+    # sender_node_id attributes a relayed group message to its original author;
+    # NULL for 1:1 messages, where `direction` alone already disambiguates.
+    try:
+        con.execute("ALTER TABLE dm_messages ADD COLUMN sender_node_id TEXT")
+        con.commit()
+    except Exception:
+        pass
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS group_members (
+            group_id       TEXT NOT NULL,
+            member_node_id TEXT NOT NULL,
+            PRIMARY KEY (group_id, member_node_id)
         )
     """)
     con.commit()
