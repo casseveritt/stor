@@ -136,66 +136,35 @@ def setup_new(body: NewBody, request: Request):
     except WrongPassphraseError:
         raise HTTPException(500, "Failed to initialize after setup")
 
-    # Register with the registry directly using fresh key material, then upload escrow.
-    # We do this ourselves rather than waiting for the background heartbeat thread to avoid
-    # a race where the escrow upload fires before the handles entry exists.
-    _id_key_hex = key_material.pop("_identity_key_hex", None)
-    _reg_url = key_material.pop("_registry_url", "")
-    if _id_key_hex and _reg_url:
-        try:
-            import os as _os2, time as _time2, httpx as _hx_e, json as _json_e
-            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _Ed
-            from cryptography.hazmat.primitives.serialization import Encoding as _Enc, PrivateFormat as _PF, PublicFormat as _PuF, NoEncryption as _NE
-            from .identity import identity_key_from_hex as _ikfh
-            from .crypto import ARGON2_TIME_COST as _TC, ARGON2_MEMORY_COST as _MC, ARGON2_PARALLELISM as _PAR
+    # The node is now live (serving /node under its real key). Reserve+claim its
+    # identity from the registry and patch it into the running config — issuing the
+    # delegation info is the final step before the node is open for business, and is
+    # also what lets the registry confirm liveness (it can finally reach /node and see
+    # the key the cert names).
+    _id_key_hex = key_material.pop("_identity_key_hex")
+    _node_pub_b64 = key_material.pop("_node_pub_b64")
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _Ed
+    from .identity import identity_key_from_hex as _ikfh
+    from .crypto import ARGON2_TIME_COST as _TC, ARGON2_MEMORY_COST as _MC, ARGON2_PARALLELISM as _PAR
+    _identity_key = _ikfh(_id_key_hex)
+    _node_priv_bytes = decrypt_bytes(
+        base64.b64decode(key_material["encrypted_private_key"]),
+        derive_master_key(body.passphrase, bytes.fromhex(key_material["argon2_salt"]), _TC, _MC, _PAR)
+    )
+    _node_key = _Ed.from_private_bytes(_node_priv_bytes)
+    web_address = app.state.web_address or ""
 
-            # Reconstruct node private key from encrypted key material
-            _node_priv_bytes = decrypt_bytes(
-                base64.b64decode(key_material["encrypted_private_key"]),
-                derive_master_key(body.passphrase, bytes.fromhex(key_material["argon2_salt"]), _TC, _MC, _PAR)
-            )
-            _node_key = _Ed.from_private_bytes(_node_priv_bytes)
-            _node_pub_b64 = base64.b64encode(_node_key.public_key().public_bytes(_Enc.Raw, _PuF.Raw)).decode()
-            _uid = key_material.get("owner_id") or key_material.get("user_id")
-            _dcert = _json_e.loads(Path(config_path).read_text()).get("identity_delegation")
-
-            # Register node with registry
-            ts_r = int(_time2.time())
-            reg_msg = f"contacc:register:{body.handle}:{node_address}:{ts_r}"
-            reg_sig = base64.b64encode(_node_key.sign(reg_msg.encode())).decode()
-            web_address = app.state.web_address or ""
-            _hx_e.post(f"{_reg_url.rstrip('/')}/register/{body.handle}", json={
-                "server_url": node_address, "public_key": _node_pub_b64,
-                "ttl": 14400, "timestamp": ts_r, "signature": reg_sig,
-                "display_name": body.display_name or None,
-                "web_url": web_address or None,
-                "delegation_cert": _json_e.loads(_dcert) if _dcert else None,
-                "google_identity": body.owner_identity,
-            }, timeout=10)
-
-            # Upload escrow now that the handles entry exists
-            _ik = _ikfh(_id_key_hex)
-            escrow_salt = _os2.urandom(16)
-            escrow_key = derive_master_key(body.passphrase, escrow_salt, _TC, _MC, _PAR)
-            enc_id_key = base64.b64encode(encrypt_bytes(bytes.fromhex(_id_key_hex), escrow_key)).decode()
-            ts_e = int(_time2.time())
-            escrow_sig = base64.b64encode(_ik.sign(f"contacc:escrow:{_uid}:{ts_e}".encode())).decode()
-            r_e = _hx_e.put(f"{_reg_url.rstrip('/')}/identity-key/{_uid}", json={
-                "encrypted_identity_key": enc_id_key,
-                "argon2_salt": escrow_salt.hex(),
-                "argon2_time_cost": _TC, "argon2_memory_cost": _MC, "argon2_parallelism": _PAR,
-                "signature": escrow_sig, "timestamp": ts_e,
-            }, timeout=10)
-            if not r_e.is_success:
-                log.warning("Escrow upload failed: %s %s", r_e.status_code, r_e.text)
-        except Exception as _ee:
-            log.warning("Escrow upload failed: %s", _ee)
+    owner_id, node_id = _finalize_node_identity(
+        app, config_path, registry_url, body.handle, body.passphrase, node_address, web_address,
+        body.owner_identity, body.display_name, _identity_key, _node_key, _node_pub_b64,
+        body.tang_enabled, existing_owner_id=None, upload_escrow=True,
+    )
 
     _consume_token(app)
     return {
         "status": "ok",
         "node_address": node_address,
-        "node_id": key_material["node_id"],
+        "node_id": node_id,
         "node_key": {
             "argon2_salt": key_material["argon2_salt"],
             "argon2_time_cost": key_material["argon2_time_cost"],
@@ -242,10 +211,9 @@ def setup_new_for_owner(body: NewForOwnerBody, request: Request):
     registry_url = os.environ.get("CONTACC_REGISTRY_URL", identity_proxy_url)
 
     # Fetch identity key escrow from registry and decrypt with owner passphrase
-    import httpx as _hx_o, uuid as _uuid_o
+    import httpx as _hx_o
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _EK_o
     from cryptography.hazmat.primitives.serialization import Encoding as _Enc_o, PublicFormat as _PuF_o
-    from .identity import make_delegation_cert as _mkdel_o, identity_key_from_hex as _ikfh_o
 
     r_escrow = _hx_o.get(f"{registry_url.rstrip('/')}/identity-key/{body.existing_owner_id}", timeout=10)
     if not r_escrow.is_success:
@@ -263,12 +231,12 @@ def setup_new_for_owner(body: NewForOwnerBody, request: Request):
     except Exception:
         raise HTTPException(403, "Wrong owner passphrase")
 
-    # Generate fresh node credentials (new node_id, new node key pair)
-    import uuid as _uuid2, os as _os3
+    # Generate fresh node credentials — node_id is minted by the registry once this
+    # node is live (see _finalize_node_identity), never self-assigned.
+    import os as _os3
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _NK
     from cryptography.hazmat.primitives.serialization import PrivateFormat as _PrF_o, NoEncryption as _NE_o
 
-    new_node_id = str(_uuid2.uuid4())
     node_key = _NK.generate()
     node_priv_bytes = node_key.private_bytes(_Enc_o.Raw, _PrF_o.Raw, _NE_o())
     salt = _os3.urandom(16)
@@ -292,10 +260,11 @@ def setup_new_for_owner(body: NewForOwnerBody, request: Request):
     db_con.close()
 
     node_pub_b64 = base64.b64encode(node_key.public_key().public_bytes(_Enc_o.Raw, _PuF_o.Raw)).decode()
-    id_pub_b64 = base64.b64encode(identity_key.public_key().public_bytes(_Enc_o.Raw, _PuF_o.Raw)).decode()
-    delegation_cert = _mkdel_o(identity_key, body.existing_owner_id, node_pub_b64, node_id=new_node_id)
     internal_token = secrets.token_urlsafe(32)
 
+    # owner_id/node_id/the delegation cert are deferred to _finalize_node_identity,
+    # which runs after the node is live — that's when the registry can verify it and
+    # mint node_id (owner_id is already known: body.existing_owner_id).
     config = {
         "node_address": node_address,
         "store_path": str(store_path),
@@ -309,44 +278,8 @@ def setup_new_for_owner(body: NewForOwnerBody, request: Request):
         "identity_proxy_url": identity_proxy_url,
         "registry_handle": body.handle,
         "internal_token": internal_token,
-        "owner_id": body.existing_owner_id,
-        "node_id": new_node_id,
-        "identity_public_key": id_pub_b64,
-        "identity_delegation": json.dumps(delegation_cert),
         "tang_enabled": body.tang_enabled,
     }
-
-    # Tang registration
-    tang_C = tang_E = tang_url_stored = None
-    if body.tang_enabled:
-        try:
-            import time as _t2
-            from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey as _X2, X25519PublicKey as _XP2
-            from cryptography.hazmat.primitives.serialization import Encoding as _E2, PublicFormat as _PF2
-            from cryptography.hazmat.primitives.kdf.hkdf import HKDF as _H2
-            from cryptography.hazmat.primitives.hashes import SHA256 as _S2
-            ts = int(_t2.time())
-            tang_msg = f"contacc:tang:register:{new_node_id}:{ts}"
-            tang_sig = base64.b64encode(identity_key.sign(tang_msg.encode())).decode()
-            r_tang = _hx_o.post(f"{registry_url.rstrip('/')}/tang/register", json={
-                "node_id": new_node_id, "identity_public_key": id_pub_b64,
-                "timestamp": ts, "signature": tang_sig,
-            }, timeout=10)
-            if r_tang.is_success:
-                T_pub = _XP2.from_public_bytes(base64.b64decode(r_tang.json()["T_pub"]))
-                c_priv = _X2.generate()
-                S_bytes = c_priv.exchange(T_pub)
-                K = _H2(_S2(), 32, None, b"contacc-tang-unlock").derive(S_bytes)
-                tang_C = base64.b64encode(c_priv.public_key().public_bytes(_E2.Raw, _PF2.Raw)).decode()
-                tang_E = base64.b64encode(encrypt_bytes(body.passphrase.encode(), K)).decode()
-                tang_url_stored = registry_url.rstrip("/")
-        except Exception as _te:
-            log.warning("Tang setup failed for new-for-owner node: %s", _te)
-
-    if tang_C:
-        config["tang_C"] = tang_C
-        config["tang_E"] = tang_E
-        config["tang_url"] = tang_url_stored
 
     config_path.write_text(json.dumps(config, indent=2))
 
@@ -355,23 +288,14 @@ def setup_new_for_owner(body: NewForOwnerBody, request: Request):
     except WrongPassphraseError:
         raise HTTPException(500, "Failed to initialize after setup")
 
-    # Register with registry
-    try:
-        import time as _t3, json as _j3
-        ts_r = int(_t3.time())
-        reg_msg = f"contacc:register:{body.handle}:{node_address}:{ts_r}"
-        reg_sig = base64.b64encode(node_key.sign(reg_msg.encode())).decode()
-        web_address = app.state.web_address or ""
-        _hx_o.post(f"{registry_url.rstrip('/')}/register/{body.handle}", json={
-            "server_url": node_address, "public_key": node_pub_b64,
-            "ttl": 14400, "timestamp": ts_r, "signature": reg_sig,
-            "display_name": body.display_name or None,
-            "web_url": web_address or None,
-            "delegation_cert": delegation_cert,
-            "google_identity": body.owner_identity,
-        }, timeout=10)
-    except Exception as _re:
-        log.warning("Registry registration failed for new-for-owner node: %s", _re)
+    # The node is now live. Reserve+claim its node_id under the existing owner_id and
+    # patch it into the running config — the final step before it's open for business.
+    web_address = app.state.web_address or ""
+    owner_id, new_node_id = _finalize_node_identity(
+        app, config_path, registry_url, body.handle, body.passphrase, node_address, web_address,
+        body.owner_identity, body.display_name, identity_key, node_key, node_pub_b64,
+        body.tang_enabled, existing_owner_id=body.existing_owner_id, upload_escrow=False,
+    )
 
     _consume_token(app)
     return {
@@ -636,6 +560,145 @@ def change_passphrase(body: ChangePassphraseBody, request: Request):
     }
 
 
+def _finalize_node_identity(
+    app,
+    config_path: Path,
+    registry_url: str,
+    handle: str,
+    passphrase: str,
+    node_address: str,
+    web_address: str,
+    owner_identity: str,
+    display_name: str,
+    identity_key,
+    node_key,
+    node_pub_b64: str,
+    tang_enabled: bool,
+    existing_owner_id: str | None = None,
+    upload_escrow: bool = True,
+) -> tuple[str, str]:
+    """Reserve owner_id/node_id from the registry, register, and patch the now-running
+    node's config + in-memory state with its finalized identity. This runs *after* the
+    node is already live (do_initialize has completed) — issuing the delegation info is
+    the last step before the node is open for business, and it's also what lets the
+    registry's liveness check (_claim_url) succeed: the node can finally prove it's
+    serving at server_url under the key the cert names.
+
+    The registry is the sole authority for owner_id/node_id — a node never self-assigns;
+    /register/{username} only accepts IDs that match a reservation made here."""
+    import time as _t, httpx as _hx, json as _j
+    from cryptography.hazmat.primitives.serialization import Encoding as _Enc, PublicFormat as _PuF
+    from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey as _X25519, X25519PublicKey as _X25519Pub
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF as _HKDF
+    from cryptography.hazmat.primitives.hashes import SHA256 as _SHA256
+    from . import node as node_module
+    from .identity import make_delegation_cert, identity_key_to_hex
+    from .crypto import encrypt_bytes, derive_master_key, ARGON2_TIME_COST, ARGON2_MEMORY_COST, ARGON2_PARALLELISM
+
+    if not registry_url:
+        raise HTTPException(502, "No registry configured — cannot obtain identifiers")
+    registry_url = registry_url.rstrip("/")
+    id_pub_b64 = base64.b64encode(identity_key.public_key().public_bytes(_Enc.Raw, _PuF.Raw)).decode()
+
+    # 1. Reserve owner_id/node_id — minted by the registry, never self-assigned
+    ts_res = int(_t.time())
+    res_msg = f"contacc:reserve:{existing_owner_id or 'new'}:{node_pub_b64}:{ts_res}"
+    res_sig = base64.b64encode(identity_key.sign(res_msg.encode())).decode()
+    try:
+        r_res = _hx.post(f"{registry_url}/register/reserve", json={
+            "identity_public_key": id_pub_b64, "node_public_key": node_pub_b64,
+            "owner_id": existing_owner_id, "timestamp": ts_res, "signature": res_sig,
+        }, timeout=10)
+    except Exception:
+        raise HTTPException(502, "Could not reach the registry to reserve identifiers — try again")
+    if not r_res.is_success:
+        raise HTTPException(502, f"Registry declined to reserve identifiers: {r_res.text}")
+    reserved = r_res.json()
+    owner_id, node_id = reserved["owner_id"], reserved["node_id"]
+
+    # 2. Sign the delegation cert now that the IDs are known
+    delegation_cert = make_delegation_cert(identity_key, owner_id, node_pub_b64, node_id=node_id)
+
+    # 3. Tang network-bound unlock (the registration message is keyed by node_id)
+    tang_C = tang_E = tang_url_stored = None
+    if tang_enabled:
+        try:
+            ts = int(_t.time())
+            tang_msg = f"contacc:tang:register:{node_id}:{ts}"
+            tang_sig = base64.b64encode(identity_key.sign(tang_msg.encode())).decode()
+            r_tang = _hx.post(f"{registry_url}/tang/register", json={
+                "node_id": node_id, "identity_public_key": id_pub_b64,
+                "timestamp": ts, "signature": tang_sig,
+            }, timeout=10)
+            if r_tang.is_success:
+                T_pub = _X25519Pub.from_public_bytes(base64.b64decode(r_tang.json()["T_pub"] + "=="))
+                c_priv = _X25519.generate()
+                S_bytes = c_priv.exchange(T_pub)
+                K = _HKDF(_SHA256(), 32, None, b"contacc-tang-unlock").derive(S_bytes)
+                tang_C = base64.b64encode(c_priv.public_key().public_bytes(_Enc.Raw, _PuF.Raw)).decode()
+                tang_E = base64.b64encode(encrypt_bytes(passphrase.encode(), K)).decode()
+                tang_url_stored = registry_url
+        except Exception as _te:
+            log.warning("Tang setup failed (node will require manual unlock): %s", _te)
+
+    # 4. Register — the node is already live, so the registry can verify it at server_url
+    ts_r = int(_t.time())
+    reg_msg = f"contacc:register:{handle}:{node_address}:{ts_r}"
+    reg_sig = base64.b64encode(node_key.sign(reg_msg.encode())).decode()
+    try:
+        r_reg = _hx.post(f"{registry_url}/register/{handle}", json={
+            "server_url": node_address, "public_key": node_pub_b64,
+            "ttl": 14400, "timestamp": ts_r, "signature": reg_sig,
+            "display_name": display_name or None,
+            "web_url": web_address or None,
+            "delegation_cert": delegation_cert,
+            "google_identity": owner_identity,
+        }, timeout=10)
+    except Exception:
+        raise HTTPException(502, "Could not reach the registry to register — try again")
+    if not r_reg.is_success:
+        raise HTTPException(502, f"Registry registration failed: {r_reg.text}")
+
+    # 5. Patch the live config + in-memory state — issuing the delegation info is the
+    # final step before the node is open for business.
+    config_data = _j.loads(config_path.read_text())
+    config_data["owner_id"] = owner_id
+    config_data["node_id"] = node_id
+    config_data["identity_public_key"] = id_pub_b64
+    config_data["identity_delegation"] = _j.dumps(delegation_cert)
+    if tang_C:
+        config_data["tang_C"] = tang_C
+        config_data["tang_E"] = tang_E
+        config_data["tang_url"] = tang_url_stored
+    config_path.write_text(_j.dumps(config_data, indent=2))
+
+    app.state.user_id = owner_id
+    app.state.node_id = node_id
+    node_module.setup(node_address, app.state.private_key, app.state.watermark_enabled, handle,
+                      user_id=owner_id, owner_id=owner_id, node_id=node_id)
+
+    # 6. Escrow the identity key for brand-new owners (existing owners already have one)
+    if upload_escrow:
+        try:
+            escrow_salt = os.urandom(16)
+            escrow_key = derive_master_key(passphrase, escrow_salt, ARGON2_TIME_COST, ARGON2_MEMORY_COST, ARGON2_PARALLELISM)
+            enc_id_key = base64.b64encode(encrypt_bytes(bytes.fromhex(identity_key_to_hex(identity_key)), escrow_key)).decode()
+            ts_e = int(_t.time())
+            escrow_sig = base64.b64encode(identity_key.sign(f"contacc:escrow:{owner_id}:{ts_e}".encode())).decode()
+            r_e = _hx.put(f"{registry_url}/identity-key/{owner_id}", json={
+                "encrypted_identity_key": enc_id_key,
+                "argon2_salt": escrow_salt.hex(),
+                "argon2_time_cost": ARGON2_TIME_COST, "argon2_memory_cost": ARGON2_MEMORY_COST, "argon2_parallelism": ARGON2_PARALLELISM,
+                "signature": escrow_sig, "timestamp": ts_e,
+            }, timeout=10)
+            if not r_e.is_success:
+                log.warning("Escrow upload failed: %s %s", r_e.status_code, r_e.text)
+        except Exception as _ee:
+            log.warning("Escrow upload failed: %s", _ee)
+
+    return owner_id, node_id
+
+
 def _create_node_config(
     config_path: Path,
     node_address: str,
@@ -648,7 +711,6 @@ def _create_node_config(
 ) -> dict:
     """Generate keys, initialize DB, and write node_config.json."""
     import os as _os
-    import uuid as _uuid
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
     from cryptography.hazmat.primitives.serialization import Encoding, PrivateFormat, NoEncryption, PublicFormat
     from .crypto import (
@@ -674,21 +736,18 @@ def _create_node_config(
     private_key = Ed25519PrivateKey.generate()
     privkey_bytes = private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
     encrypted_privkey = encrypt_bytes(privkey_bytes, master_key)
-
-    from .identity import make_delegation_cert, identity_key_to_hex
-
-    # Generate identity key pair — private key is NEVER stored on the node
-    identity_key = Ed25519PrivateKey.generate()
-    identity_pubkey_bytes = identity_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
-    # owner_id identifies the person (permanent, registry); node_id identifies this deployment
-    owner_id = str(_uuid.uuid4())
-    node_id = str(_uuid.uuid4())
-
-    # Sign delegation cert (1 year validity) — this is what lives on the node
     node_pub_b64 = base64.b64encode(
         private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
     ).decode()
-    delegation_cert = make_delegation_cert(identity_key, owner_id, node_pub_b64, node_id=node_id)
+
+    from .identity import identity_key_to_hex
+
+    # Generate identity key pair — private key is NEVER stored on the node.
+    # owner_id/node_id/the delegation cert are NOT written here: the registry mints
+    # them, and it can only do so once this node is live (it verifies liveness at
+    # server_url before registering). _finalize_node_identity runs after
+    # do_initialize and patches them into the running node as the final setup step.
+    identity_key = Ed25519PrivateKey.generate()
 
     db_con = open_db(str(store_path / "db"), db_key)
     init_schema(db_con)
@@ -711,11 +770,6 @@ def _create_node_config(
         "identity_proxy_url": identity_proxy_url,
         "registry_handle": handle,
         "internal_token": internal_token,
-        "owner_id": owner_id,
-        "node_id": node_id,
-        "identity_public_key": base64.b64encode(identity_pubkey_bytes).decode(),
-        "identity_delegation": json.dumps(delegation_cert),
-        # identity private key is NOT stored — returned once to caller for safekeeping
         "tang_enabled": tang_enabled,
     }
 
@@ -726,48 +780,6 @@ def _create_node_config(
     dh_priv_bytes = dh_priv.private_bytes(Encoding.Raw, _PrF2.Raw, _NE2())
     config["encrypted_dh_private_key"] = base64.b64encode(encrypt_bytes(dh_priv_bytes, master_key)).decode()
 
-    # Tang network-bound unlock (opt-in, default True)
-    tang_C = tang_E = tang_url_stored = None
-    registry_url = identity_proxy_url.rstrip("/") if identity_proxy_url else ""
-    if tang_enabled and registry_url:
-        try:
-            import time as _time
-            from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
-            from cryptography.hazmat.primitives.serialization import Encoding as _E2, PublicFormat as _PF2, PrivateFormat as _PrF, NoEncryption as _NE2
-            from cryptography.hazmat.primitives.kdf.hkdf import HKDF as _HKDF
-            from cryptography.hazmat.primitives.hashes import SHA256 as _SHA256
-            # Register with Tang — authenticate with identity key
-            ts = int(_time.time())
-            tang_msg = f"contacc:tang:register:{node_id}:{ts}"
-            tang_sig = base64.b64encode(identity_key.sign(tang_msg.encode())).decode()
-            id_pub_b64 = base64.b64encode(identity_pubkey_bytes).decode()
-            import httpx as _httpx
-            r = _httpx.post(f"{registry_url.rstrip('/')}/tang/register", json={
-                "node_id": node_id, "identity_public_key": id_pub_b64,
-                "timestamp": ts, "signature": tang_sig,
-            }, timeout=10)
-            if r.is_success:
-                T_pub_b64 = r.json()["T_pub"]
-                T_pub_bytes = base64.b64decode(T_pub_b64 + "==")
-                from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PublicKey
-                T_pub = X25519PublicKey.from_public_bytes(T_pub_bytes)
-                # McCallum-Relyea: generate ephemeral key, derive S, encrypt passphrase
-                c_priv = X25519PrivateKey.generate()
-                C_pub_bytes = c_priv.public_key().public_bytes(_E2.Raw, _PF2.Raw)
-                S_bytes = c_priv.exchange(T_pub)
-                K = _HKDF(_SHA256(), 32, None, b"contacc-tang-unlock").derive(S_bytes)
-                tang_C = base64.b64encode(C_pub_bytes).decode()
-                tang_E = base64.b64encode(encrypt_bytes(passphrase.encode(), K)).decode()
-                tang_url_stored = registry_url.rstrip("/")
-                # Discard c_priv, S_bytes, K — only C and E are stored
-        except Exception as _te:
-            log.warning("Tang setup failed (node will require manual unlock): %s", _te)
-
-    if tang_C:
-        config["tang_C"] = tang_C
-        config["tang_E"] = tang_E
-        config["tang_url"] = tang_url_stored
-
     config_path.write_text(json.dumps(config, indent=2))
 
     return {
@@ -777,10 +789,8 @@ def _create_node_config(
         "argon2_parallelism": ARGON2_PARALLELISM,
         "encrypted_private_key": base64.b64encode(encrypted_privkey).decode(),
         "internal_token": internal_token,
-        "owner_id": owner_id,
-        "node_id": node_id,
         "_identity_key_hex": identity_key_to_hex(identity_key),  # internal only — not sent to client
-        "_registry_url": registry_url,
+        "_node_pub_b64": node_pub_b64,
     }
 
 

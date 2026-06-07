@@ -19,6 +19,7 @@ import secrets
 import sqlite3
 import sys
 import time
+import uuid
 NS = 1_000_000_000
 from pathlib import Path
 from urllib.parse import urlencode
@@ -83,8 +84,13 @@ def create_app(db_path: str) -> FastAPI:
     con = sqlite3.connect(db_path, check_same_thread=False)
     con.execute("PRAGMA journal_mode=WAL")
     # Schema v3: node_id is PK (node deployment); owner_id is person identifier (stable, groups 1:n nodes).
+    # v4: table renamed handles -> nodes — node_id, not a username/handle, is the primary identifier.
+    _existing_tables = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()}
+    if "nodes" not in _existing_tables and "handles" in _existing_tables:
+        con.execute("ALTER TABLE handles RENAME TO nodes")
+        con.commit()
     con.execute("""
-        CREATE TABLE IF NOT EXISTS handles (
+        CREATE TABLE IF NOT EXISTS nodes (
             node_id       TEXT PRIMARY KEY,
             owner_id      TEXT NOT NULL,
             username      TEXT NOT NULL DEFAULT '',
@@ -105,11 +111,11 @@ def create_app(db_path: str) -> FastAPI:
     """)
     # Migrate from v2 schema (user_id PK) to v3 (node_id PK, owner_id separate)
     try:
-        con.execute("SELECT owner_id FROM handles LIMIT 1")
+        con.execute("SELECT owner_id FROM nodes LIMIT 1")
     except Exception:
-        con.execute("ALTER TABLE handles RENAME TO _handles_v2")
+        con.execute("ALTER TABLE nodes RENAME TO _nodes_v2")
         con.execute("""
-            CREATE TABLE handles (
+            CREATE TABLE nodes (
                 node_id       TEXT PRIMARY KEY,
                 owner_id      TEXT NOT NULL,
                 username      TEXT NOT NULL DEFAULT '',
@@ -129,7 +135,7 @@ def create_app(db_path: str) -> FastAPI:
             )
         """)
         con.execute("""
-            INSERT INTO handles
+            INSERT INTO nodes
               (node_id, owner_id, username, server_url, public_key, ttl, registered_at,
                updated_at, display_name, web_url, identity_public_key, delegation_sig,
                encrypted_identity_key, google_identity, is_primary)
@@ -139,12 +145,15 @@ def create_app(db_path: str) -> FastAPI:
               username, server_url, public_key, ttl, registered_at, updated_at,
               display_name, web_url, identity_public_key, delegation_sig,
               encrypted_identity_key, google_identity, COALESCE(is_primary, 0)
-            FROM _handles_v2
+            FROM _nodes_v2
         """)
-        con.execute("DROP TABLE _handles_v2")
+        con.execute("DROP TABLE _nodes_v2")
         con.commit()
-    con.execute("CREATE INDEX IF NOT EXISTS handles_owner_id ON handles (owner_id)")
-    con.execute("CREATE INDEX IF NOT EXISTS handles_username ON handles (username)")
+    # Drop indexes under their old name (ALTER TABLE RENAME keeps index names as-is)
+    con.execute("DROP INDEX IF EXISTS handles_owner_id")
+    con.execute("DROP INDEX IF EXISTS handles_username")
+    con.execute("CREATE INDEX IF NOT EXISTS nodes_owner_id ON nodes (owner_id)")
+    con.execute("CREATE INDEX IF NOT EXISTS nodes_username ON nodes (username)")
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS registry_keys (
@@ -214,8 +223,21 @@ def create_app(db_path: str) -> FastAPI:
             created_at   INTEGER NOT NULL
         )
     """)
+    con.execute("""
+        -- Holds owner_id/node_id minted by /register/reserve until they're claimed by
+        -- /register/{username} (or expire). The registry is the sole authority for these
+        -- identifiers, so a node can never register with self-chosen IDs.
+        CREATE TABLE IF NOT EXISTS reservations (
+            node_id             TEXT PRIMARY KEY,
+            owner_id            TEXT NOT NULL,
+            identity_public_key TEXT NOT NULL,
+            node_public_key     TEXT NOT NULL,
+            reserved_at         INTEGER NOT NULL,
+            expires_at          INTEGER NOT NULL
+        )
+    """)
     # Migrate: convert timestamps from float seconds to integer nanoseconds
-    for _tbl, _col in [("handles", "registered_at"), ("handles", "updated_at"),
+    for _tbl, _col in [("nodes", "registered_at"), ("nodes", "updated_at"),
                        ("proxy_states", "created_at"), ("proxy_tokens", "created_at")]:
         try:
             con.execute(
@@ -290,7 +312,7 @@ def create_app(db_path: str) -> FastAPI:
         rows = con.execute(
             "SELECT username, display_name, server_url, web_url, node_id, owner_id, "
             "public_key, delegation_sig, identity_public_key, is_primary "
-            "FROM handles WHERE google_identity = ? ORDER BY is_primary DESC, updated_at DESC",
+            "FROM nodes WHERE google_identity = ? ORDER BY is_primary DESC, updated_at DESC",
             (identity,)
         ).fetchall()
         nodes = []
@@ -326,7 +348,7 @@ def create_app(db_path: str) -> FastAPI:
                 base64.b64decode(body.signature + "=="), msg.encode())
         except Exception:
             # Fall back to checking against the registered node key
-            row = con.execute("SELECT public_key FROM handles WHERE node_id = ?", (body.node_id,)).fetchone()
+            row = con.execute("SELECT public_key FROM nodes WHERE node_id = ?", (body.node_id,)).fetchone()
             if not row:
                 raise HTTPException(401, "Node not found")
             try:
@@ -392,7 +414,7 @@ def create_app(db_path: str) -> FastAPI:
         if not _verify_sig(body.node_public_key, msg, body.signature):
             raise HTTPException(401, "Invalid node key signature")
         # Verify the node_public_key matches what's registered
-        row = con.execute("SELECT public_key FROM handles WHERE node_id = ?", (body.node_id,)).fetchone()
+        row = con.execute("SELECT public_key FROM nodes WHERE node_id = ?", (body.node_id,)).fetchone()
         if not row:
             raise HTTPException(404, "Node not registered")
         if row[0] != body.node_public_key:
@@ -413,7 +435,7 @@ def create_app(db_path: str) -> FastAPI:
         if not identity:
             raise HTTPException(401, "Not authenticated")
         row = con.execute(
-            "SELECT google_identity FROM handles WHERE node_id = ?", (node_id,)
+            "SELECT google_identity FROM nodes WHERE node_id = ?", (node_id,)
         ).fetchone()
         if not row:
             raise HTTPException(404, "Node not found")
@@ -429,17 +451,76 @@ def create_app(db_path: str) -> FastAPI:
     def registry_meta():
         return {"public_key": _registry_pub_b64, "version": 1}
 
+    RESERVATION_TTL_NS = 3600 * 1_000_000_000  # 1 hour — long enough to finish setup and go live
+
+    class ReserveIdsBody(BaseModel):
+        identity_public_key: str
+        node_public_key: str
+        owner_id: str | None = None  # set when adding a node to an existing owner
+        timestamp: int
+        signature: str               # identity_key signs f"contacc:reserve:{owner_id or 'new'}:{node_public_key}:{timestamp}"
+
+    @app.post("/register/reserve")
+    def reserve_ids(body: ReserveIdsBody):
+        """Mint and hold owner_id/node_id for a node that's about to register. The registry
+        is the sole authority for these identifiers — /register/{username} only accepts IDs
+        that match a live reservation here (or, for an existing owner_id, the identity on file),
+        so a node can never self-assign or impersonate an ID."""
+        _check_timestamp(body.timestamp)
+        try:
+            id_pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(body.identity_public_key + "=="))
+            msg = f"contacc:reserve:{body.owner_id or 'new'}:{body.node_public_key}:{body.timestamp}"
+            id_pub.verify(base64.b64decode(body.signature + "=="), msg.encode())
+        except Exception:
+            raise HTTPException(401, "Invalid signature")
+
+        now = time.time_ns()
+        con.execute("DELETE FROM reservations WHERE expires_at < ?", (now,))
+
+        def _fresh_id(checks: list[str]) -> str:
+            for _ in range(5):
+                candidate = str(uuid.uuid4())
+                if not any(con.execute(q, (candidate,)).fetchone() for q in checks):
+                    return candidate
+            raise HTTPException(500, "Could not allocate a unique identifier — try again")
+
+        if body.owner_id:
+            row = con.execute(
+                "SELECT identity_public_key FROM nodes WHERE owner_id = ? AND identity_public_key IS NOT NULL LIMIT 1",
+                (body.owner_id,)
+            ).fetchone()
+            if not row:
+                raise HTTPException(404, "Unknown owner_id")
+            if row[0] != body.identity_public_key:
+                raise HTTPException(403, "identity_public_key does not match the identity on file for this owner_id")
+            owner_id = body.owner_id
+        else:
+            owner_id = _fresh_id(["SELECT 1 FROM nodes WHERE owner_id = ?",
+                                  "SELECT 1 FROM reservations WHERE owner_id = ?"])
+
+        node_id = _fresh_id(["SELECT 1 FROM nodes WHERE node_id = ?",
+                             "SELECT 1 FROM reservations WHERE node_id = ?"])
+
+        expires_at = now + RESERVATION_TTL_NS
+        con.execute(
+            "INSERT INTO reservations (node_id, owner_id, identity_public_key, node_public_key, reserved_at, expires_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (node_id, owner_id, body.identity_public_key, body.node_public_key, now, expires_at),
+        )
+        con.commit()
+        return {"owner_id": owner_id, "node_id": node_id, "expires_at": expires_at}
+
     @app.get("/nodes/{node_id}")
     def get_node(node_id: str):
         row = con.execute(
-            "SELECT server_url, web_url, username, display_name, owner_id FROM handles WHERE node_id = ?",
+            "SELECT server_url, web_url, username, display_name, owner_id FROM nodes WHERE node_id = ?",
             (node_id,)
         ).fetchone()
         if not row:
             # Try owner_id lookup — return primary node for this owner
             row2 = con.execute(
                 "SELECT server_url, web_url, username, display_name, owner_id, node_id "
-                "FROM handles WHERE owner_id = ? ORDER BY is_primary DESC, updated_at DESC LIMIT 1",
+                "FROM nodes WHERE owner_id = ? ORDER BY is_primary DESC, updated_at DESC LIMIT 1",
                 (node_id,)
             ).fetchone()
             if not row2:
@@ -462,13 +543,13 @@ def create_app(db_path: str) -> FastAPI:
         if not updates:
             raise HTTPException(422, "Nothing to update")
         params.extend([time.time_ns(), node_id])
-        con.execute(f"UPDATE handles SET {', '.join(updates)}, updated_at = ? WHERE node_id = ?", params)
+        con.execute(f"UPDATE nodes SET {', '.join(updates)}, updated_at = ? WHERE node_id = ?", params)
         con.commit()
 
     @app.delete("/nodes/{node_id}", status_code=204)
     def remove_node(node_id: str, request: Request):
         _require_node_ownership(request, node_id)
-        con.execute("DELETE FROM handles WHERE node_id = ?", (node_id,))
+        con.execute("DELETE FROM nodes WHERE node_id = ?", (node_id,))
         con.commit()
 
     class RedelegateBody(BaseModel):
@@ -478,7 +559,7 @@ def create_app(db_path: str) -> FastAPI:
     def redelegate_node(node_id: str, body: RedelegateBody, request: Request):
         _require_node_ownership(request, node_id)
         row = con.execute(
-            "SELECT public_key, identity_public_key, owner_id FROM handles WHERE node_id = ?", (node_id,)
+            "SELECT public_key, identity_public_key, owner_id FROM nodes WHERE node_id = ?", (node_id,)
         ).fetchone()
         if not row:
             raise HTTPException(404, "Node not found")
@@ -498,7 +579,7 @@ def create_app(db_path: str) -> FastAPI:
         # Sign new delegation cert (owner_id is the person identifier, node_id is deployment-specific)
         from server.identity import make_delegation_cert as _mkdel
         cert = _mkdel(id_key, owner_id, node_pub_b64, node_id=node_id)
-        con.execute("UPDATE handles SET delegation_sig = ?, updated_at = ? WHERE node_id = ?",
+        con.execute("UPDATE nodes SET delegation_sig = ?, updated_at = ? WHERE node_id = ?",
                     (json.dumps(cert), time.time_ns(), node_id))
         con.commit()
 
@@ -509,7 +590,7 @@ def create_app(db_path: str) -> FastAPI:
         if not identity:
             raise HTTPException(401, "Sign in first")
         row = con.execute(
-            "SELECT google_identity, superseded_at FROM handles WHERE node_id = ?", (node_id,)
+            "SELECT google_identity, superseded_at FROM nodes WHERE node_id = ?", (node_id,)
         ).fetchone()
         if not row:
             raise HTTPException(404, "Node not found")
@@ -517,7 +598,7 @@ def create_app(db_path: str) -> FastAPI:
             raise HTTPException(403, "Not your node")
         if row[1]:
             raise HTTPException(409, "Node already superseded")
-        con.execute("UPDATE handles SET superseded_at = ? WHERE node_id = ?", (time.time_ns(), node_id))
+        con.execute("UPDATE nodes SET superseded_at = ? WHERE node_id = ?", (time.time_ns(), node_id))
         con.commit()
 
     @app.post("/auth/logout", status_code=204)
@@ -916,7 +997,7 @@ def create_app(db_path: str) -> FastAPI:
 <body><div class="page">
 <div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="114.1085 98.626948 11.98291 9.7358322" style="height:2.2rem;width:auto"><path style="fill:#4285f4" d="m 125.34474,104.96592 0.74667,1.9637 -0.10218,0.12403 c -0.0734,-0.11943 -0.13361,-0.17915 -0.18077,-0.17915 -0.0472,0 -0.17946,0.11024 -0.39691,0.33073 -0.45062,0.45475 -0.8305,0.76252 -1.13965,0.92329 -0.30652,0.15617 -0.67199,0.23426 -1.09641,0.23426 -0.84623,0 -1.54049,-0.3514 -2.08281,-1.0542 -0.31962,-0.40881 -0.50719,-0.82671 -0.69058,-1.43305 -0.19942,-1.14201 -0.14909,-1.18922 -0.15208,-2.72041 -0.003,-1.67715 -0.007,-1.74466 0.33965,-2.63337 0.44703,-1.145722 1.43438,-1.894801 2.58975,-1.894801 0.42442,0 0.78858,0.07809 1.09248,0.234267 0.30391,0.156177 0.68379,0.463939 1.13965,0.923285 0.21745,0.215889 0.34975,0.323839 0.39691,0.323839 0.0472,0 0.10742,-0.0597 0.18077,-0.179145 l 0.10218,0.124025 -0.74667,1.9637 -0.1061,-0.12402 c 0.005,-0.0735 0.008,-0.13551 0.008,-0.18604 0,-0.13321 -0.0327,-0.25723 -0.0983,-0.37207 -0.0655,-0.11943 -0.18208,-0.26182 -0.34975,-0.42719 -0.46372,-0.45935 -0.95495,-0.68902 -1.47368,-0.68902 -0.61305,0 -1.10166,0.26872 -1.46582,0.80615 -0.42966,0.62931 -0.64449,1.45154 -0.64449,2.46669 0,1.01515 0.21483,1.83738 0.64449,2.46669 0.36416,0.53743 0.85277,0.80615 1.46582,0.80615 0.51873,0 1.00996,-0.22967 1.47368,-0.68902 0.16767,-0.16537 0.28426,-0.30547 0.34975,-0.4203 0.0655,-0.11943 0.0983,-0.24575 0.0983,-0.37896 0,-0.0505 -0.003,-0.11025 -0.008,-0.17915 z"/><path style="fill:#4285f4" d="m 114.85517,104.96592 -0.74667,1.9637 0.10218,0.12403 c 0.0734,-0.11943 0.13361,-0.17915 0.18077,-0.17915 0.0472,0 0.17946,0.11024 0.39691,0.33073 0.45062,0.45475 0.8305,0.76252 1.13965,0.92329 0.30652,0.15617 0.67199,0.23426 1.09641,0.23426 0.84623,0 1.54049,-0.3514 2.08281,-1.0542 0.31962,-0.40881 0.50719,-0.82671 0.69058,-1.43305 0.19942,-1.14201 0.14909,-1.18922 0.15208,-2.72041 0.003,-1.67715 0.007,-1.74466 -0.33965,-2.63337 -0.44703,-1.145723 -1.43438,-1.894802 -2.58975,-1.894802 -0.42442,0 -0.78858,0.07809 -1.09248,0.234267 -0.30391,0.156177 -0.68379,0.463939 -1.13965,0.923285 -0.21745,0.21589 -0.34975,0.32384 -0.39691,0.32384 -0.0472,0 -0.10742,-0.0597 -0.18077,-0.179146 l -0.10218,0.124026 0.74667,1.9637 0.1061,-0.12402 c -0.005,-0.0735 -0.008,-0.13551 -0.008,-0.18604 0,-0.13321 0.0327,-0.25723 0.0982,-0.37207 0.0655,-0.11943 0.18208,-0.26182 0.34975,-0.42719 0.46372,-0.45935 0.95495,-0.68902 1.47368,-0.68902 0.61305,0 1.10166,0.26872 1.46582,0.80615 0.42966,0.62931 0.64449,1.45154 0.64449,2.46669 0,1.01515 -0.21483,1.83738 -0.64449,2.46669 -0.36416,0.53743 -0.85277,0.80615 -1.46582,0.80615 -0.51873,0 -1.00996,-0.22967 -1.47368,-0.68902 -0.16767,-0.16537 -0.28426,-0.30547 -0.34975,-0.4203 -0.0655,-0.11943 -0.0982,-0.24575 -0.0982,-0.37896 0,-0.0505 0.003,-0.11025 0.008,-0.17915 z"/></svg>
 <span>contacc</span><small>docs</small></div>
-<nav><a href="/">Registry</a><a href="/docs">Overview</a><a href="/docs/api">Getting started</a><a href="/docs/roadmap">Roadmap</a></nav>
+<nav><a href="/">Registry</a><a href="/docs">Overview</a><a href="/docs/api">Getting started</a><a href="/docs/roadmap">Roadmap</a><a href="/docs/threaded-posts">Threaded posts</a></nav>
 
 <div>
 <h1>Getting started</h1>
@@ -987,7 +1068,7 @@ docker compose down                     # stop everything</code></pre>
 <body><div class="page">
 <div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="114.1085 98.626948 11.98291 9.7358322" style="height:2.2rem;width:auto"><path style="fill:#4285f4" d="m 125.34474,104.96592 0.74667,1.9637 -0.10218,0.12403 c -0.0734,-0.11943 -0.13361,-0.17915 -0.18077,-0.17915 -0.0472,0 -0.17946,0.11024 -0.39691,0.33073 -0.45062,0.45475 -0.8305,0.76252 -1.13965,0.92329 -0.30652,0.15617 -0.67199,0.23426 -1.09641,0.23426 -0.84623,0 -1.54049,-0.3514 -2.08281,-1.0542 -0.31962,-0.40881 -0.50719,-0.82671 -0.69058,-1.43305 -0.19942,-1.14201 -0.14909,-1.18922 -0.15208,-2.72041 -0.003,-1.67715 -0.007,-1.74466 0.33965,-2.63337 0.44703,-1.145722 1.43438,-1.894801 2.58975,-1.894801 0.42442,0 0.78858,0.07809 1.09248,0.234267 0.30391,0.156177 0.68379,0.463939 1.13965,0.923285 0.21745,0.215889 0.34975,0.323839 0.39691,0.323839 0.0472,0 0.10742,-0.0597 0.18077,-0.179145 l 0.10218,0.124025 -0.74667,1.9637 -0.1061,-0.12402 c 0.005,-0.0735 0.008,-0.13551 0.008,-0.18604 0,-0.13321 -0.0327,-0.25723 -0.0983,-0.37207 -0.0655,-0.11943 -0.18208,-0.26182 -0.34975,-0.42719 -0.46372,-0.45935 -0.95495,-0.68902 -1.47368,-0.68902 -0.61305,0 -1.10166,0.26872 -1.46582,0.80615 -0.42966,0.62931 -0.64449,1.45154 -0.64449,2.46669 0,1.01515 0.21483,1.83738 0.64449,2.46669 0.36416,0.53743 0.85277,0.80615 1.46582,0.80615 0.51873,0 1.00996,-0.22967 1.47368,-0.68902 0.16767,-0.16537 0.28426,-0.30547 0.34975,-0.4203 0.0655,-0.11943 0.0983,-0.24575 0.0983,-0.37896 0,-0.0505 -0.003,-0.11025 -0.008,-0.17915 z"/><path style="fill:#4285f4" d="m 114.85517,104.96592 -0.74667,1.9637 0.10218,0.12403 c 0.0734,-0.11943 0.13361,-0.17915 0.18077,-0.17915 0.0472,0 0.17946,0.11024 0.39691,0.33073 0.45062,0.45475 0.8305,0.76252 1.13965,0.92329 0.30652,0.15617 0.67199,0.23426 1.09641,0.23426 0.84623,0 1.54049,-0.3514 2.08281,-1.0542 0.31962,-0.40881 0.50719,-0.82671 0.69058,-1.43305 0.19942,-1.14201 0.14909,-1.18922 0.15208,-2.72041 0.003,-1.67715 0.007,-1.74466 -0.33965,-2.63337 -0.44703,-1.145723 -1.43438,-1.894802 -2.58975,-1.894802 -0.42442,0 -0.78858,0.07809 -1.09248,0.234267 -0.30391,0.156177 -0.68379,0.463939 -1.13965,0.923285 -0.21745,0.21589 -0.34975,0.32384 -0.39691,0.32384 -0.0472,0 -0.10742,-0.0597 -0.18077,-0.179146 l -0.10218,0.124026 0.74667,1.9637 0.1061,-0.12402 c -0.005,-0.0735 -0.008,-0.13551 -0.008,-0.18604 0,-0.13321 0.0327,-0.25723 0.0982,-0.37207 0.0655,-0.11943 0.18208,-0.26182 0.34975,-0.42719 0.46372,-0.45935 0.95495,-0.68902 1.47368,-0.68902 0.61305,0 1.10166,0.26872 1.46582,0.80615 0.42966,0.62931 0.64449,1.45154 0.64449,2.46669 0,1.01515 -0.21483,1.83738 -0.64449,2.46669 -0.36416,0.53743 -0.85277,0.80615 -1.46582,0.80615 -0.51873,0 -1.00996,-0.22967 -1.47368,-0.68902 -0.16767,-0.16537 -0.28426,-0.30547 -0.34975,-0.4203 -0.0655,-0.11943 -0.0982,-0.24575 -0.0982,-0.37896 0,-0.0505 0.003,-0.11025 0.008,-0.17915 z"/></svg>
 <span>contacc</span><small>docs</small></div>
-<nav><a href="/">Registry</a><a href="/docs">Overview</a><a href="/docs/api">Getting started</a><a href="/docs/roadmap">Roadmap</a></nav>
+<nav><a href="/">Registry</a><a href="/docs">Overview</a><a href="/docs/api">Getting started</a><a href="/docs/roadmap">Roadmap</a><a href="/docs/threaded-posts">Threaded posts</a></nav>
 
 <div>
 <h1>Roadmap</h1>
@@ -1075,7 +1156,7 @@ blockquote p { color: #888; font-style: italic; }
 <body><div class="page">
 <div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="114.1085 98.626948 11.98291 9.7358322" style="height:2.2rem;width:auto"><path style="fill:#4285f4" d="m 125.34474,104.96592 0.74667,1.9637 -0.10218,0.12403 c -0.0734,-0.11943 -0.13361,-0.17915 -0.18077,-0.17915 -0.0472,0 -0.17946,0.11024 -0.39691,0.33073 -0.45062,0.45475 -0.8305,0.76252 -1.13965,0.92329 -0.30652,0.15617 -0.67199,0.23426 -1.09641,0.23426 -0.84623,0 -1.54049,-0.3514 -2.08281,-1.0542 -0.31962,-0.40881 -0.50719,-0.82671 -0.69058,-1.43305 -0.19942,-1.14201 -0.14909,-1.18922 -0.15208,-2.72041 -0.003,-1.67715 -0.007,-1.74466 0.33965,-2.63337 0.44703,-1.145722 1.43438,-1.894801 2.58975,-1.894801 0.42442,0 0.78858,0.07809 1.09248,0.234267 0.30391,0.156177 0.68379,0.463939 1.13965,0.923285 0.21745,0.215889 0.34975,0.323839 0.39691,0.323839 0.0472,0 0.10742,-0.0597 0.18077,-0.179145 l 0.10218,0.124025 -0.74667,1.9637 -0.1061,-0.12402 c 0.005,-0.0735 0.008,-0.13551 0.008,-0.18604 0,-0.13321 -0.0327,-0.25723 -0.0983,-0.37207 -0.0655,-0.11943 -0.18208,-0.26182 -0.34975,-0.42719 -0.46372,-0.45935 -0.95495,-0.68902 -1.47368,-0.68902 -0.61305,0 -1.10166,0.26872 -1.46582,0.80615 -0.42966,0.62931 -0.64449,1.45154 -0.64449,2.46669 0,1.01515 0.21483,1.83738 0.64449,2.46669 0.36416,0.53743 0.85277,0.80615 1.46582,0.80615 0.51873,0 1.00996,-0.22967 1.47368,-0.68902 0.16767,-0.16537 0.28426,-0.30547 0.34975,-0.4203 0.0655,-0.11943 0.0983,-0.24575 0.0983,-0.37896 0,-0.0505 -0.003,-0.11025 -0.008,-0.17915 z"/><path style="fill:#4285f4" d="m 114.85517,104.96592 -0.74667,1.9637 0.10218,0.12403 c 0.0734,-0.11943 0.13361,-0.17915 0.18077,-0.17915 0.0472,0 0.17946,0.11024 0.39691,0.33073 0.45062,0.45475 0.8305,0.76252 1.13965,0.92329 0.30652,0.15617 0.67199,0.23426 1.09641,0.23426 0.84623,0 1.54049,-0.3514 2.08281,-1.0542 0.31962,-0.40881 0.50719,-0.82671 0.69058,-1.43305 0.19942,-1.14201 0.14909,-1.18922 0.15208,-2.72041 0.003,-1.67715 0.007,-1.74466 -0.33965,-2.63337 -0.44703,-1.145723 -1.43438,-1.894802 -2.58975,-1.894802 -0.42442,0 -0.78858,0.07809 -1.09248,0.234267 -0.30391,0.156177 -0.68379,0.463939 -1.13965,0.923285 -0.21745,0.21589 -0.34975,0.32384 -0.39691,0.32384 -0.0472,0 -0.10742,-0.0597 -0.18077,-0.179146 l -0.10218,0.124026 0.74667,1.9637 0.1061,-0.12402 c -0.005,-0.0735 -0.008,-0.13551 -0.008,-0.18604 0,-0.13321 0.0327,-0.25723 0.0982,-0.37207 0.0655,-0.11943 0.18208,-0.26182 0.34975,-0.42719 0.46372,-0.45935 0.95495,-0.68902 1.47368,-0.68902 0.61305,0 1.10166,0.26872 1.46582,0.80615 0.42966,0.62931 0.64449,1.45154 0.64449,2.46669 0,1.01515 -0.21483,1.83738 -0.64449,2.46669 -0.36416,0.53743 -0.85277,0.80615 -1.46582,0.80615 -0.51873,0 -1.00996,-0.22967 -1.47368,-0.68902 -0.16767,-0.16537 -0.28426,-0.30547 -0.34975,-0.4203 -0.0655,-0.11943 -0.0982,-0.24575 -0.0982,-0.37896 0,-0.0505 0.003,-0.11025 0.008,-0.17915 z"/></svg>
 <span>contacc</span><small>docs</small></div>
-<nav><a href="/">Registry</a><a href="/docs">Overview</a><a href="/docs/api">Getting started</a><a href="/docs/roadmap">Roadmap</a></nav>
+<nav><a href="/">Registry</a><a href="/docs">Overview</a><a href="/docs/api">Getting started</a><a href="/docs/roadmap">Roadmap</a><a href="/docs/threaded-posts">Threaded posts</a></nav>
 
 <div>
 <h1>Overview</h1>
@@ -1185,6 +1266,111 @@ blockquote p { color: #888; font-style: italic; }
 
 </div></body></html>"""
 
+    _THREADED_POSTS_HTML = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>contacc — threaded posts design</title>
+<style>""" + _DOC_STYLE + """</style></head>
+<body><div class="page">
+<div class="logo"><svg xmlns="http://www.w3.org/2000/svg" viewBox="114.1085 98.626948 11.98291 9.7358322" style="height:2.2rem;width:auto"><path style="fill:#4285f4" d="m 125.34474,104.96592 0.74667,1.9637 -0.10218,0.12403 c -0.0734,-0.11943 -0.13361,-0.17915 -0.18077,-0.17915 -0.0472,0 -0.17946,0.11024 -0.39691,0.33073 -0.45062,0.45475 -0.8305,0.76252 -1.13965,0.92329 -0.30652,0.15617 -0.67199,0.23426 -1.09641,0.23426 -0.84623,0 -1.54049,-0.3514 -2.08281,-1.0542 -0.31962,-0.40881 -0.50719,-0.82671 -0.69058,-1.43305 -0.19942,-1.14201 -0.14909,-1.18922 -0.15208,-2.72041 -0.003,-1.67715 -0.007,-1.74466 0.33965,-2.63337 0.44703,-1.145722 1.43438,-1.894801 2.58975,-1.894801 0.42442,0 0.78858,0.07809 1.09248,0.234267 0.30391,0.156177 0.68379,0.463939 1.13965,0.923285 0.21745,0.215889 0.34975,0.323839 0.39691,0.323839 0.0472,0 0.10742,-0.0597 0.18077,-0.179145 l 0.10218,0.124025 -0.74667,1.9637 -0.1061,-0.12402 c 0.005,-0.0735 0.008,-0.13551 0.008,-0.18604 0,-0.13321 -0.0327,-0.25723 -0.0983,-0.37207 -0.0655,-0.11943 -0.18208,-0.26182 -0.34975,-0.42719 -0.46372,-0.45935 -0.95495,-0.68902 -1.47368,-0.68902 -0.61305,0 -1.10166,0.26872 -1.46582,0.80615 -0.42966,0.62931 -0.64449,1.45154 -0.64449,2.46669 0,1.01515 0.21483,1.83738 0.64449,2.46669 0.36416,0.53743 0.85277,0.80615 1.46582,0.80615 0.51873,0 1.00996,-0.22967 1.47368,-0.68902 0.16767,-0.16537 0.28426,-0.30547 0.34975,-0.4203 0.0655,-0.11943 0.0983,-0.24575 0.0983,-0.37896 0,-0.0505 -0.003,-0.11025 -0.008,-0.17915 z"/><path style="fill:#4285f4" d="m 114.85517,104.96592 -0.74667,1.9637 0.10218,0.12403 c 0.0734,-0.11943 0.13361,-0.17915 0.18077,-0.17915 0.0472,0 0.17946,0.11024 0.39691,0.33073 0.45062,0.45475 0.8305,0.76252 1.13965,0.92329 0.30652,0.15617 0.67199,0.23426 1.09641,0.23426 0.84623,0 1.54049,-0.3514 2.08281,-1.0542 0.31962,-0.40881 0.50719,-0.82671 0.69058,-1.43305 0.19942,-1.14201 0.14909,-1.18922 0.15208,-2.72041 0.003,-1.67715 0.007,-1.74466 -0.33965,-2.63337 -0.44703,-1.145723 -1.43438,-1.894802 -2.58975,-1.894802 -0.42442,0 -0.78858,0.07809 -1.09248,0.234267 -0.30391,0.156177 -0.68379,0.463939 -1.13965,0.923285 -0.21745,0.21589 -0.34975,0.32384 -0.39691,0.32384 -0.0472,0 -0.10742,-0.0597 -0.18077,-0.179146 l -0.10218,0.124026 0.74667,1.9637 0.1061,-0.12402 c -0.005,-0.0735 -0.008,-0.13551 -0.008,-0.18604 0,-0.13321 0.0327,-0.25723 0.0982,-0.37207 0.0655,-0.11943 0.18208,-0.26182 0.34975,-0.42719 0.46372,-0.45935 0.95495,-0.68902 1.47368,-0.68902 0.61305,0 1.10166,0.26872 1.46582,0.80615 0.42966,0.62931 0.64449,1.45154 0.64449,2.46669 0,1.01515 -0.21483,1.83738 -0.64449,2.46669 -0.36416,0.53743 -0.85277,0.80615 -1.46582,0.80615 -0.51873,0 -1.00996,-0.22967 -1.47368,-0.68902 -0.16767,-0.16537 -0.28426,-0.30547 -0.34975,-0.4203 -0.0655,-0.11943 -0.0982,-0.24575 -0.0982,-0.37896 0,-0.0505 0.003,-0.11025 0.008,-0.17915 z"/></svg>
+<span>contacc</span><small>docs</small></div>
+<nav><a href="/">Registry</a><a href="/docs">Overview</a><a href="/docs/api">Getting started</a><a href="/docs/roadmap">Roadmap</a><a href="/docs/threaded-posts">Threaded posts</a></nav>
+
+<div>
+<h1>Posts as a Tree: Unifying Posts, Comments, and Edits</h1>
+<p style="color:#888;font-style:italic">This document captures an exploratory design discussion about replacing the current posts-with-owned-comment-logs model with a single recursive primitive: immutable posts that may reference an immutable parent. It is non-normative design intent, not a protocol specification — a record of the reasoning so a future implementation effort can pick it up without re-deriving it.</p>
+</div>
+
+<div>
+<h2>The core idea</h2>
+<p>There is no separate "comment" entity. There are only <strong>posts</strong>. A post may optionally reference a <strong>parent</strong> post. A post with no parent is what we'd currently call a top-level post; a post with a parent is what we'd currently call a comment or reply. Both are the same primitive, stored, synced, rendered, and reacted-to the same way.</p>
+<p>This collapses two storage models, two sync paths, two render paths, and two ACL systems into one. It also resolves a problem that's awkward in any "comments belong to the post owner" design: how do you comment on something you don't own? Here the answer is trivial — a reply is just your own post, on your own node, that names someone else's post as parent. This is the same move federated systems (ActivityPub/Mastodon) made when they unified "toot" and "reply."</p>
+<p>Children of a post look like unthreaded comments under it, filtered to whatever subset is visible to the viewer. Users can navigate the resulting structure up (toward the root) or down (into replies) as a tree.</p>
+</div>
+
+<div>
+<h2>Visibility narrows monotonically</h2>
+<p>A post's audience (the set of people who may see it) can only be the same size or smaller than its parent's. If a reply narrows the audience, only that narrower subset can see the reply (and, transitively, anything that replies to <em>it</em> is bounded by that narrower set). This gives a single, principled, recursively-checkable invariant for visibility composition — no bespoke ACL-merging logic per feature.</p>
+<p>The poster must themselves be visible to (a member of the audience of) the parent — you can't reply to something you can't see — which is also what makes the narrowing rule self-enforcing in practice: you can only construct an audience from people you know to be in the parent's audience, because that's the only audience you can see.</p>
+</div>
+
+<div>
+<h2>Visibility lists: immutable, content-addressed, ownerless</h2>
+<p>To make the narrowing invariant <em>verifiable</em> rather than merely <em>claimed</em>, visibility lists themselves need to be:</p>
+<ul>
+  <li><strong>Immutable</strong> — a list never changes once created. "Narrowing an audience" for an ongoing conversation means minting a <em>new</em>, smaller list (and, naturally, a new post that uses it) — not mutating the old one. This is what makes the narrowing invariant checkable at all: if lists could change after the fact, "subset of parent's audience" would be a claim about a moving target.</li>
+  <li><strong>Content-addressed</strong> — a list's id is a pure function of its membership: the hash of the sorted set of member node_ids. Identical audiences, constructed independently or at different times, automatically collapse to the same id. This buys deduplication for free and turns "has this audience changed" into a non-question — it cannot have, by construction; only a different id can exist.</li>
+  <li><strong>Ownerless</strong> — no node is "the" authority for a list. You come to know a list's id one of two ways: you constructed it yourself (it need not even include your own node), or you encountered it referenced by a post that is visible to you (which by definition means you're a member, since visibility is gated by list membership). There is no directory, lookup service, or canonical server to stand up. Existence-knowledge and legitimate interest are perfectly aligned: you cannot learn of a list you have no legitimate path to, and there is nothing to enumerate or probe.</li>
+</ul>
+
+<h3>Serving and replication</h3>
+<p>A peer asked for a list's membership should refuse unless the requester is themselves a member of that list (checkable directly: the requester proves their identity via the existing signature infrastructure, and the serving node checks whether that node_id appears in the list it's being asked to disclose — no chicken-and-egg, since the server already holds the data and is just deciding whether to release it).</p>
+<p>This produces a pleasant emergent property: the set of nodes both willing and able to serve a list is exactly its own membership — the people who legitimately need it are exactly the people who have it (because encountering a visible post that names the list is how you learn of it in the first place). The list ends up naturally replicated across its own audience, with no special infrastructure: as long as any member is online, the list resolves.</p>
+
+<h3>Will the number of lists become unmanageable?</h3>
+<p>Probably not, and for a self-correcting reason: real usage tends to draw from a small, stable set of standing audiences per person ("close friends," "family," "this group of three," "everyone who follows me"), reused across many posts. Content-addressing means identical audiences — however and whenever constructed — collapse to one id. The more people reuse audiences (the normal case, because that's how social circles actually work), the fewer distinct lists exist. The pathological case — a fresh bespoke audience minted per post — is precisely the "narrowing" behavior this design bets is rare. Worth instrumenting once live, but not expected to be a real problem.</p>
+</div>
+
+<div>
+<h2>Supersession as the edit mechanism</h2>
+<p>Posts are immutable. "Editing" a post means minting a <em>new</em> post that <strong>supersedes</strong> the old one — the same content-addressed, signed structure as everything else, just with a pointer back to what it replaces.</p>
+
+<h3>Why immutable parent references matter</h3>
+<p>Crucially, when post B replies to post A, B's parent reference names A — and continues to name A even after A is superseded by A′. This is a deliberate and important choice: it means a reply's context can never be pulled out from under it. In mutable systems, an author can edit a post after the fact in a way that makes existing replies look unhinged, sarcastic, or nonsensical, because the thing they were responding to no longer exists in the form they saw it. Here, B is forever and verifiably a reply to <em>A as it was</em> — a permanent anchor that survives any number of future edits to the public-facing version.</p>
+<p>This also opens a clean presentation possibility (a UI concern, but one the structure needs to <em>allow</em>, which it does): show the latest version of a post by default, while making it easy to see that it differs from the original and to A/B between them. Readers get the up-to-date version; the historical thread remains coherent and inspectable.</p>
+<p>A second consequence, essentially free: every post's edit history becomes a walkable chain of immutable supersessions — version history without a bolted-on feature for it.</p>
+
+<h3>Connection to cross-node staleness (TODO #9)</h3>
+<p>This also reframes the "client doesn't see edits made on another node" problem (logged as TODO item 9). In a mutable-post world, "has this changed?" requires re-fetching and diffing remote state. In an immutable, content-addressed world, it becomes "does a supersession record exist for this content-address?" — a question with a stable, cacheable-forever answer once posed, rather than a moving target to keep re-polling. If this design direction is pursued, the staleness-detection mechanism and the threading/visibility-verification mechanism are likely to be the same mechanism wearing two hats — they should be designed together, not sequentially.</p>
+</div>
+
+<div>
+<h2>Authenticity: signed posts and a public chain of key supersession</h2>
+<p>Every post must be signed by its author, and that signature must be verifiable independent of whoever served the post to you. This isn't really an addition to the design above so much as something it already implies: once posts are immutable, content-addressed, and routinely fetched/cached/replicated by parties other than their origin — which is exactly how visibility and threading work — "authenticity" can only mean <em>self-contained, independently verifiable</em> authenticity. A signature that requires contacting the origin node to validate would defeat the purpose of a content-addressed system: you'd be back to trusting whoever handed you the bytes.</p>
+
+<h3>This builds on infrastructure that already exists</h3>
+<p>The system already has the right two-level shape for this:</p>
+<ul>
+  <li>An <strong>identity key</strong> — a stable, person-level key generated at setup, escrowed (encrypted under the owner's passphrase) at the registry, recoverable via the owner's auth provider plus passphrase, and never stored on the node itself.</li>
+  <li>A <strong>node key</strong> — the operational signing key for one deployment, rotatable independently of the person-level identity (e.g. via re-delegation after a node rebuild or key loss).</li>
+  <li>A <strong>delegation certificate</strong>, signed by the identity key, attesting "identity I delegates signing authority to node key N for node_id X."</li>
+</ul>
+<p>That's already most of a key-supersession mechanism. What's missing is <em>durability</em>: re-delegation currently overwrites the prior certificate in place. To get a publicly visible chain, the system needs to retain every delegation certificate ever issued, in order, each tagged with the window during which it was authoritative — so that a verifier who encounters an old post, signed by a since-retired node key, can establish "this key held legitimate delegated authority at the moment this post was made," for as long as the post exists.</p>
+
+<h3>Shape of the chain</h3>
+<p>Notice this is the third time the same structural idea has appeared in this document — immutable, signed, content-addressed records that reference their predecessor (posts referencing parents, visibility lists identified by their membership, and now keys referencing the key they supersede). The natural design is a hash-linked <strong>sigchain</strong>: each link says, in effect, "key K_n is superseded by key K_(n+1) as of time T, attested by K_n and/or the identity key." This is tamper-evident by construction — altering any link breaks the hash references of everything downstream of it, detectably, to anyone holding even a partial copy.</p>
+<p>Where it lives matters less than that it's append-only and broadly held. The registry is a natural anchor (much as Certificate Transparency anchors certificate issuance into public logs), but per the ownerless/replicated-by-the-interested pattern already established for visibility lists, contacts who've verified a node's signatures could also hold and cross-check copies — so no single party, including the registry, can quietly rewrite history.</p>
+
+<h3>Open questions this raises</h3>
+<ul>
+  <li><strong>Root of trust.</strong> Node-key rotation is cleanly authorized by the identity key — and that mechanism already exists. But what authorizes <em>identity</em>-key rotation, if that key is ever compromised or unrecoverable? This is the unsolved-in-general problem at the root of every PKI-like system: eventually you reach a key that nothing else vouches for. The existing escrow-plus-auth-provider-recovery flow is the de facto answer today; whether that recovery event should <em>itself</em> produce a public, chain-recorded "identity key superseded, attested by [recovery mechanism]" entry — rather than remaining an invisible side-channel — deserves a deliberate decision rather than a default.</li>
+  <li><strong>Validity windows and clock trust.</strong> For "this signature was valid at the time" to mean anything, supersession events need trustworthy timestamps, and verifiers need a notion of "which key was authoritative when a given post was signed." Whether to trust local clocks, rely on witnessed/anchored timestamps, or accept some fuzziness is a scope decision — easy to over-engineer well past what a personal store actually needs.</li>
+  <li><strong>What travels with a post.</strong> For verification to be self-contained, a signed post likely needs to carry — or make trivially resolvable — the signing key's identifier, a timestamp, and enough of a pointer into the supersession chain for a verifier to confirm the key's authority window covered the signing time, without necessarily shipping the whole chain inline with every post.</li>
+</ul>
+</div>
+
+<div>
+<h2>Deletion as tombstone-supersession</h2>
+<p>Because posts are immutable, an edit can't mean "erase and replace" — that would break the permanence guarantee that makes threading trustworthy. Retraction therefore lives at a different layer: <strong>deletion</strong>, modeled as supersession by a tombstone. This keeps "everything is a post" true even for the one operation that looks like it should be special-cased — a tombstone is just a post that supersedes another and carries no content (perhaps with an optional author-supplied reason).</p>
+<p>Children of a deleted post still exist; their parent reference still names the original, immutable content-address, but that address now resolves to a tombstone. The chain is visibly broken — readers can tell a reply's context was retracted, as distinct from a reply that simply has no parent. (This is preferable to silently clearing the parent reference and promoting the orphan to top-level status, which would erase useful context about <em>why</em> the thread looks the way it does.)</p>
+<p>Deletion is the only retraction mechanism this design offers. It is a heavy hammer, but a necessary one — and, realistically, the only one that's coherent once immutability is load-bearing for everything else.</p>
+
+<h3>What "deletion" can and can't promise</h3>
+<p>One thing worth holding honestly, and communicating clearly to users: in any system where immutable content can be cached or replicated by other parties — which this design explicitly allows, since that's how visibility and threading work — "delete" can only ever mean <em>"I stop serving this and ask others to do likewise,"</em> not <em>"this content is now cryptographically guaranteed to not exist anywhere."</em> This is not a flaw specific to this design; it's the universal shape of the problem (the same tension behind "right to be forgotten" vs. immutable ledgers in any federated or content-addressed system). Deletion should be specified and presented to users as <strong>retraction with best-effort propagation</strong>, not erasure — so expectations match what the system can actually deliver.</p>
+</div>
+
+<div>
+<h2>Open questions / follow-ups</h2>
+<ul>
+  <li><strong>Canonical encoding for list ids.</strong> "Hash of sorted node_ids" needs a precise spec (encoding, separator, hash function) so independently-computed ids always match.</li>
+  <li><strong>Storage lifetime of lists.</strong> A list must remain resolvable for as long as any post referencing it exists. Since lists are immutable and ownerless, this is presumably just "as long as some member keeps a copy" — worth confirming this composes cleanly with backup/restore and the eventual node-departure story.</li>
+  <li><strong>Tombstone shape.</strong> What, if anything, does a tombstone carry — just "deleted," or an optional reason, timestamp, etc.? And does superseding-with-a-tombstone require the same signature/authorship checks as any other supersession (it should — only the original author should be able to retract their own post).</li>
+  <li><strong>Reactions.</strong> Not addressed here in depth — they were raised alongside edits in TODO #9 as another kind of "property change" the client needs to learn about. Whether reactions fit naturally into this same post-with-parent model (a "like" as a minimal post whose parent is the liked post) or remain a distinct lighter-weight mechanism is worth a separate look once the core tree model is validated.</li>
+  <li><strong>Reply discovery / fan-out.</strong> The hardest remaining protocol question: how does a post's owner learn that replies exist on other nodes, so a thread can be rendered completely rather than only from the replies the owner happens to have encountered? This is the same problem federated systems solve with inbox delivery / pingbacks, and it's still open here.</li>
+</ul>
+</div>
+
+</div></body></html>"""
+
     @app.get("/docs", response_class=HTMLResponse)
     def docs_overview():
         return _OVERVIEW_HTML
@@ -1196,6 +1382,10 @@ blockquote p { color: #888; font-style: italic; }
     @app.get("/docs/roadmap", response_class=HTMLResponse)
     def docs_roadmap():
         return _ROADMAP_HTML
+
+    @app.get("/docs/threaded-posts", response_class=HTMLResponse)
+    def docs_threaded_posts():
+        return _THREADED_POSTS_HTML
 
     @app.get("/go")
     def go_me(request: Request, proxy_token: str = None):
@@ -1218,7 +1408,7 @@ blockquote p { color: #888; font-style: italic; }
         if not identity:
             return RedirectResponse("/auth/start?return_to=/go", status_code=302)
         rows = con.execute(
-            "SELECT server_url, web_url, is_primary FROM handles "
+            "SELECT server_url, web_url, is_primary FROM nodes "
             "WHERE google_identity = ? ORDER BY is_primary DESC, updated_at DESC",
             (identity,)
         ).fetchall()
@@ -1236,20 +1426,20 @@ blockquote p { color: #888; font-style: italic; }
         if not identity:
             raise HTTPException(401, "Sign in first")
         row = con.execute(
-            "SELECT google_identity, owner_id FROM handles WHERE node_id = ?", (node_id,)
+            "SELECT google_identity, owner_id FROM nodes WHERE node_id = ?", (node_id,)
         ).fetchone()
         if not row or row[0] != identity:
             raise HTTPException(403, "Not your node")
         # Clear existing primary for this owner, set new one
-        con.execute("UPDATE handles SET is_primary = 0 WHERE owner_id = ?", (row[1],))
-        con.execute("UPDATE handles SET is_primary = 1 WHERE node_id = ?", (node_id,))
+        con.execute("UPDATE nodes SET is_primary = 0 WHERE owner_id = ?", (row[1],))
+        con.execute("UPDATE nodes SET is_primary = 1 WHERE node_id = ?", (node_id,))
         con.commit()
 
     @app.get("/go/{username}")
     def go(username: str):
         username = username.lower()
         row = con.execute(
-            "SELECT server_url, web_url FROM handles WHERE username = ? AND superseded_at IS NULL "
+            "SELECT server_url, web_url FROM nodes WHERE username = ? AND superseded_at IS NULL "
             "ORDER BY is_primary DESC, updated_at DESC LIMIT 1", (username,)
         ).fetchone()
         if not row:
@@ -1278,7 +1468,7 @@ blockquote p { color: #888; font-style: italic; }
         pattern = "%" + q.lower() + "%"
         rows = con.execute(
             """SELECT username, server_url, display_name, public_key, node_id, owner_id, identity_public_key
-               FROM handles
+               FROM nodes
                WHERE (LOWER(username) LIKE ? OR LOWER(display_name) LIKE ?)
                  AND superseded_at IS NULL
                ORDER BY username LIMIT ?""",
@@ -1304,7 +1494,7 @@ blockquote p { color: #888; font-style: italic; }
     def lookup_by_key(public_key: str):
         row = con.execute(
             "SELECT username, server_url, display_name "
-            "FROM handles WHERE public_key = ?", (public_key,)
+            "FROM nodes WHERE public_key = ?", (public_key,)
         ).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Key not found")
@@ -1319,7 +1509,7 @@ blockquote p { color: #888; font-style: italic; }
         row = con.execute(
             "SELECT server_url, web_url, public_key, ttl, updated_at, display_name, "
             "node_id, owner_id, identity_public_key "
-            "FROM handles WHERE username = ? AND superseded_at IS NULL "
+            "FROM nodes WHERE username = ? AND superseded_at IS NULL "
             "ORDER BY is_primary DESC, updated_at DESC LIMIT 1", (username,)
         ).fetchone()
         if not row:
@@ -1348,12 +1538,12 @@ blockquote p { color: #888; font-style: italic; }
     def go_by_id(owner_id: str):
         # Try exact node_id first, then primary node for owner
         row = con.execute(
-            "SELECT server_url, web_url FROM handles WHERE node_id = ? AND superseded_at IS NULL",
+            "SELECT server_url, web_url FROM nodes WHERE node_id = ? AND superseded_at IS NULL",
             (owner_id,)
         ).fetchone()
         if not row:
             row = con.execute(
-                "SELECT server_url, web_url FROM handles WHERE owner_id = ? AND superseded_at IS NULL "
+                "SELECT server_url, web_url FROM nodes WHERE owner_id = ? AND superseded_at IS NULL "
                 "ORDER BY is_primary DESC, updated_at DESC LIMIT 1", (owner_id,)
             ).fetchone()
         if not row:
@@ -1380,7 +1570,7 @@ blockquote p { color: #888; font-style: italic; }
         - Unreachable → allow only if no active conflict exists (old node presumed dead).
         """
         conflict = con.execute(
-            "SELECT node_id FROM handles WHERE server_url = ? AND node_id != ? AND superseded_at IS NULL",
+            "SELECT node_id FROM nodes WHERE server_url = ? AND node_id != ? AND superseded_at IS NULL",
             (server_url, claiming_node_id)
         ).fetchone()
         old_node_id = conflict[0] if conflict else None
@@ -1392,7 +1582,7 @@ blockquote p { color: #888; font-style: italic; }
             if live_key == claiming_pub_key:
                 # Claiming node is live at this URL — evict any stale entry
                 if old_node_id:
-                    con.execute("UPDATE handles SET superseded_at = ? WHERE node_id = ?",
+                    con.execute("UPDATE nodes SET superseded_at = ? WHERE node_id = ?",
                                 (time.time_ns(), old_node_id))
                     con.commit()
             elif live_key:
@@ -1429,12 +1619,20 @@ blockquote p { color: #888; font-style: italic; }
             reg_delegation_json = json.dumps(cert)
         else:
             raise HTTPException(400, "A delegation cert is required to register")
-        if con.execute("SELECT 1 FROM handles WHERE node_id = ?", (reg_node_id,)).fetchone():
+        reservation = con.execute(
+            "SELECT 1 FROM reservations WHERE node_id = ? AND owner_id = ? AND identity_public_key = ? "
+            "AND node_public_key = ? AND expires_at > ?",
+            (reg_node_id, reg_owner_id, reg_identity_public_key, body.public_key, time.time_ns()),
+        ).fetchone()
+        if not reservation:
+            raise HTTPException(403, "Identifiers must be freshly reserved via /register/reserve before registering")
+        con.execute("DELETE FROM reservations WHERE node_id = ?", (reg_node_id,))
+        if con.execute("SELECT 1 FROM nodes WHERE node_id = ?", (reg_node_id,)).fetchone():
             raise HTTPException(status_code=409, detail="Already registered — use update instead")
         _claim_url(body.server_url, reg_node_id, body.public_key)
         now = time.time_ns()
         con.execute(
-            "INSERT INTO handles "
+            "INSERT INTO nodes "
             "(node_id, owner_id, username, server_url, public_key, ttl, registered_at, updated_at, "
             "display_name, web_url, identity_public_key, delegation_sig, google_identity) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
@@ -1464,16 +1662,16 @@ blockquote p { color: #888; font-style: italic; }
         row = None
         if cert_node_id:
             row = con.execute(
-                "SELECT public_key, node_id, superseded_at FROM handles WHERE node_id = ?", (cert_node_id,)
+                "SELECT public_key, node_id, superseded_at FROM nodes WHERE node_id = ?", (cert_node_id,)
             ).fetchone()
         if not row and cert_owner_id:
             row = con.execute(
-                "SELECT public_key, node_id, superseded_at FROM handles WHERE owner_id = ? "
+                "SELECT public_key, node_id, superseded_at FROM nodes WHERE owner_id = ? "
                 "ORDER BY is_primary DESC, updated_at DESC LIMIT 1", (cert_owner_id,)
             ).fetchone()
         if not row:
             row = con.execute(
-                "SELECT public_key, node_id, superseded_at FROM handles WHERE username = ? "
+                "SELECT public_key, node_id, superseded_at FROM nodes WHERE username = ? "
                 "ORDER BY updated_at DESC LIMIT 1", (username,)
             ).fetchone()
         if not row:
@@ -1494,7 +1692,7 @@ blockquote p { color: #888; font-style: italic; }
             upd_delegation_json = json.dumps(cert)
         _claim_url(body.server_url, update_node_id, pub_key)
         con.execute(
-            "UPDATE handles SET username=?, server_url=?, ttl=?, updated_at=?, display_name=?, web_url=?, "
+            "UPDATE nodes SET username=?, server_url=?, ttl=?, updated_at=?, display_name=?, web_url=?, "
             "identity_public_key=?, delegation_sig=?, google_identity=COALESCE(?, google_identity) "
             "WHERE node_id=?",
             (username, body.server_url, ttl, time.time_ns(), body.display_name, body.web_url,
@@ -1517,7 +1715,7 @@ blockquote p { color: #888; font-style: italic; }
     @app.put("/identity-key/{owner_id}", status_code=204)
     def store_escrow(owner_id: str, body: EscrowBody):
         row = con.execute(
-            "SELECT identity_public_key FROM handles WHERE owner_id = ? LIMIT 1", (owner_id,)
+            "SELECT identity_public_key FROM nodes WHERE owner_id = ? LIMIT 1", (owner_id,)
         ).fetchone()
         if not row or not row[0]:
             raise HTTPException(404, "Owner ID not registered or has no identity key")
@@ -1538,7 +1736,7 @@ blockquote p { color: #888; font-style: italic; }
         })
         # Store escrow on the primary node for this owner (or any node if no primary)
         con.execute(
-            "UPDATE handles SET encrypted_identity_key = ? WHERE owner_id = ?",
+            "UPDATE nodes SET encrypted_identity_key = ? WHERE owner_id = ?",
             (escrow_data, owner_id),
         )
         con.commit()
@@ -1547,7 +1745,7 @@ blockquote p { color: #888; font-style: italic; }
     def get_escrow(owner_id: str):
         """Return the encrypted escrow blob for an owner_id. Decryption requires the owner passphrase."""
         row = con.execute(
-            "SELECT encrypted_identity_key FROM handles WHERE owner_id = ? "
+            "SELECT encrypted_identity_key FROM nodes WHERE owner_id = ? "
             "AND encrypted_identity_key IS NOT NULL ORDER BY is_primary DESC, updated_at DESC LIMIT 1",
             (owner_id,)
         ).fetchone()
@@ -1558,7 +1756,7 @@ blockquote p { color: #888; font-style: italic; }
     @app.post("/identity-key/{owner_id}/recover")
     def recover_escrow(owner_id: str):
         row = con.execute(
-            "SELECT encrypted_identity_key FROM handles WHERE owner_id = ? "
+            "SELECT encrypted_identity_key FROM nodes WHERE owner_id = ? "
             "AND encrypted_identity_key IS NOT NULL ORDER BY is_primary DESC, updated_at DESC LIMIT 1",
             (owner_id,)
         ).fetchone()
@@ -1570,7 +1768,7 @@ blockquote p { color: #888; font-style: italic; }
         """Return (owner_id, escrow_dict) or raise HTTPException."""
         handle = handle.lower()
         row = con.execute(
-            "SELECT owner_id, encrypted_identity_key FROM handles WHERE username = ? "
+            "SELECT owner_id, encrypted_identity_key FROM nodes WHERE username = ? "
             "AND encrypted_identity_key IS NOT NULL ORDER BY is_primary DESC, updated_at DESC LIMIT 1",
             (handle,)
         ).fetchone()
@@ -1609,7 +1807,7 @@ blockquote p { color: #888; font-style: italic; }
         if not identity:
             raise HTTPException(401, "Sign in first")
         row = con.execute(
-            "SELECT owner_id, encrypted_identity_key FROM handles WHERE google_identity = ? "
+            "SELECT owner_id, encrypted_identity_key FROM nodes WHERE google_identity = ? "
             "AND encrypted_identity_key IS NOT NULL ORDER BY is_primary DESC, updated_at DESC LIMIT 1",
             (identity,)
         ).fetchone()
@@ -1661,7 +1859,7 @@ blockquote p { color: #888; font-style: italic; }
         new_escrow = {**escrow,
                       "encrypted_identity_key": base64.b64encode(nonce + new_ct).decode(),
                       "argon2_salt": new_salt.hex()}
-        con.execute("UPDATE handles SET encrypted_identity_key = ? WHERE owner_id = ?",
+        con.execute("UPDATE nodes SET encrypted_identity_key = ? WHERE owner_id = ?",
                     (json.dumps(new_escrow), owner_id))
         con.commit()
 
