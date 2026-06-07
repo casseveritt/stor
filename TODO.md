@@ -14,6 +14,15 @@ an existing identity against a new node, but nothing yet automates choosing
 ## 5. Docker — end-to-end test on a fresh cloud VM
 The Docker packaging (`Dockerfile`, `docker-compose.yml`, `deploy/docker-setup.sh`) is built and smoke-tested locally. Remaining: run `docker-setup.sh` on a fresh VM to validate the full flow including Caddy TLS, and document the Google OAuth Console setup steps (redirect URI, authorized origins).
 
+## 9. Cross-node post edits not picked up on reload
+When a post is edited on its owning node, a different node that already fetched/cached
+that post does not see the change on reload (reactions and other property changes have
+the same problem). Expectation: presentation should tell the client a cached post is
+"visible," and the client should then check with the owner whether it's been superseded
+or has property changes (e.g. reactions) — i.e. some kind of revalidation/etag/version
+mechanism for cross-node post caching is missing. Needs investigation into how posts are
+fetched/cached cross-node and what a cheap "has this changed" check would look like.
+
 ## 8. Plaintext metadata in node_config.json
 `node_config.json` stores `sso_owner_identity` (e.g. `"google:cass.everitt@gmail.com"`), `node_address`, and `registry_handle` in plaintext — readable by anyone with filesystem access, no passphrase required. The email is only used to verify incoming SSO tokens. Future hardening: consider encrypting or omitting it from the config (look it up from the encrypted DB at unlock time instead). The handle and node_address are less sensitive but still worth considering.
 
