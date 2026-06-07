@@ -17,7 +17,7 @@ x-web: &web
     - ./web:/srv/web:ro
 
 x-env: &proxy-env
-  CONTACC_IDENTITY_PROXY_URL: ${CONTACC_IDENTITY_PROXY_URL:-https://starkville.hopto.org:8421}
+  CONTACC_IDENTITY_PROXY_URL: ${CONTACC_IDENTITY_PROXY_URL:-https://strk.xyzw.us:8421}
   CONTACC_DEV: "${CONTACC_DEV:-1}"
 
 services:

@@ -126,7 +126,7 @@ def setup_new(body: NewBody, request: Request):
 
     config_path = Path(app.state.config_path)
     node_address = app.state.node_address or ""
-    identity_proxy_url = os.environ.get("CONTACC_IDENTITY_PROXY_URL", "https://starkville.hopto.org:8421")
+    identity_proxy_url = os.environ.get("CONTACC_IDENTITY_PROXY_URL", "https://strk.xyzw.us:8421")
     registry_url = os.environ.get("CONTACC_REGISTRY_URL", identity_proxy_url)
 
     key_material = _create_node_config(config_path, node_address, identity_proxy_url, body.owner_identity, body.passphrase, body.handle, display_name=body.display_name, tang_enabled=body.tang_enabled)
@@ -238,7 +238,7 @@ def setup_new_for_owner(body: NewForOwnerBody, request: Request):
 
     config_path = Path(app.state.config_path)
     node_address = app.state.node_address or ""
-    identity_proxy_url = os.environ.get("CONTACC_IDENTITY_PROXY_URL", "https://starkville.hopto.org:8421")
+    identity_proxy_url = os.environ.get("CONTACC_IDENTITY_PROXY_URL", "https://strk.xyzw.us:8421")
     registry_url = os.environ.get("CONTACC_REGISTRY_URL", identity_proxy_url)
 
     # Fetch identity key escrow from registry and decrypt with owner passphrase
