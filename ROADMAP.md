@@ -116,6 +116,12 @@ model.
   failure.
 - **Backup/restore bundle**: client augments server zip with `client_config.json`.
 - **Search**: matches handle, display name, post body, comment bodies.
+- **Non-image asset support**: uploads accept any file type (no client-side
+  restriction; server stores whatever `media_type` the browser reports).
+  Rendering adapts per type — `image/*` gets a thumbnail + lightbox, `video/*`
+  gets an inline `<video controls>` player, everything else renders as a
+  downloadable link with a mime-type icon (🎬 video, 🎵 audio, 📋 PDF, 📄 generic)
+  and the original filename.
 - **Author display**: profile photo/initials + display name on every post card.
 - **Visibility/comment_access system**: `private` | `contacts` | `authenticated` | `public`;
   both must pass independently. UI dropdowns in compose/edit.
