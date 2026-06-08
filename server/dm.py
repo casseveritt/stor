@@ -7,6 +7,7 @@ Messages are encrypted with AES-256-GCM; the thread key is never stored.
 import asyncio
 import base64
 import json
+import logging
 import time
 import uuid
 
@@ -18,6 +19,8 @@ from pydantic import BaseModel
 from .auth import InternalOrOwnerDep, FederatedOrTokenDep
 from .db import NS, now_ns
 from .crypto import make_thread_id, derive_thread_key, encrypt_dm, decrypt_dm
+
+log = logging.getLogger("contacc.dm")
 
 router = APIRouter()
 
@@ -270,8 +273,9 @@ async def _resolve_member(app, db, node_id: str) -> dict | None:
     Checked in order of trust-and-freshness: an existing 1:1 thread is itself a
     verified, continuously-refreshed record of this peer (populated through
     signed federated exchange — see _upsert_thread), so prefer it over a fresh
-    round-trip. Otherwise fall back to the registry for the URL and a live
-    /node fetch for the DH key, exactly as /dm/send does for first contact.
+    round-trip. Otherwise fall back to the registry for the URL and a cached or
+    live /node fetch for the DH key. The DH key is stored in registry_cache
+    alongside the registry record so repeated relay calls skip the /node round-trip.
     """
     row = db.execute(
         "SELECT peer_url, peer_dh_pub, peer_name FROM dm_threads WHERE peer_node_id = ? AND group_id IS NULL",
@@ -284,13 +288,35 @@ async def _resolve_member(app, db, node_id: str) -> dict | None:
     if not record or not record.get("server_url"):
         return None
     url = record["server_url"]
-    info = await _fetch_node_info(url)
-    if not info or not info.get("dh_public_key"):
+
+    # Use DH key cached alongside the registry record (stored on first successful
+    # /node fetch below) to avoid a live network call on every relay.
+    dh_pub = record.get("dh_public_key")
+    name = record.get("display_name")
+    if not dh_pub:
+        info = await _fetch_node_info(url)
+        if info and info.get("dh_public_key"):
+            dh_pub = info["dh_public_key"]
+            name = info.get("display_name") or info.get("handle") or name
+            # Persist the DH key into the cached record so future calls are cache-only.
+            record["dh_public_key"] = dh_pub
+            db.execute(
+                "INSERT OR REPLACE INTO registry_cache (node_id, record, cached_at) VALUES (?, ?, ?)",
+                (node_id, json.dumps(record), now_ns())
+            )
+            db.commit()
+        else:
+            # /node unreachable — serve a stale DH key from a previous fetch if present.
+            stale = db.execute("SELECT record FROM registry_cache WHERE node_id = ?", (node_id,)).fetchone()
+            if stale:
+                try:
+                    dh_pub = json.loads(stale[0]).get("dh_public_key")
+                except Exception:
+                    pass
+    if not dh_pub:
+        log.warning("_resolve_member: could not get DH key for %s (url=%s)", node_id, url)
         return None
-    return {
-        "node_id": node_id, "url": url, "dh_pub": info["dh_public_key"],
-        "name": info.get("display_name") or info.get("handle") or record.get("display_name"),
-    }
+    return {"node_id": node_id, "url": url, "dh_pub": dh_pub, "name": name}
 
 
 def _my_display_name(db) -> str | None:
@@ -332,8 +358,11 @@ async def _push_envelope(app, recipient: dict, thread_id: str, envelope_json: st
         async with httpx.AsyncClient() as hc:
             r = await hc.post(recipient["url"].rstrip("/") + "/dm/receive",
                               content=push_body_bytes, headers=fed_headers, timeout=8)
+        if not r.is_success:
+            log.warning("group relay to %s failed: HTTP %s", recipient["node_id"], r.status_code)
         return r.is_success
-    except Exception:
+    except Exception as e:
+        log.warning("group relay to %s failed: %s", recipient["node_id"], e)
         return False  # best-effort fan-out; no per-recipient retry in v1 (see ROADMAP)
 
 

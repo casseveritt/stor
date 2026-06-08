@@ -1116,7 +1116,17 @@ def create_app(config_path: str | Path) -> FastAPI:
     _sse_queues: list[asyncio.Queue] = []    # one per open SSE connection
 
     def _push_to_sse(event: dict) -> None:
-        """Push event to all open SSE connections."""
+        """Push event to all open SSE connections.
+
+        When no browser is connected, DM events are buffered so a reconnecting
+        browser can catch up on missed notifications (e.g. after tab was hidden).
+        """
+        if not _sse_queues:
+            if event.get("type") == "dm":
+                _pending_dm_updates.append(event)
+                if len(_pending_dm_updates) > 50:
+                    del _pending_dm_updates[:25]
+            return
         for q in list(_sse_queues):
             try:
                 q.put_nowait(event)
@@ -1156,6 +1166,15 @@ def create_app(config_path: str | Path) -> FastAPI:
         """SSE stream — browser holds this open to receive push events."""
         import asyncio as _aio
         queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        # Drain buffered DM events into this new connection so the browser catches
+        # up on notifications missed while the SSE was closed (e.g. tab was hidden).
+        pending = list(_pending_dm_updates)
+        _pending_dm_updates.clear()
+        for ev in pending:
+            try:
+                queue.put_nowait(ev)
+            except asyncio.QueueFull:
+                break
         _sse_queues.append(queue)
 
         async def _generate():
