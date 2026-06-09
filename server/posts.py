@@ -357,10 +357,16 @@ async def create_post(
     is_supersession = supersedes.lower() in ("1", "true", "yes") if supersedes else False
     if is_supersession and parent_node_id:
         raise HTTPException(status_code=422, detail="parent_node_id must not be set when supersedes is true")
+    node_id = getattr(request.app.state, "node_id", "") or ""
+    if is_supersession:
+        if not parent_id:
+            raise HTTPException(status_code=422, detail="parent_id is required when supersedes is true")
+        if db.execute("SELECT 1 FROM posts WHERE id = ? AND deleted = 0", (parent_id,)).fetchone() is None:
+            raise HTTPException(status_code=422, detail="parent_id not found on this node")
+        parent_node_id = node_id
     supersedes_stored = "1" if is_supersession else None
 
     # compute content-addressable post ID after body is finalized
-    node_id = getattr(request.app.state, "node_id", "") or ""
     nonce = secrets.token_hex(16)
     post_id = hashlib.sha256(
         f"{node_id}\n{body}\n{now}\n{nonce}\n{parent_id or ''}\n{1 if is_supersession else 0}".encode()
