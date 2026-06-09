@@ -1570,6 +1570,21 @@ function makePostCard(post, idx) {
   panel.hidden = true;
   div.appendChild(panel);
 
+  if (IS_OWNER) {
+    const replyBtn = document.createElement("button");
+    replyBtn.className = "btn btn-muted btn-sm reply-toggle";
+    replyBtn.style.cssText = "margin-top:0.4rem;font-size:0.82rem";
+    replyBtn.textContent = "Reply";
+    replyBtn.onclick = () => openReplyCompose(post, div);
+    div.appendChild(replyBtn);
+
+    const replyPanel = document.createElement("div");
+    replyPanel.className = "reply-panel";
+    replyPanel.dataset.postId = post.id;
+    replyPanel.hidden = true;
+    div.appendChild(replyPanel);
+  }
+
   return div;
 }
 
@@ -1905,6 +1920,79 @@ function _toggleComments(post, cardEl) {
     label.textContent = count + ' comment' + (count !== 1 ? 's' : '');
     _openPanels.delete(post.id);
     if (_openPanels.size === 0) _stopDetailPoll();
+  }
+}
+
+// ── reply compose ──────────────────────────────────────────────────────────
+function _nodeIdForServer(serverUrl) {
+  const norm = u => (u || '').replace(/\/+$/, '');
+  if (norm(serverUrl) === norm(CFG?.own_server)) return CFG?.own_node_id || '';
+  const contact = (CFG?.contacts || []).find(c => norm(c.url) === norm(serverUrl));
+  return contact?.node_id || '';
+}
+
+function openReplyCompose(post, cardEl) {
+  const panel = cardEl.querySelector('.reply-panel');
+  if (!panel) return;
+  if (!panel.hidden) { panel.hidden = true; return; }
+
+  const taId = 'reply-ta-' + post.id;
+  panel.innerHTML =
+    `<div class="comment-form" style="margin-top:0.5rem">`
+    + `<div style="font-size:0.78rem;color:#888;margin-bottom:0.3rem">Replying to this post (${esc(post.visibility || 'contacts')} visibility)</div>`
+    + `<textarea id="${esc(taId)}" class="comment-input reply-input" data-post-id="${esc(post.id)}" placeholder="Write a reply…"></textarea>`
+    + `<div class="comment-form-actions">`
+    + `<button class="btn btn-muted btn-sm" onclick="showInlineEmojiPicker(event,'${esc(taId)}')" title="Insert emoji">😊</button>`
+    + `<button class="btn btn-primary btn-sm" onclick="submitReply(event,'${esc(post.id)}','${esc(post._server_url||'')}','${esc(post.visibility||'contacts')}')">Post reply</button>`
+    + `<button class="btn btn-muted btn-sm" onclick="this.closest('.reply-panel').hidden=true">Cancel</button>`
+    + `<span class="reply-error" style="color:#e06c6c;font-size:0.82rem"></span>`
+    + `</div>`
+    + `<div class="reply-list"></div>`
+    + `</div>`;
+
+  panel.hidden = false;
+  document.getElementById(taId)?.focus();
+}
+
+async function submitReply(e, parentPostId, parentServerUrl, visibility) {
+  e.stopPropagation();
+  const panel = document.querySelector(`.reply-panel[data-post-id="${parentPostId}"]`);
+  if (!panel) return;
+  const ta = panel.querySelector('.reply-input');
+  const err = panel.querySelector('.reply-error');
+  const btn = panel.querySelector('.btn-primary');
+  const bodyText = ta?.value?.trim();
+  if (!bodyText) return;
+
+  btn.disabled = true;
+  if (err) err.textContent = '';
+
+  const parentNodeId = _nodeIdForServer(parentServerUrl);
+  const fd = new FormData();
+  fd.append('body', _expandMentions(bodyText));
+  fd.append('visibility', visibility);
+  fd.append('parent_id', parentPostId);
+  if (parentNodeId) fd.append('parent_node_id', parentNodeId);
+
+  try {
+    const r = await apiFetch('/api/posts', {method: 'POST', body: fd});
+    if (r.ok) {
+      const reply = await r.json();
+      ta.value = '';
+      const list = panel.querySelector('.reply-list');
+      if (list) {
+        const card = makePostCard(reply, allPosts.length);
+        card.style.cssText = 'margin-top:0.5rem;margin-left:1.5rem;border-left:2px solid #444;padding-left:0.5rem';
+        list.appendChild(card);
+      }
+      panel.hidden = true;
+    } else {
+      if (err) err.textContent = 'Error ' + r.status;
+      btn.disabled = false;
+    }
+  } catch {
+    if (err) err.textContent = 'Network error';
+    btn.disabled = false;
   }
 }
 

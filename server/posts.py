@@ -364,6 +364,10 @@ async def create_post(
         if db.execute("SELECT 1 FROM posts WHERE id = ? AND deleted = 0", (parent_id,)).fetchone() is None:
             raise HTTPException(status_code=422, detail="parent_id not found on this node")
         parent_node_id = node_id
+    elif parent_id and not parent_node_id:
+        # auto-fill parent_node_id when parent lives on this node
+        if db.execute("SELECT 1 FROM posts WHERE id = ?", (parent_id,)).fetchone() is not None:
+            parent_node_id = node_id
     supersedes_stored = "1" if is_supersession else None
 
     # compute content-addressable post ID after body is finalized
