@@ -138,6 +138,38 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         con.commit()
     except Exception:
         pass
+    try:
+        con.execute("ALTER TABLE posts ADD COLUMN parent_id TEXT")
+        con.commit()
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE posts ADD COLUMN parent_node_id TEXT")
+        con.commit()
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE posts ADD COLUMN supersedes TEXT")
+        con.commit()
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE posts ADD COLUMN supersedes_node_id TEXT")
+        con.commit()
+    except Exception:
+        pass
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS reply_refs (
+            reply_post_id  TEXT NOT NULL,
+            reply_node_id  TEXT NOT NULL,
+            parent_post_id TEXT NOT NULL,
+            received_at    INTEGER NOT NULL,
+            PRIMARY KEY (reply_post_id, reply_node_id)
+        )
+    """)
+    con.execute(
+        "CREATE INDEX IF NOT EXISTS reply_refs_by_parent ON reply_refs(parent_post_id)"
+    )
     con.execute("""
         CREATE TABLE IF NOT EXISTS post_tags (
             post_id TEXT NOT NULL,

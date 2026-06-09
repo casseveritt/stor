@@ -997,6 +997,17 @@ def create_app(config_path: str | Path) -> FastAPI:
             raise HTTPException(status_code=r.status_code)
         return r.json()
 
+    @api.get("/posts/{post_id}/replies")
+    async def api_get_replies(post_id: str, server: str = ""):
+        src = server or config.own_server
+        path = f"/posts/{post_id}/replies"
+        hdrs = {**_headers(src), **await _sign_federated("GET", path, b"")}
+        async with httpx.AsyncClient() as hc:
+            r = await hc.get(_call_url(src) + path, headers=hdrs, timeout=10.0)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+        return r.json()
+
     # ── assets ────────────────────────────────────────────────────────────
 
     @api.post("/assets")

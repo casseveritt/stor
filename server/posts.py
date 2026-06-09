@@ -226,8 +226,14 @@ def _comment_count(db, post_id: str) -> int:
 _VALID_POST_TYPES = {"post", "inner_monologue"}
 
 
-_POST_COLS = "p.id, p.body, p.created_at, p.tags, p.visibility, p.comment_access, p.deleted, p.post_type, p.nonce"
-_POST_COLS_NO_ALIAS = "id, body, created_at, tags, visibility, comment_access, deleted, post_type, nonce"
+_POST_COLS = (
+    "p.id, p.body, p.created_at, p.tags, p.visibility, p.comment_access, p.deleted, p.post_type, p.nonce,"
+    " p.parent_id, p.parent_node_id, p.supersedes, p.supersedes_node_id"
+)
+_POST_COLS_NO_ALIAS = (
+    "id, body, created_at, tags, visibility, comment_access, deleted, post_type, nonce,"
+    " parent_id, parent_node_id, supersedes, supersedes_node_id"
+)
 
 _VALID_VISIBILITY = ("private", "contacts", "authenticated", "public")
 _VALID_COMMENT_ACCESS = ("contacts", "authenticated", "public")
@@ -235,8 +241,12 @@ _VALID_COMMENT_ACCESS = ("contacts", "authenticated", "public")
 
 def _post_dict(row, db, viewer: str = "") -> dict:
     from .reactions import get_reactions
-    id_, body, created_at, tags_json, visibility, comment_access, deleted, post_type, nonce = row
+    (id_, body, created_at, tags_json, visibility, comment_access, deleted, post_type, nonce,
+     parent_id, parent_node_id, supersedes, supersedes_node_id) = row
     assets = _get_post_assets(db, id_, body)
+    successor_row = db.execute(
+        "SELECT id FROM posts WHERE supersedes = ? AND deleted = 0 LIMIT 1", (id_,)
+    ).fetchone()
     return {
         "id": id_,
         "body": body,
@@ -247,6 +257,11 @@ def _post_dict(row, db, viewer: str = "") -> dict:
         "public": (visibility or "private") == "public",  # backwards compat
         "post_type": post_type or "post",
         "nonce": nonce,
+        "parent_id": parent_id,
+        "parent_node_id": parent_node_id,
+        "supersedes": supersedes,
+        "supersedes_node_id": supersedes_node_id,
+        "superseded_by": successor_row[0] if successor_row else None,
         "assets": assets,
         "comment_count": _comment_count(db, id_),
         "deleted": bool(deleted),
@@ -285,6 +300,10 @@ async def create_post(
     visibility: str = Form(default="contacts"),
     comment_access: str = Form(default="contacts"),
     post_type: str = Form(default="post"),
+    parent_id: str = Form(default=""),
+    parent_node_id: str = Form(default=""),
+    supersedes: str = Form(default=""),
+    supersedes_node_id: str = Form(default=""),
     files: list[UploadFile] = File(default=[]),
 ):
     try:
@@ -334,17 +353,28 @@ async def create_post(
         suffix = "\n" + "\n".join(f"[asset:{aid}]" for aid in appended)
         body = body + suffix
 
+    # normalise optional fields
+    parent_id = parent_id or None
+    parent_node_id = parent_node_id or None
+    supersedes = supersedes or None
+    supersedes_node_id = supersedes_node_id or None
+
     # compute content-addressable post ID after body is finalized
     node_id = getattr(request.app.state, "node_id", "") or ""
     nonce = secrets.token_hex(16)
-    post_id = hashlib.sha256(f"{node_id}\n{body}\n{now}\n{nonce}".encode()).hexdigest()
+    post_id = hashlib.sha256(
+        f"{node_id}\n{body}\n{now}\n{nonce}\n{parent_id or ''}\n{supersedes or ''}".encode()
+    ).hexdigest()
 
     # record all referenced assets in post_assets
     all_ids = _asset_ids_in_order(body)
     db.execute(
-        "INSERT INTO posts (id, body, created_at, tags, is_public, deleted, post_type, visibility, comment_access, nonce)"
-        " VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)",
-        (post_id, body, now, json.dumps(tags_list), int(is_public), post_type, visibility, comment_access, nonce),
+        "INSERT INTO posts"
+        " (id, body, created_at, tags, is_public, deleted, post_type, visibility, comment_access,"
+        "  nonce, parent_id, parent_node_id, supersedes, supersedes_node_id)"
+        " VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (post_id, body, now, json.dumps(tags_list), int(is_public), post_type, visibility, comment_access,
+         nonce, parent_id, parent_node_id, supersedes, supersedes_node_id),
     )
     for aid in all_ids:
         db.execute("INSERT OR IGNORE INTO post_assets (post_id, asset_id) VALUES (?, ?)", (post_id, aid))
@@ -360,7 +390,46 @@ async def create_post(
         f"SELECT {_POST_COLS_NO_ALIAS} FROM posts WHERE id = ?", (post_id,)
     ).fetchone()
     _notify_mentions(body, post_id, request.app)
+    if parent_id and parent_node_id and parent_node_id != node_id:
+        _notify_parent_of_reply(parent_node_id, parent_id, node_id, post_id, request.app)
     return _post_dict(row, db)
+
+
+def _notify_parent_of_reply(parent_node_id: str, parent_post_id: str,
+                             reply_node_id: str, reply_post_id: str, app) -> None:
+    """Best-effort notification to the parent node that a reply exists."""
+    import threading
+
+    def _send():
+        import httpx as _hx, time as _t, base64 as _b64
+        db = app.state.db
+        priv = getattr(app.state, "private_key", None)
+        node_address = getattr(app.state, "node_address", "") or ""
+        row = db.execute("SELECT server_url FROM users WHERE node_id = ?", (parent_node_id,)).fetchone()
+        if not row:
+            return
+        try:
+            ts = int(_t.time())
+            headers = {"Content-Type": "application/json"}
+            if priv:
+                from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+                sig_msg = f"contacc:notify-reply:{parent_post_id}:{ts}".encode()
+                sig = _b64.b64encode(priv.sign(sig_msg)).decode()
+                pub_b64 = _b64.b64encode(
+                    priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+                ).decode()
+                headers.update({"X-Public-Key": pub_b64, "X-Timestamp": str(ts),
+                                 "X-Signature": sig, "X-Origin-Server": node_address})
+            _hx.post(
+                row[0].rstrip("/") + f"/posts/{parent_post_id}/notify-reply",
+                json={"reply_node_id": reply_node_id, "reply_post_id": reply_post_id},
+                headers=headers,
+                timeout=5,
+            )
+        except Exception:
+            pass
+
+    threading.Thread(target=_send, daemon=True).start()
 
 
 # ── post feed ─────────────────────────────────────────────────────────────────
@@ -378,7 +447,7 @@ def get_posts(
 ):
     db = request.app.state.db
     params: list = []
-    conditions = ["p.deleted = 0"]
+    conditions = ["p.deleted = 0", "p.parent_id IS NULL"]  # feed shows top-level posts only
 
     if identity.is_owner:
         if post_type not in _VALID_POST_TYPES:
@@ -561,6 +630,63 @@ def delete_post(post_id: str, request: Request, identity: OwnerDep):
     db.commit()
     if cur.rowcount == 0:
         raise HTTPException(status_code=404, detail="Post not found")
+
+
+# ── reply refs ────────────────────────────────────────────────────────────────
+
+class _ReplyNotification(BaseModel):
+    reply_node_id: str
+    reply_post_id: str
+
+
+@router.post("/posts/{post_id}/notify-reply", status_code=204)
+def notify_reply(post_id: str, payload: _ReplyNotification, request: Request,
+                 identity: FederatedOrTokenDep):
+    db = request.app.state.db
+    if db.execute("SELECT 1 FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone() is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+    db.execute(
+        "INSERT OR IGNORE INTO reply_refs (reply_post_id, reply_node_id, parent_post_id, received_at)"
+        " VALUES (?, ?, ?, ?)",
+        (payload.reply_post_id, payload.reply_node_id, post_id, now_ns()),
+    )
+    db.commit()
+
+
+@router.get("/posts/{post_id}/replies")
+def get_replies(post_id: str, request: Request, identity: OptionalAuthDep,
+                _sig: FederatedSigDep = None):
+    db = request.app.state.db
+    row = db.execute(
+        "SELECT visibility FROM posts WHERE id = ? AND deleted = 0", (post_id,)
+    ).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Post not found")
+
+    own_node_id = getattr(request.app.state, "node_id", "") or ""
+
+    # local replies: posts on this node whose parent_id = post_id
+    local_rows = db.execute(
+        "SELECT id FROM posts WHERE parent_id = ? AND deleted = 0", (post_id,)
+    ).fetchall()
+    local_refs = [{"reply_post_id": r[0], "reply_node_id": own_node_id} for r in local_rows]
+
+    # cached remote reply refs
+    ref_rows = db.execute(
+        "SELECT reply_post_id, reply_node_id FROM reply_refs WHERE parent_post_id = ?", (post_id,)
+    ).fetchall()
+    remote_refs = [{"reply_post_id": r[0], "reply_node_id": r[1]} for r in ref_rows]
+
+    # merge, dedup by (node_id, post_id)
+    seen: set[tuple] = set()
+    replies = []
+    for ref in local_refs + remote_refs:
+        key = (ref["reply_node_id"], ref["reply_post_id"])
+        if key not in seen:
+            seen.add(key)
+            replies.append(ref)
+
+    return {"replies": replies}
 
 
 # ── post comments ─────────────────────────────────────────────────────────────
