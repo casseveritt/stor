@@ -907,32 +907,45 @@ def dedup_threads(request: Request, _: InternalOrOwnerDep):
     return {"merged": merged_count}
 
 
-def _member_names(db, group_id: str) -> dict:
-    """Map node_id → display name for all group members, from the local contact list."""
+def _member_names(db, group_id: str, own_node_id: str | None = None) -> dict:
+    """Map node_id → display name for all group members."""
     roster = _group_roster(db, group_id)
     names = {}
+    own_profile = db.execute("SELECT display_name FROM profile WHERE id = 1").fetchone()
     for node_id in roster:
-        row = db.execute(
-            "SELECT name FROM users WHERE node_id = ?", (node_id,)
-        ).fetchone()
+        # Own node: use local profile display_name.
+        if node_id == own_node_id and own_profile and own_profile[0]:
+            names[node_id] = own_profile[0]
+            continue
+        # 1. Local users/contacts table
+        row = db.execute("SELECT name FROM users WHERE node_id = ?", (node_id,)).fetchone()
         if row and row[0]:
             names[node_id] = row[0]
-        else:
-            # Fall back to registry_cache display_name
-            rc = db.execute(
-                "SELECT record FROM registry_cache WHERE node_id = ?", (node_id,)
-            ).fetchone()
-            if rc:
-                try:
-                    names[node_id] = json.loads(rc[0]).get("display_name") or json.loads(rc[0]).get("handle")
-                except Exception:
-                    pass
+            continue
+        # 2. Peer name from any 1:1 DM thread with this node
+        t = db.execute(
+            "SELECT peer_name FROM dm_threads WHERE peer_node_id = ? AND group_id IS NULL", (node_id,)
+        ).fetchone()
+        if t and t[0]:
+            names[node_id] = t[0]
+            continue
+        # 3. Registry cache
+        rc = db.execute("SELECT record FROM registry_cache WHERE node_id = ?", (node_id,)).fetchone()
+        if rc:
+            try:
+                rec = json.loads(rc[0])
+                name = rec.get("display_name") or rec.get("handle")
+                if name:
+                    names[node_id] = name
+            except Exception:
+                pass
     return names
 
 
 @router.get("/dm/threads")
 def list_threads(request: Request, _: InternalOrOwnerDep):
     db = request.app.state.db
+    own_node_id = getattr(request.app.state, "node_id", None)
     rows = db.execute("""
         SELECT thread_id, peer_node_id, peer_url, peer_name, last_msg_at, unread_count,
                group_id, group_name, group_creator_id
@@ -943,7 +956,7 @@ def list_threads(request: Request, _: InternalOrOwnerDep):
          "peer_name": r[3], "last_msg_at": r[4], "unread_count": r[5],
          "group_id": r[6], "group_name": r[7], "group_creator_id": r[8],
          "members": sorted(_group_roster(db, r[6])) if r[6] else None,
-         "member_names": _member_names(db, r[6]) if r[6] else None}
+         "member_names": _member_names(db, r[6], own_node_id) if r[6] else None}
         for r in rows
     ]}
 
@@ -1039,7 +1052,45 @@ def get_messages(thread_id: str, request: Request, _: InternalOrOwnerDep, since:
                     pass
     else:
         thread_key = _get_thread_key(app, thread_id, peer_dh_pub)
-        fallback_keys = []
+        # Build fallback keys for member nodes: try alternative DH pubs in case
+        # peer_dh_pub (creator's pub) is stale/corrupted, and try other member pubs
+        # for pre-relay messages sent directly between members using the group thread_id.
+        fallback_keys: list[tuple[bytes, str]] = []
+        if group_creator_id and group_id:
+            seen_pubs = {peer_dh_pub, app.state.dh_public_key}
+            # Creator first, then other members.
+            candidate_ids = [group_creator_id] + [
+                mid for (mid,) in db.execute(
+                    "SELECT member_node_id FROM group_members WHERE group_id = ?", (group_id,)
+                ).fetchall()
+                if mid not in (my_node_id, group_creator_id)
+            ]
+            for mid in candidate_ids:
+                dh_pub = None
+                row = db.execute(
+                    "SELECT peer_dh_pub FROM dm_threads WHERE peer_node_id = ? AND group_id IS NULL",
+                    (mid,)
+                ).fetchone()
+                if row and row[0] and row[0] not in seen_pubs:
+                    dh_pub = row[0]
+                if not dh_pub:
+                    rc = db.execute("SELECT record FROM registry_cache WHERE node_id = ?", (mid,)).fetchone()
+                    if rc:
+                        try:
+                            candidate = json.loads(rc[0]).get("dh_public_key")
+                            if candidate and candidate not in seen_pubs:
+                                dh_pub = candidate
+                        except Exception:
+                            pass
+                if dh_pub:
+                    seen_pubs.add(dh_pub)
+                    try:
+                        fallback_keys.append((
+                            derive_thread_key(app.state.dh_private_key, dh_pub, thread_id),
+                            mid,
+                        ))
+                    except Exception:
+                        pass
 
     rows = db.execute("""
         SELECT id, direction, body_enc, created_at, delivered_at, seen_at, sender_node_id
