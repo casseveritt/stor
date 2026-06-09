@@ -228,11 +228,11 @@ _VALID_POST_TYPES = {"post", "inner_monologue"}
 
 _POST_COLS = (
     "p.id, p.body, p.created_at, p.tags, p.visibility, p.comment_access, p.deleted, p.post_type, p.nonce,"
-    " p.parent_id, p.parent_node_id, p.supersedes, p.supersedes_node_id"
+    " p.parent_id, p.parent_node_id, p.supersedes"
 )
 _POST_COLS_NO_ALIAS = (
     "id, body, created_at, tags, visibility, comment_access, deleted, post_type, nonce,"
-    " parent_id, parent_node_id, supersedes, supersedes_node_id"
+    " parent_id, parent_node_id, supersedes"
 )
 
 _VALID_VISIBILITY = ("private", "contacts", "authenticated", "public")
@@ -242,10 +242,10 @@ _VALID_COMMENT_ACCESS = ("contacts", "authenticated", "public")
 def _post_dict(row, db, viewer: str = "") -> dict:
     from .reactions import get_reactions
     (id_, body, created_at, tags_json, visibility, comment_access, deleted, post_type, nonce,
-     parent_id, parent_node_id, supersedes, supersedes_node_id) = row
+     parent_id, parent_node_id, supersedes) = row
     assets = _get_post_assets(db, id_, body)
     successor_row = db.execute(
-        "SELECT id FROM posts WHERE supersedes = ? AND deleted = 0 LIMIT 1", (id_,)
+        "SELECT id FROM posts WHERE parent_id = ? AND supersedes = '1' AND deleted = 0 LIMIT 1", (id_,)
     ).fetchone()
     return {
         "id": id_,
@@ -259,8 +259,7 @@ def _post_dict(row, db, viewer: str = "") -> dict:
         "nonce": nonce,
         "parent_id": parent_id,
         "parent_node_id": parent_node_id,
-        "supersedes": supersedes,
-        "supersedes_node_id": supersedes_node_id,
+        "supersedes": bool(supersedes),
         "superseded_by": successor_row[0] if successor_row else None,
         "assets": assets,
         "comment_count": _comment_count(db, id_),
@@ -302,8 +301,7 @@ async def create_post(
     post_type: str = Form(default="post"),
     parent_id: str = Form(default=""),
     parent_node_id: str = Form(default=""),
-    supersedes: str = Form(default=""),
-    supersedes_node_id: str = Form(default=""),
+    supersedes: str = Form(default=""),   # boolean: "1" = this post supersedes its parent
     files: list[UploadFile] = File(default=[]),
 ):
     try:
@@ -356,14 +354,14 @@ async def create_post(
     # normalise optional fields
     parent_id = parent_id or None
     parent_node_id = parent_node_id or None
-    supersedes = supersedes or None
-    supersedes_node_id = supersedes_node_id or None
+    is_supersession = supersedes.lower() in ("1", "true", "yes") if supersedes else False
+    supersedes_stored = "1" if is_supersession else None
 
     # compute content-addressable post ID after body is finalized
     node_id = getattr(request.app.state, "node_id", "") or ""
     nonce = secrets.token_hex(16)
     post_id = hashlib.sha256(
-        f"{node_id}\n{body}\n{now}\n{nonce}\n{parent_id or ''}\n{supersedes or ''}".encode()
+        f"{node_id}\n{body}\n{now}\n{nonce}\n{parent_id or ''}\n{1 if is_supersession else 0}".encode()
     ).hexdigest()
 
     # record all referenced assets in post_assets
@@ -371,10 +369,10 @@ async def create_post(
     db.execute(
         "INSERT INTO posts"
         " (id, body, created_at, tags, is_public, deleted, post_type, visibility, comment_access,"
-        "  nonce, parent_id, parent_node_id, supersedes, supersedes_node_id)"
-        " VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)",
+        "  nonce, parent_id, parent_node_id, supersedes)"
+        " VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)",
         (post_id, body, now, json.dumps(tags_list), int(is_public), post_type, visibility, comment_access,
-         nonce, parent_id, parent_node_id, supersedes, supersedes_node_id),
+         nonce, parent_id, parent_node_id, supersedes_stored),
     )
     for aid in all_ids:
         db.execute("INSERT OR IGNORE INTO post_assets (post_id, asset_id) VALUES (?, ?)", (post_id, aid))
@@ -390,7 +388,7 @@ async def create_post(
         f"SELECT {_POST_COLS_NO_ALIAS} FROM posts WHERE id = ?", (post_id,)
     ).fetchone()
     _notify_mentions(body, post_id, request.app)
-    if parent_id and parent_node_id and parent_node_id != node_id:
+    if parent_id and not is_supersession and parent_node_id and parent_node_id != node_id:
         _notify_parent_of_reply(parent_node_id, parent_id, node_id, post_id, request.app)
     return _post_dict(row, db)
 
