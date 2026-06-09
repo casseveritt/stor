@@ -2969,13 +2969,13 @@ async function _dmOpenThread(threadId, peerName) {
   _dmActiveThread = threadId;
   _dmHighlightIdx = -1;
   document.getElementById("dm-conv-name").textContent = peerName;
-  document.getElementById("dm-conv-members-btn").hidden = !_dmThreads.find(t => t.thread_id === threadId)?.group_id;
   document.getElementById("dm-thread-list-view").hidden = true;
   document.getElementById("dm-conversation-view").hidden = false;
+  await _loadDmThreads();
+  document.getElementById("dm-conv-members-btn").hidden = !_dmThreads.find(t => t.thread_id === threadId)?.group_id;
   await _loadDmMessages(threadId);
   document.getElementById("dm-compose").focus();
   await apiFetch("/api/dm/threads/" + threadId + "/seen", {method: "POST"});
-  await _loadDmThreads();
 }
 
 async function _loadDmMessages(threadId) {
