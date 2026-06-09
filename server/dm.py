@@ -976,11 +976,18 @@ def get_messages(thread_id: str, request: Request, _: InternalOrOwnerDep, since:
 
     # Creator's at-rest key is the self-DH key derived from this node's own keys —
     # use app state directly so peer_dh_pub DB corruption doesn't break decryption.
+    # Keep the stored peer_dh_pub as a fallback to recover messages written during
+    # any prior corruption window (AESGCM auth tags make wrong-key attempts safe).
     my_node_id = getattr(app.state, "node_id", None)
     if group_creator_id and group_creator_id == my_node_id:
         thread_key = derive_thread_key(app.state.dh_private_key, app.state.dh_public_key, thread_id)
+        fallback_key = (
+            _get_thread_key(app, thread_id, peer_dh_pub)
+            if peer_dh_pub != app.state.dh_public_key else None
+        )
     else:
         thread_key = _get_thread_key(app, thread_id, peer_dh_pub)
+        fallback_key = None
 
     rows = db.execute("""
         SELECT id, direction, body_enc, created_at, delivered_at, seen_at, sender_node_id
@@ -994,7 +1001,13 @@ def get_messages(thread_id: str, request: Request, _: InternalOrOwnerDep, since:
         try:
             body = decrypt_dm(thread_key, r[2])
         except Exception:
-            body = "[decryption failed]"
+            if fallback_key:
+                try:
+                    body = decrypt_dm(fallback_key, r[2])
+                except Exception:
+                    body = "[decryption failed]"
+            else:
+                body = "[decryption failed]"
         messages.append({
             "id": r[0], "direction": r[1], "body": body,
             "created_at": r[3], "delivered_at": r[4], "seen_at": r[5],
