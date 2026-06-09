@@ -1440,23 +1440,33 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     @api.post("/contacts/refresh-node-ids", status_code=200)
     async def api_refresh_contact_node_ids():
-        """Back-fill node_id for contacts that don't have one yet."""
+        """Back-fill and correct node_id for contacts.
+
+        Fetches /node for every contact and updates node_id when:
+        - it is missing entirely, or
+        - the stored value is an old user_id/owner_id that differs from the
+          server's current node_id (handles migrated identities).
+        """
         updated = 0
         async with httpx.AsyncClient() as hc:
             for c in config.contacts:
-                if c.node_id:
-                    continue
                 try:
                     r = await hc.get(c.url.rstrip("/") + "/node", timeout=4)
-                    if r.is_success:
-                        nd = r.json()
-                        nid = nd.get("node_id") or nd.get("user_id")
-                        pub = nd.get("public_key")
-                        if nid and not any(x.node_id == nid for x in config.contacts if x is not c):
-                            c.node_id = nid
-                            if pub and not c.public_key:
-                                c.public_key = pub
-                            updated += 1
+                    if not r.is_success:
+                        continue
+                    nd = r.json()
+                    live_nid = nd.get("node_id")
+                    pub = nd.get("public_key")
+                    if not live_nid:
+                        continue
+                    # Update if missing or stale (node migrated to a new node_id).
+                    if c.node_id != live_nid and not any(
+                        x.node_id == live_nid for x in config.contacts if x is not c
+                    ):
+                        c.node_id = live_nid
+                        if pub and not c.public_key:
+                            c.public_key = pub
+                        updated += 1
                 except Exception:
                     pass
         if updated:
