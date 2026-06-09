@@ -989,29 +989,57 @@ def get_messages(thread_id: str, request: Request, _: InternalOrOwnerDep, since:
     db = request.app.state.db
     app = request.app
     thread = db.execute(
-        "SELECT peer_dh_pub, group_creator_id FROM dm_threads WHERE thread_id = ?", (thread_id,)
+        "SELECT peer_dh_pub, group_creator_id, group_id FROM dm_threads WHERE thread_id = ?", (thread_id,)
     ).fetchone()
     if not thread:
         raise HTTPException(404, "Thread not found")
 
-    peer_dh_pub, group_creator_id = thread
+    peer_dh_pub, group_creator_id, group_id = thread
     if not peer_dh_pub:
         raise HTTPException(400, "No DH key for peer — cannot decrypt")
 
-    # Creator's at-rest key is the self-DH key derived from this node's own keys —
-    # use app state directly so peer_dh_pub DB corruption doesn't break decryption.
-    # Keep the stored peer_dh_pub as a fallback to recover messages written during
-    # any prior corruption window (AESGCM auth tags make wrong-key attempts safe).
+    # Creator's at-rest key is the self-DH key derived from this node's own keys.
+    # For group threads, also build a list of per-member fallback keys so we can
+    # recover messages stored via the 1:1 fallthrough path (body_enc = raw transit
+    # ciphertext, encrypted with the sender's pairwise key — one per member).
+    # AESGCM auth tags make wrong-key attempts unambiguous failures, so trying
+    # multiple keys is safe.
     my_node_id = getattr(app.state, "node_id", None)
     if group_creator_id and group_creator_id == my_node_id:
         thread_key = derive_thread_key(app.state.dh_private_key, app.state.dh_public_key, thread_id)
-        fallback_key = (
-            _get_thread_key(app, thread_id, peer_dh_pub)
-            if peer_dh_pub != app.state.dh_public_key else None
-        )
+        # Collect a fallback key + node_id for every group member whose DH pub we
+        # can find — from 1:1 threads (most reliable) or registry_cache.
+        fallback_keys: list[tuple[bytes, str]] = []  # [(key, member_node_id), ...]
+        for (member_id,) in db.execute(
+            "SELECT member_node_id FROM group_members WHERE group_id = ?", (group_id,)
+        ).fetchall():
+            if member_id == my_node_id:
+                continue
+            dh_pub = None
+            row = db.execute(
+                "SELECT peer_dh_pub FROM dm_threads WHERE peer_node_id = ? AND group_id IS NULL",
+                (member_id,)
+            ).fetchone()
+            if row and row[0]:
+                dh_pub = row[0]
+            else:
+                rc = db.execute("SELECT record FROM registry_cache WHERE node_id = ?", (member_id,)).fetchone()
+                if rc:
+                    try:
+                        dh_pub = json.loads(rc[0]).get("dh_public_key")
+                    except Exception:
+                        pass
+            if dh_pub and dh_pub != app.state.dh_public_key:
+                try:
+                    fallback_keys.append((
+                        derive_thread_key(app.state.dh_private_key, dh_pub, thread_id),
+                        member_id,
+                    ))
+                except Exception:
+                    pass
     else:
         thread_key = _get_thread_key(app, thread_id, peer_dh_pub)
-        fallback_key = None
+        fallback_keys = []
 
     rows = db.execute("""
         SELECT id, direction, body_enc, created_at, delivered_at, seen_at, sender_node_id
@@ -1023,16 +1051,18 @@ def get_messages(thread_id: str, request: Request, _: InternalOrOwnerDep, since:
     messages = []
     for r in rows:
         sender_node_id = r[6]
+        inferred_sender = None
         try:
             body = decrypt_dm(thread_key, r[2])
         except Exception:
-            if fallback_key:
+            body = "[decryption failed]"
+            for fkey, fmember in fallback_keys:
                 try:
-                    body = decrypt_dm(fallback_key, r[2])
+                    body = decrypt_dm(fkey, r[2])
+                    inferred_sender = fmember
+                    break
                 except Exception:
-                    body = "[decryption failed]"
-            else:
-                body = "[decryption failed]"
+                    pass
         # Messages stored via the 1:1 fallthrough path have body_enc = raw transit
         # ciphertext, so decryption gives the relay envelope JSON rather than plain
         # text.  Unwrap it to recover the actual message body and sender identity.
@@ -1042,6 +1072,9 @@ def get_messages(thread_id: str, request: Request, _: InternalOrOwnerDep, since:
                 body = env.get("body", body)
                 if not sender_node_id:
                     sender_node_id = env.get("sender_node_id")
+            # If still no sender_node_id, infer from whichever member key decrypted.
+            if not sender_node_id and inferred_sender:
+                sender_node_id = inferred_sender
         messages.append({
             "id": r[0], "direction": r[1], "body": body,
             "created_at": r[3], "delivered_at": r[4], "seen_at": r[5],
