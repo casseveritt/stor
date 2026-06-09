@@ -400,8 +400,6 @@ async def create_post(
         f"SELECT {_POST_COLS_NO_ALIAS} FROM posts WHERE id = ?", (post_id,)
     ).fetchone()
     _notify_mentions(body, post_id, request.app)
-    if parent_id and not is_supersession and parent_node_id and parent_node_id != node_id:
-        _notify_parent_of_reply(parent_node_id, parent_id, node_id, post_id, request.app)
     return _post_dict(row, db)
 
 

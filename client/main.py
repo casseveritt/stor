@@ -1008,6 +1008,24 @@ def create_app(config_path: str | Path) -> FastAPI:
             raise HTTPException(status_code=r.status_code, detail=r.text)
         return r.json()
 
+    @api.post("/posts/{post_id}/notify-reply", status_code=204)
+    async def api_notify_reply(post_id: str, request: Request, server: str = ""):
+        """Send a reply notification to the parent post's server."""
+        parent_server = server or config.own_server
+        body_bytes = await request.body()
+        path = f"/posts/{post_id}/notify-reply"
+        hdrs = {
+            **_headers(parent_server),
+            "Content-Type": "application/json",
+            "X-Origin-Server": config.own_server,
+            **await _sign_federated("POST", path, body_bytes),
+        }
+        async with httpx.AsyncClient() as hc:
+            r = await hc.post(_call_url(parent_server) + path, content=body_bytes,
+                              headers=hdrs, timeout=10.0)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.text)
+
     # ── assets ────────────────────────────────────────────────────────────
 
     @api.post("/assets")

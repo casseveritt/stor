@@ -1935,6 +1935,7 @@ function openReplyCompose(post, cardEl) {
   if (!panel.hidden) { panel.hidden = true; return; }
 
   const taId = 'reply-ta-' + post.id;
+  const cbId = 'reply-notify-' + post.id;
   panel.innerHTML =
     `<div class="comment-form" style="margin-top:0.5rem">`
     + `<div style="font-size:0.78rem;color:#888;margin-bottom:0.3rem">Replying to this post (${esc(post.visibility || 'contacts')} visibility)</div>`
@@ -1943,6 +1944,8 @@ function openReplyCompose(post, cardEl) {
     + `<button class="btn btn-muted btn-sm" onclick="showInlineEmojiPicker(event,'${esc(taId)}')" title="Insert emoji">😊</button>`
     + `<button class="btn btn-primary btn-sm" onclick="submitReply(event,'${esc(post.id)}','${esc(post._server_url||'')}','${esc(post.visibility||'contacts')}')">Post reply</button>`
     + `<button class="btn btn-muted btn-sm" onclick="this.closest('.reply-panel').hidden=true">Cancel</button>`
+    + `<label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.82rem;color:#aaa;cursor:pointer">`
+    + `<input type="checkbox" id="${esc(cbId)}" checked> List in parent's replies</label>`
     + `<span class="reply-error" style="color:#e06c6c;font-size:0.82rem"></span>`
     + `</div>`
     + `<div class="reply-list"></div>`
@@ -1959,6 +1962,7 @@ async function submitReply(e, parentPostId, parentServerUrl, visibility) {
   const ta = panel.querySelector('.reply-input');
   const err = panel.querySelector('.reply-error');
   const btn = panel.querySelector('.btn-primary');
+  const notifyCheck = panel.querySelector('input[type="checkbox"]');
   const bodyText = ta?.value?.trim();
   if (!bodyText) return;
 
@@ -1977,6 +1981,18 @@ async function submitReply(e, parentPostId, parentServerUrl, visibility) {
     if (r.ok) {
       const reply = await r.json();
       ta.value = '';
+
+      if (notifyCheck?.checked) {
+        const notifyUrl = '/api/posts/' + encodeURIComponent(parentPostId) + '/notify-reply'
+          + (parentServerUrl && parentServerUrl !== CFG?.own_server
+              ? '?server=' + encodeURIComponent(parentServerUrl) : '');
+        apiFetch(notifyUrl, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({reply_post_id: reply.id, reply_node_id: CFG?.own_node_id || ''}),
+        }).catch(() => {});
+      }
+
       const list = panel.querySelector('.reply-list');
       if (list) {
         const card = makePostCard(reply, allPosts.length);
