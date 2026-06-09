@@ -907,6 +907,29 @@ def dedup_threads(request: Request, _: InternalOrOwnerDep):
     return {"merged": merged_count}
 
 
+def _member_names(db, group_id: str) -> dict:
+    """Map node_id → display name for all group members, from the local contact list."""
+    roster = _group_roster(db, group_id)
+    names = {}
+    for node_id in roster:
+        row = db.execute(
+            "SELECT name FROM users WHERE node_id = ?", (node_id,)
+        ).fetchone()
+        if row and row[0]:
+            names[node_id] = row[0]
+        else:
+            # Fall back to registry_cache display_name
+            rc = db.execute(
+                "SELECT record FROM registry_cache WHERE node_id = ?", (node_id,)
+            ).fetchone()
+            if rc:
+                try:
+                    names[node_id] = json.loads(rc[0]).get("display_name") or json.loads(rc[0]).get("handle")
+                except Exception:
+                    pass
+    return names
+
+
 @router.get("/dm/threads")
 def list_threads(request: Request, _: InternalOrOwnerDep):
     db = request.app.state.db
@@ -919,7 +942,8 @@ def list_threads(request: Request, _: InternalOrOwnerDep):
         {"thread_id": r[0], "peer_node_id": r[1], "peer_url": r[2],
          "peer_name": r[3], "last_msg_at": r[4], "unread_count": r[5],
          "group_id": r[6], "group_name": r[7], "group_creator_id": r[8],
-         "members": sorted(_group_roster(db, r[6])) if r[6] else None}
+         "members": sorted(_group_roster(db, r[6])) if r[6] else None,
+         "member_names": _member_names(db, r[6]) if r[6] else None}
         for r in rows
     ]}
 
@@ -998,6 +1022,7 @@ def get_messages(thread_id: str, request: Request, _: InternalOrOwnerDep, since:
 
     messages = []
     for r in rows:
+        sender_node_id = r[6]
         try:
             body = decrypt_dm(thread_key, r[2])
         except Exception:
@@ -1008,10 +1033,19 @@ def get_messages(thread_id: str, request: Request, _: InternalOrOwnerDep, since:
                     body = "[decryption failed]"
             else:
                 body = "[decryption failed]"
+        # Messages stored via the 1:1 fallthrough path have body_enc = raw transit
+        # ciphertext, so decryption gives the relay envelope JSON rather than plain
+        # text.  Unwrap it to recover the actual message body and sender identity.
+        if body != "[decryption failed]":
+            env = parse_group_envelope(body)
+            if env is not None:
+                body = env.get("body", body)
+                if not sender_node_id:
+                    sender_node_id = env.get("sender_node_id")
         messages.append({
             "id": r[0], "direction": r[1], "body": body,
             "created_at": r[3], "delivered_at": r[4], "seen_at": r[5],
-            "sender_node_id": r[6],
+            "sender_node_id": sender_node_id,
         })
     return {"messages": messages}
 
