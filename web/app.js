@@ -2753,7 +2753,8 @@ function _renderMentionsList() {
     else if (m.notif_type === 'comment') text = `${name} commented on your post`;
     else if (m.notif_type === 'thread') text = `${name} also commented on a post you commented on`;
     else text = `${name} mentioned you`;
-    const _jumpServer = m.post_server || contact?.url || (_actorId.startsWith('http') ? _actorId : '');
+    // For 'comment' notifications the post lives on own server; don't use commenter URL as fallback.
+    const _jumpServer = m.post_server || (m.notif_type !== 'comment' ? (contact?.url || (_actorId.startsWith('http') ? _actorId : '')) : '');
     return `<div onclick="_jumpToMention('${esc(m.post_id)}','${esc(_jumpServer)}','${esc(m.id)}')" style="display:flex;gap:0.5rem;align-items:flex-start;padding:0.55rem 0.75rem;cursor:pointer;border-bottom:1px solid #1e1e1e" onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
       ${dot || '<span style="display:inline-block;width:7px;flex-shrink:0"></span>'}
       <div style="flex:1;min-width:0">
