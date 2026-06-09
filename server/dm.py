@@ -1325,6 +1325,25 @@ async def api_delete_group(group_id: str, request: Request, _: InternalOrOwnerDe
     db.commit()
 
 
+@router.delete("/dm/groups/{group_id}/local", status_code=204)
+async def api_delete_group_local(group_id: str, request: Request, _: InternalOrOwnerDep):
+    """Any member: delete the local group thread/messages for a group.
+    Use after the creator has dissolved the group (sent empty-roster group_state)
+    or to clean up phantom group threads on this node."""
+    app = request.app
+    db = app.state.db
+    row = db.execute(
+        "SELECT thread_id FROM dm_threads WHERE group_id = ?", (group_id,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, "Group not found on this node")
+    thread_id = row[0]
+    db.execute("DELETE FROM group_members WHERE group_id = ?", (group_id,))
+    db.execute("DELETE FROM dm_messages WHERE thread_id = ?", (thread_id,))
+    db.execute("DELETE FROM dm_threads WHERE thread_id = ?", (thread_id,))
+    db.commit()
+
+
 @router.post("/dm/groups/{group_id}/purge", status_code=204)
 async def api_purge_stillborn_group(group_id: str, request: Request, _: InternalOrOwnerDep):
     """Clean-up valve for groups whose founding broadcast never went out —
