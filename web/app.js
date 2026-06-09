@@ -1570,20 +1570,18 @@ function makePostCard(post, idx) {
   panel.hidden = true;
   div.appendChild(panel);
 
-  if (IS_OWNER) {
-    const replyBtn = document.createElement("button");
-    replyBtn.className = "btn btn-muted btn-sm reply-toggle";
-    replyBtn.style.cssText = "margin-top:0.4rem;font-size:0.82rem";
-    replyBtn.textContent = "Reply";
-    replyBtn.onclick = () => openReplyCompose(post, div);
-    div.appendChild(replyBtn);
+  const replyBtn = document.createElement("button");
+  replyBtn.className = "btn btn-muted btn-sm reply-toggle";
+  replyBtn.style.cssText = "margin-top:0.4rem;font-size:0.82rem";
+  replyBtn.textContent = "Reply";
+  replyBtn.onclick = () => openReplyCompose(post, div);
+  div.appendChild(replyBtn);
 
-    const replyPanel = document.createElement("div");
-    replyPanel.className = "reply-panel";
-    replyPanel.dataset.postId = post.id;
-    replyPanel.hidden = true;
-    div.appendChild(replyPanel);
-  }
+  const replyPanel = document.createElement("div");
+  replyPanel.className = "reply-panel";
+  replyPanel.dataset.postId = post.id;
+  replyPanel.hidden = true;
+  div.appendChild(replyPanel);
 
   return div;
 }
