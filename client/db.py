@@ -1,3 +1,5 @@
+import hashlib
+import json
 import sqlite3
 import logging
 import time
@@ -100,6 +102,13 @@ def _init_schema(db) -> None:
             last_check  INTEGER DEFAULT 0
         )
     """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS node_lists (
+            list_id    TEXT PRIMARY KEY,
+            node_ids   TEXT NOT NULL,
+            created_at INTEGER NOT NULL
+        )
+    """)
     db.commit()
 
 
@@ -139,3 +148,31 @@ def set_contact_poll(db, node_id: str, *, last_update: int | None = None, last_c
     if last_check is not None:
         db.execute("UPDATE contact_poll SET last_check = ? WHERE node_id = ?", (last_check, node_id))
     db.commit()
+
+
+def node_list_id(node_ids: list[str]) -> str:
+    """Canonical content-addressed id for a set of node_ids: sha256 of sorted members."""
+    canonical = "\n".join(sorted(set(node_ids)))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def store_node_list(db, node_ids: list[str]) -> str:
+    """Store a node list (idempotent). Returns the list_id."""
+    members = sorted(set(node_ids))
+    lid = node_list_id(members)
+    db.execute(
+        "INSERT OR IGNORE INTO node_lists (list_id, node_ids, created_at) VALUES (?, ?, ?)",
+        (lid, json.dumps(members), time.time_ns()),
+    )
+    db.commit()
+    return lid
+
+
+def get_node_list(db, list_id: str) -> list[str] | None:
+    row = db.execute("SELECT node_ids FROM node_lists WHERE list_id = ?", (list_id,)).fetchone()
+    return json.loads(row["node_ids"]) if row else None
+
+
+def get_all_node_lists(db) -> list[dict]:
+    rows = db.execute("SELECT list_id, node_ids, created_at FROM node_lists ORDER BY created_at").fetchall()
+    return [{"list_id": r["list_id"], "node_ids": json.loads(r["node_ids"]), "created_at": r["created_at"]} for r in rows]

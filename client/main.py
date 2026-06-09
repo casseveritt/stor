@@ -38,7 +38,10 @@ from pydantic import BaseModel
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from client.config import ClientConfig, NodeKey, load_tokens, save_tokens
-from client.db import open_client_db, open_client_db_memory, get_all_tags, get_tag, set_tag as db_set_tag, get_contact_poll, set_contact_poll
+from client.db import (open_client_db, open_client_db_memory, get_all_tags, get_tag,
+                       set_tag as db_set_tag, get_contact_poll, set_contact_poll,
+                       node_list_id, store_node_list, get_node_list, get_all_node_lists)
+from client.registry import registry
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("contacc")
@@ -104,13 +107,11 @@ def create_app(config_path: str | Path) -> FastAPI:
     @app.get("/registry-cache/{node_id}")
     async def peer_registry_cache(node_id: str):
         """Expose locally-cached signed registry records to peer nodes."""
-        now = time.time()
-        entry = _registry_cache.get(node_id)
+        entry = registry._cache.get(node_id)
         if not entry:
             raise HTTPException(status_code=404, detail="Not in cache")
         record, cached_at = entry
-        queried_at = record.get("queried_at", 0)
-        if now - queried_at > _REGISTRY_MAX_AGE:
+        if time.time() - cached_at > registry.MAX_AGE:
             raise HTTPException(status_code=404, detail="Cache entry too stale")
         return record
 
@@ -128,14 +129,6 @@ def create_app(config_path: str | Path) -> FastAPI:
                         log.info("Migrated own_node_id=%s into client config", nid)
             except Exception:
                 pass
-        # Fetch registry signing key for record verification
-        try:
-            async with httpx.AsyncClient() as _hc_meta:
-                _meta_r = await _hc_meta.get(_registry_url() + "/meta", timeout=5)
-            if _meta_r.is_success:
-                _registry_pub_key_b64[0] = _meta_r.json().get("public_key")
-        except Exception:
-            pass
         asyncio.create_task(_fetch_cache_key())
         asyncio.create_task(_refresh_contact_photos())
         asyncio.create_task(_startup_consistency_check())
@@ -409,30 +402,6 @@ def create_app(config_path: str | Path) -> FastAPI:
     def _url_for_pubkey(pub_key: str) -> str | None:
         return _contact_url_cache.get(pub_key)
 
-    _REGISTRY_TTL = 4 * 3600        # records younger than this are served from cache
-    _REGISTRY_MAX_AGE = 8 * 3600    # records older than this are rejected from peers
-    _registry_cache: dict = {}       # node_id → (record_dict, cached_at_float)
-    _registry_pub_key_b64: list = [None]  # mutable box so nested functions can write
-
-    def _verify_registry_record(record: dict) -> bool:
-        pub_b64 = _registry_pub_key_b64[0]
-        if not pub_b64:
-            return True  # can't verify yet, accept provisionally
-        queried_at = record.get("queried_at")
-        sig = record.get("registry_signature")
-        if not queried_at or not sig:
-            return False
-        canonical = (f"contacc:node-record:{queried_at}:{record.get('node_id','')}:"
-                     f"{record.get('server_url','')}:"
-                     f"{record.get('handle','') or ''}:{record.get('display_name','') or ''}")
-        try:
-            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
-            pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(pub_b64 + "=="))
-            pub.verify(base64.b64decode(sig + "=="), canonical.encode())
-            return True
-        except Exception:
-            return False
-
     def _registry_url() -> str:
         # Prefer explicit registry/proxy URL from environment, then fall back
         # to deriving from own_server hostname (same host, port 8421).
@@ -443,6 +412,12 @@ def create_app(config_path: str | Path) -> FastAPI:
         from urllib.parse import urlparse
         parsed = urlparse(config.own_server)
         return f"https://{parsed.hostname}:8421"
+
+    registry.init(
+        get_registry_url=_registry_url,
+        get_contacts=lambda: config.contacts,
+        get_db=lambda: getattr(app.state, "db", None),
+    )
 
     async def _refresh_url_for_pubkey(pub_key: str) -> str | None:
         """Query registry by public key, update cache + config, return fresh URL."""
@@ -878,7 +853,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         if not parent_node_id or parent_node_id == config.own_node_id:
             return  # local replies are already queryable; no need to notify own node
         try:
-            record = await api_registry_node(parent_node_id)
+            record = await registry.lookup(parent_node_id)
             parent_server = record.get("server_url") or record.get("web_url")
             if not parent_server:
                 return
@@ -1376,81 +1351,10 @@ def create_app(config_path: str | Path) -> FastAPI:
     @api.get("/registry/node/{node_id}")
     async def api_registry_node(node_id: str):
         """Proxy GET /nodes/{node_id}: check local cache → peers → registry."""
-        now = time.time()
-
-        # 1a. In-memory cache (survives within a process lifetime)
-        entry = _registry_cache.get(node_id)
-        if entry:
-            record, cached_at = entry
-            if now - cached_at < _REGISTRY_TTL:
-                return record
-
-        def _cache_record(rec: dict) -> dict:
-            """Verify signature, store in DB + memory, return the record."""
-            import json as _json
-            if not _verify_registry_record(rec):
-                raise ValueError("invalid registry signature")
-            qt = rec.get("queried_at", now)
-            _registry_cache[node_id] = (rec, qt)
-            try:
-                db = app.state.db
-                db.execute(
-                    "INSERT OR REPLACE INTO registry_cache (node_id, record, cached_at) VALUES (?, ?, ?)",
-                    (node_id, _json.dumps(rec), int(time.time_ns()))
-                )
-                db.commit()
-            except Exception:
-                pass
-            return rec
-
-        # 1b. Persistent DB cache (survives restarts)
         try:
-            import json as _json
-            db = app.state.db
-            db_row = db.execute(
-                "SELECT record FROM registry_cache WHERE node_id = ?", (node_id,)
-            ).fetchone()
-            if db_row:
-                db_rec = _json.loads(db_row[0])
-                qt = db_rec.get("queried_at", 0)
-                if now - qt < _REGISTRY_TTL and _verify_registry_record(db_rec):
-                    _registry_cache[node_id] = (db_rec, qt)  # warm in-memory cache
-                    return db_rec
-        except Exception:
-            pass
-
-        # 2. Peer contacts' caches (parallel, first valid response wins)
-        async def _try_peer(url: str):
-            try:
-                async with httpx.AsyncClient() as hc:
-                    r = await hc.get(url.rstrip("/") + "/registry-cache/" + node_id, timeout=2)
-                if r.is_success:
-                    rec = r.json()
-                    qt = rec.get("queried_at", 0)
-                    if now - qt < _REGISTRY_MAX_AGE and _verify_registry_record(rec):
-                        return rec
-            except Exception:
-                pass
-            return None
-
-        import asyncio as _aio
-        peer_tasks = [_try_peer(c.url) for c in config.contacts if c.url]
-        if peer_tasks:
-            for coro in _aio.as_completed(peer_tasks):
-                result = await coro
-                if result:
-                    return _cache_record(result)
-
-        # 3. Registry direct
-        reg = _registry_url()
-        try:
-            async with httpx.AsyncClient() as hc:
-                r = await hc.get(f"{reg}/nodes/{node_id}", timeout=5)
-            if r.is_success:
-                return _cache_record(r.json())
-        except Exception:
-            pass
-        raise HTTPException(status_code=404, detail="Node not found")
+            return await registry.lookup(node_id)
+        except KeyError:
+            raise HTTPException(status_code=404, detail="Node not found")
 
     @api.get("/contacts/search")
     async def api_search_contacts(q: str = Query(...)):
@@ -1665,6 +1569,27 @@ def create_app(config_path: str | Path) -> FastAPI:
                     timeout=10.0,
                 )
         return {"ok": True}
+
+    # ── node lists ────────────────────────────────────────────────────────────
+
+    @api.get("/node-lists")
+    async def api_get_node_lists():
+        return {"node_lists": get_all_node_lists(_client_db)}
+
+    @api.get("/node-lists/{list_id}")
+    async def api_get_node_list(list_id: str):
+        members = get_node_list(_client_db, list_id)
+        if members is None:
+            raise HTTPException(status_code=404, detail="Node list not found")
+        return {"list_id": list_id, "node_ids": members}
+
+    @api.post("/node-lists/from-contacts", status_code=201)
+    async def api_node_list_from_contacts():
+        node_ids = [c.node_id for c in config.contacts if c.node_id]
+        if not node_ids:
+            raise HTTPException(status_code=422, detail="No contacts with resolved node_ids")
+        lid = store_node_list(_client_db, node_ids)
+        return {"list_id": lid}
 
     # ── DM proxy endpoints ─────────────────────────────────────────────────────
 
