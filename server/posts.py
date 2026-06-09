@@ -355,6 +355,8 @@ async def create_post(
     parent_id = parent_id or None
     parent_node_id = parent_node_id or None
     is_supersession = supersedes.lower() in ("1", "true", "yes") if supersedes else False
+    if is_supersession and parent_node_id:
+        raise HTTPException(status_code=422, detail="parent_node_id must not be set when supersedes is true")
     supersedes_stored = "1" if is_supersession else None
 
     # compute content-addressable post ID after body is finalized
