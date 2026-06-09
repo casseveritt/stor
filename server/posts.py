@@ -2,6 +2,7 @@
 import hashlib
 import json
 import re
+import secrets
 import time
 import uuid
 from pathlib import Path
@@ -225,8 +226,8 @@ def _comment_count(db, post_id: str) -> int:
 _VALID_POST_TYPES = {"post", "inner_monologue"}
 
 
-_POST_COLS = "p.id, p.body, p.created_at, p.tags, p.visibility, p.comment_access, p.deleted, p.post_type"
-_POST_COLS_NO_ALIAS = "id, body, created_at, tags, visibility, comment_access, deleted, post_type"
+_POST_COLS = "p.id, p.body, p.created_at, p.tags, p.visibility, p.comment_access, p.deleted, p.post_type, p.nonce"
+_POST_COLS_NO_ALIAS = "id, body, created_at, tags, visibility, comment_access, deleted, post_type, nonce"
 
 _VALID_VISIBILITY = ("private", "contacts", "authenticated", "public")
 _VALID_COMMENT_ACCESS = ("contacts", "authenticated", "public")
@@ -234,7 +235,7 @@ _VALID_COMMENT_ACCESS = ("contacts", "authenticated", "public")
 
 def _post_dict(row, db, viewer: str = "") -> dict:
     from .reactions import get_reactions
-    id_, body, created_at, tags_json, visibility, comment_access, deleted, post_type = row
+    id_, body, created_at, tags_json, visibility, comment_access, deleted, post_type, nonce = row
     assets = _get_post_assets(db, id_, body)
     return {
         "id": id_,
@@ -245,6 +246,7 @@ def _post_dict(row, db, viewer: str = "") -> dict:
         "comment_access": comment_access or "contacts",
         "public": (visibility or "private") == "public",  # backwards compat
         "post_type": post_type or "post",
+        "nonce": nonce,
         "assets": assets,
         "comment_count": _comment_count(db, id_),
         "deleted": bool(deleted),
@@ -305,7 +307,6 @@ async def create_post(
 
     is_public = visibility == "public"
     db = request.app.state.db
-    post_id = str(uuid.uuid4())
     now = now_ns()
 
     # validate any pre-existing asset refs in body
@@ -333,12 +334,17 @@ async def create_post(
         suffix = "\n" + "\n".join(f"[asset:{aid}]" for aid in appended)
         body = body + suffix
 
+    # compute content-addressable post ID after body is finalized
+    node_id = getattr(request.app.state, "node_id", "") or ""
+    nonce = secrets.token_hex(16)
+    post_id = hashlib.sha256(f"{node_id}\n{body}\n{now}\n{nonce}".encode()).hexdigest()
+
     # record all referenced assets in post_assets
     all_ids = _asset_ids_in_order(body)
     db.execute(
-        "INSERT INTO posts (id, body, created_at, tags, is_public, deleted, post_type, visibility, comment_access)"
-        " VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?)",
-        (post_id, body, now, json.dumps(tags_list), int(is_public), post_type, visibility, comment_access),
+        "INSERT INTO posts (id, body, created_at, tags, is_public, deleted, post_type, visibility, comment_access, nonce)"
+        " VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)",
+        (post_id, body, now, json.dumps(tags_list), int(is_public), post_type, visibility, comment_access, nonce),
     )
     for aid in all_ids:
         db.execute("INSERT OR IGNORE INTO post_assets (post_id, asset_id) VALUES (?, ?)", (post_id, aid))

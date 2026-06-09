@@ -133,6 +133,11 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         con.commit()
     except Exception:
         pass
+    try:
+        con.execute("ALTER TABLE posts ADD COLUMN nonce TEXT")
+        con.commit()
+    except Exception:
+        pass
     con.execute("""
         CREATE TABLE IF NOT EXISTS post_tags (
             post_id TEXT NOT NULL,
