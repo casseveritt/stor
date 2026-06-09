@@ -1142,6 +1142,16 @@ async def api_request_add_group_member(group_id: str, payload: AddMemberBody, re
     await request_add_group_member(request.app, request.app.state.db, group_id, payload.node_id)
 
 
+@router.delete("/dm/groups/{group_id}/members/{node_id}", status_code=204)
+async def api_remove_group_member(group_id: str, node_id: str, request: Request, _: InternalOrOwnerDep):
+    """Creator-only: remove any member by node_id (e.g. to clean up dead/migrated nodes)."""
+    app = request.app
+    db = app.state.db
+    if db.execute("SELECT group_creator_id FROM dm_threads WHERE group_id = ?", (group_id,)).fetchone()[0] != app.state.node_id:
+        raise HTTPException(403, "Only the group creator can remove members")
+    await remove_group_member(app, db, group_id, node_id)
+
+
 @router.post("/dm/groups/{group_id}/leave", status_code=204)
 async def api_leave_group(group_id: str, request: Request, _: InternalOrOwnerDep):
     await leave_group(request.app, request.app.state.db, group_id)
