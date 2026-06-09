@@ -877,10 +877,11 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def _send_reply_notification(parent_post_id: str, parent_node_id: str, reply_post_id: str):
         if not parent_node_id or parent_node_id == config.own_node_id:
             return  # local replies are already queryable; no need to notify own node
-        parent_server = next((c.url for c in config.contacts if c.node_id == parent_node_id), None)
-        if not parent_server:
-            return
         try:
+            record = await api_registry_node(parent_node_id)
+            parent_server = record.get("server_url") or record.get("web_url")
+            if not parent_server:
+                return
             body_bytes = json.dumps({
                 "reply_post_id": reply_post_id,
                 "reply_node_id": config.own_node_id or "",
