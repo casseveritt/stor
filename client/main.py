@@ -1955,7 +1955,8 @@ def main() -> None:
     if args.reload:
         os.environ["CONTACC_CONFIG"] = args.config
         uvicorn.run("client.main:_dev_factory", factory=True, host=args.host, port=args.port,
-                    reload=True, reload_dirs=["/app/client"], proxy_headers=True, forwarded_allow_ips="*")
+                    reload=True, reload_dirs=["/app/client"], proxy_headers=True, forwarded_allow_ips="*",
+                    timeout_graceful_shutdown=1)
         return
 
     app = create_app(args.config)
