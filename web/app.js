@@ -58,7 +58,11 @@ function _lookupNodeFromRegistry(nodeId) {
   _pendingNodeLookups.add(nodeId);
   apiFetch('/api/registry/node/' + encodeURIComponent(nodeId))
     .then(r => r.ok ? r.json() : null)
-    .then(d => { _nodeIdToProfile[nodeId] = d || {}; _pendingNodeLookups.delete(nodeId); })
+    .then(d => {
+      _nodeIdToProfile[nodeId] = d || {};
+      _pendingNodeLookups.delete(nodeId);
+      if (d?.display_name || d?.handle) _rerenderVisibleAuthorNames();
+    })
     .catch(() => { _nodeIdToProfile[nodeId] = {}; _pendingNodeLookups.delete(nodeId); });
 }
 let _pendingKeyLookups = new Set();
@@ -1603,7 +1607,7 @@ function renderBodyText(text) {
   const withPh = text.replace(/\[([^|\]]+)\|([^\]]+)\]/g, (_, id, disptext) => {
     const ph = `CCPH${pi++}END`;
     const _name = disptext || _resolveIdentity(id, '').name;
-    phMap.set(ph, `<span class="mention-tag" data-mention-id="${esc(id)}" onmouseenter="_showMentionPopup(event,this)" onmouseleave="_hideMentionPopup(event)">🔗${esc(_name)}</span>`);
+    phMap.set(ph, `<span class="mention-tag" data-mention-id="${esc(id)}" onmouseenter="_showMentionPopup(event,this)" onmouseleave="_hideMentionPopup(event)">${esc(_name)}</span>`);
     return ph;
   });
   let html = mdRender(withPh);
@@ -2090,7 +2094,7 @@ function _renderMentions(text) {
     if (!m) return esc(part);
     const id = m[1], disptext = m[2];
     const _n = disptext || _resolveIdentity(id, '').name;
-    return `<span class="mention-tag" data-mention-id="${esc(id)}" onmouseenter="_showMentionPopup(event,this)" onmouseleave="_hideMentionPopup(event)">🔗${esc(_n)}</span>`;
+    return `<span class="mention-tag" data-mention-id="${esc(id)}" onmouseenter="_showMentionPopup(event,this)" onmouseleave="_hideMentionPopup(event)">${esc(_n)}</span>`;
   }).join('');
 }
 
@@ -2141,9 +2145,7 @@ function _selectMention(c) {
   if (!state) return;
   const ta = document.getElementById(_mentionCtx.taId);
   const label = _contactTag(c);
-  // Replace @query (state.start points to the @) with [id|label] — consuming the @
-  const id = c.node_id || c.public_key;
-  const replacement = id ? `[${id}|${label}] ` : `@${label} `;
+  const replacement = `@${label} `;
   const before = ta.value.substring(0, state.start);
   // Use the known end of "@query" from state rather than ta.selectionStart,
   // which can be wrong if focus shifted momentarily during the click.
@@ -2185,18 +2187,17 @@ function _updateHighlight() {
   if (!ta) return;
   const hl = _mentionCtx.hlId ? document.getElementById(_mentionCtx.hlId) : null;
   if (_mentionCtx.hlId && !hl) return;
-  const knownIds = new Set([
-    ...(CFG?.contacts || []).map(c => c.node_id).filter(Boolean),
-    ...(CFG?.contacts || []).map(c => c.public_key).filter(Boolean),
-  ]);
+  const knownTags = new Set(
+    (CFG?.contacts || []).map(c => _contactTag(c).toLowerCase())
+  );
   const escaped = ta.value
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const highlighted = escaped
-    .replace(/\[([^|\]]*)\|([^\]]*)\]/g, (full, id, disptext) => {
-      return knownIds.has(id)
-        ? `<span class="mention-dim">[</span>🔗${disptext}<span class="mention-dim">]</span>`
-        : full;
-    });
+    .replace(/@(\w+)/g, (full, word) =>
+      knownTags.has(word.toLowerCase())
+        ? `<span class="mention-tag">@${word}</span>`
+        : full
+    );
   if (hl) { hl.innerHTML = highlighted + '​'; hl.scrollTop = ta.scrollTop; }
 }
 
@@ -2553,7 +2554,7 @@ function openEdit(idx) {
   _mentionCtx = EDIT_CTX;
   editingIdx = idx;
   const post = allPosts[idx];
-  document.getElementById("edit-body").value = post.body || "";
+  document.getElementById("edit-body").value = _collapseMentions(post.body || "");
   _updateHighlight();
   document.getElementById("edit-tags").value = (post.tags || []).join(" ");
   document.getElementById("edit-visibility").value = post.visibility || "contacts";
