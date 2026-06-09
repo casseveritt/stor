@@ -1700,6 +1700,10 @@ function _closeSSE() {
 
 function _handleSSEEvent(upd) {
   if (upd.type === 'dm') {
+    if (upd.event === 'member_names_resolved') {
+      _loadDmThreads().then(() => _renderDmMessages());
+      return;
+    }
     if (_dmActiveThread && upd.thread_id === _dmActiveThread) {
       _loadDmMessages(_dmActiveThread);
       apiFetch("/api/dm/threads/" + _dmActiveThread + "/seen", {method: "POST"})

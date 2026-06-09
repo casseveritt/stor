@@ -964,22 +964,41 @@ def _member_names(db, group_id: str, own_node_id: str | None = None) -> dict:
 
 
 @router.get("/dm/threads")
-def list_threads(request: Request, _: InternalOrOwnerDep):
-    db = request.app.state.db
-    own_node_id = getattr(request.app.state, "node_id", None)
+async def list_threads(request: Request, _: InternalOrOwnerDep):
+    app = request.app
+    db = app.state.db
+    own_node_id = getattr(app.state, "node_id", None)
     rows = db.execute("""
         SELECT thread_id, peer_node_id, peer_url, peer_name, last_msg_at, unread_count,
                group_id, group_name, group_creator_id
         FROM dm_threads ORDER BY last_msg_at DESC
     """).fetchall()
-    return {"threads": [
-        {"thread_id": r[0], "peer_node_id": r[1], "peer_url": r[2],
-         "peer_name": r[3], "last_msg_at": r[4], "unread_count": r[5],
-         "group_id": r[6], "group_name": r[7], "group_creator_id": r[8],
-         "members": sorted(_group_roster(db, r[6])) if r[6] else None,
-         "member_names": _member_names(db, r[6], own_node_id) if r[6] else None}
-        for r in rows
-    ]}
+    threads = []
+    needs_fetch: list[tuple[str, list[str]]] = []
+    for r in rows:
+        roster = sorted(_group_roster(db, r[6])) if r[6] else None
+        names = _member_names(db, r[6], own_node_id) if r[6] else None
+        if roster and names:
+            unknown = [nid for nid in roster if not names.get(nid)]
+            if unknown:
+                needs_fetch.append((r[0], unknown))
+        threads.append({
+            "thread_id": r[0], "peer_node_id": r[1], "peer_url": r[2],
+            "peer_name": r[3], "last_msg_at": r[4], "unread_count": r[5],
+            "group_id": r[6], "group_name": r[7], "group_creator_id": r[8],
+            "members": roster, "member_names": names,
+        })
+    if needs_fetch:
+        all_unknown = list({nid for _, nids in needs_fetch for nid in nids})
+        thread_ids = [tid for tid, _ in needs_fetch]
+
+        async def _fetch_and_notify():
+            await _fetch_member_registry_records(app, db, all_unknown)
+            for tid in thread_ids:
+                _push_dm_update("member_names_resolved", {"thread_id": tid})
+
+        asyncio.create_task(_fetch_and_notify())
+    return {"threads": threads}
 
 
 @router.get("/dm/updates")

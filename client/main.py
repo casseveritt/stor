@@ -1675,14 +1675,8 @@ def create_app(config_path: str | Path) -> FastAPI:
             t["is_contact"] = contact is not None
             if contact and not t.get("peer_name"):
                 t["peer_name"] = _name_for(contact.node_id) if contact.node_id else contact.name
-            # Resolve member display names: prefer client contact/tag name,
-            # fall back to server-provided name (registry_cache etc.).
-            if t.get("members") is not None:
-                server_names = t.get("member_names") or {}
-                t["member_names"] = {
-                    nid: _name_for(nid) or server_names.get(nid)
-                    for nid in t["members"]
-                }
+            # member_names are resolved server-side from registry_cache;
+            # pass them through without overriding.
         return data
 
     class DmSendBody(BaseModel):
