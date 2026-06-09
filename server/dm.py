@@ -469,7 +469,10 @@ async def _creator_relay_chat_message(app, db, group_id: str, sender_id: str, te
     my_node_id = app.state.node_id
     direction = 'out' if sender_id == my_node_id else 'in'
 
-    self_key = _get_thread_key(app, thread_id, _peer_dh_pub(db, thread_id))
+    # Use self-DH key directly from app state — this is the correct at-rest key for
+    # the creator's copy regardless of what peer_dh_pub says in the DB (which can
+    # be corrupted by the 1:1 fallthrough path if a non-group-envelope message arrives).
+    self_key = derive_thread_key(app.state.dh_private_key, app.state.dh_public_key, thread_id)
     db.execute("""
         INSERT INTO dm_messages (id, thread_id, direction, body_enc, created_at, sender_node_id)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -811,6 +814,16 @@ async def dm_receive(body: ReceiveBody, request: Request, identity: FederatedOrT
         await _route_group_envelope(app, db, body, envelope, identity)
         return
 
+    # If this thread_id belongs to a known group, falling through to 1:1 storage
+    # would corrupt the group thread row's peer_dh_pub — drop the message instead.
+    if db.execute(
+        "SELECT 1 FROM dm_threads WHERE thread_id = ? AND group_id IS NOT NULL",
+        (body.thread_id,)
+    ).fetchone():
+        log.warning("dm_receive: unrecognized msg for group thread %s from %s — dropped",
+                    body.thread_id, body.sender_node_id)
+        return
+
     _upsert_thread(db, body.thread_id, body.sender_node_id, body.sender_url,
                    body.sender_name, body.sender_dh_pub)
     db.execute("""
@@ -952,16 +965,22 @@ def get_messages(thread_id: str, request: Request, _: InternalOrOwnerDep, since:
     db = request.app.state.db
     app = request.app
     thread = db.execute(
-        "SELECT peer_dh_pub FROM dm_threads WHERE thread_id = ?", (thread_id,)
+        "SELECT peer_dh_pub, group_creator_id FROM dm_threads WHERE thread_id = ?", (thread_id,)
     ).fetchone()
     if not thread:
         raise HTTPException(404, "Thread not found")
 
-    peer_dh_pub = thread[0]
+    peer_dh_pub, group_creator_id = thread
     if not peer_dh_pub:
         raise HTTPException(400, "No DH key for peer — cannot decrypt")
 
-    thread_key = _get_thread_key(app, thread_id, peer_dh_pub)
+    # Creator's at-rest key is the self-DH key derived from this node's own keys —
+    # use app state directly so peer_dh_pub DB corruption doesn't break decryption.
+    my_node_id = getattr(app.state, "node_id", None)
+    if group_creator_id and group_creator_id == my_node_id:
+        thread_key = derive_thread_key(app.state.dh_private_key, app.state.dh_public_key, thread_id)
+    else:
+        thread_key = _get_thread_key(app, thread_id, peer_dh_pub)
 
     rows = db.execute("""
         SELECT id, direction, body_enc, created_at, delivered_at, seen_at, sender_node_id
