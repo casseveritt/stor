@@ -72,12 +72,7 @@ def create_app(config_path: str | Path) -> FastAPI:
     tokens: dict[str, str] = load_tokens(config_path)
 
     # Load private key now so we can derive the client DB encryption key.
-    passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
-    if not passphrase and os.environ.get("CONTACC_DEV"):
-        passphrase = "foobar"
-    _private_key = _load_private_key(config.node_key, passphrase) if config.node_key and passphrase else None
-    if config.node_key and not _private_key:
-        log.warning("Node key present but passphrase unavailable — client DB will not persist tags")
+    _private_key = None
 
     # Derive client DB key from private key (same HKDF pattern as the post-cache key).
     # Falls back to an in-memory DB during the pre-setup phase when no node key exists yet.
@@ -1815,9 +1810,6 @@ def create_app(config_path: str | Path) -> FastAPI:
             config.internal_token = data.get("internal_token")
             config.own_node_id = data.get("node_id")
             config.save(config_path)
-            passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
-            if passphrase:
-                app.state.private_key = _load_private_key(config.node_key, passphrase)
             return JSONResponse({"status": data.get("status"), "node_address": data.get("node_address")},
                                 status_code=r.status_code)
         return JSONResponse(content=data, status_code=r.status_code)
@@ -1836,9 +1828,6 @@ def create_app(config_path: str | Path) -> FastAPI:
             config.internal_token = data.get("internal_token")
             config.own_node_id = data.get("node_id")
             config.save(config_path)
-            passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
-            if passphrase:
-                app.state.private_key = _load_private_key(config.node_key, passphrase)
             return JSONResponse({"status": data.get("status")}, status_code=r.status_code)
         return JSONResponse(content=data, status_code=r.status_code)
 
@@ -1876,9 +1865,6 @@ def create_app(config_path: str | Path) -> FastAPI:
             config.node_key = NodeKey(**resp["node_key"])
             config.internal_token = resp.get("internal_token")
             config.save(config_path)
-            passphrase_env = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
-            if passphrase_env:
-                app.state.private_key = _load_private_key(config.node_key, passphrase_env)
         return JSONResponse(content={"status": resp.get("status")}, status_code=r.status_code)
 
     # ── auth callback (no client auth required) ──────────────────────────

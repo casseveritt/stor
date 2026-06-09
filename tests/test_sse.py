@@ -260,16 +260,8 @@ def server_live(tmp_path):
     # Capture the server's event loop so tests can inject events thread-safely.
     _loop_holder: list[asyncio.AbstractEventLoop] = [None]
 
-    old_pp = os.environ.get("CONTACC_PASSPHRASE_UNSECURE")
-    os.environ["CONTACC_PASSPHRASE_UNSECURE"] = TEST_PASSPHRASE
-    try:
-        from server.main import create_app
-        app = create_app(cfg_path)
-    finally:
-        if old_pp is None:
-            os.environ.pop("CONTACC_PASSPHRASE_UNSECURE", None)
-        else:
-            os.environ["CONTACC_PASSPHRASE_UNSECURE"] = old_pp
+    from server.main import create_app
+    app = create_app(cfg_path, TEST_PASSPHRASE)
 
     @app.on_event("startup")
     async def _grab_loop():

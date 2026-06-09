@@ -28,7 +28,6 @@ services:
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28443"
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
       CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6443
     volumes:
@@ -42,7 +41,6 @@ services:
       CONTACC_THEM_PORT: "18443"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
       CONTACC_SERVER_URL: http://node-0-me:28443
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE:-}
     volumes:
       - ${CONTACC_DATA_DIR}/node-0-them:/data
     depends_on: [node-0-me]
@@ -63,7 +61,6 @@ services:
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28444"
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8444
       CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6444
     volumes:
@@ -77,7 +74,6 @@ services:
       CONTACC_THEM_PORT: "18444"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8444
       CONTACC_SERVER_URL: http://node-1-me:28444
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE:-}
     volumes:
       - ${CONTACC_DATA_DIR}/node-1-them:/data
     depends_on: [node-1-me]
@@ -98,7 +94,6 @@ services:
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28445"
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_2:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8445
       CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6445
     volumes:
@@ -113,7 +108,6 @@ services:
       CONTACC_THEM_PORT: "18445"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8445
       CONTACC_SERVER_URL: http://node-2-me:28445
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_2:-}
     volumes:
       - ${CONTACC_DATA_DIR}/node-2-them:/data
     depends_on: [node-2-me]
@@ -135,7 +129,6 @@ services:
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28446"
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_3:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8446
       CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6446
     volumes:
@@ -150,7 +143,6 @@ services:
       CONTACC_THEM_PORT: "18446"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8446
       CONTACC_SERVER_URL: http://node-3-me:28446
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_3:-}
     volumes:
       - ${CONTACC_DATA_DIR}/node-3-them:/data
     depends_on: [node-3-me]
@@ -172,7 +164,6 @@ services:
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28447"
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_4:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8447
       CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6447
     volumes:
@@ -187,7 +178,6 @@ services:
       CONTACC_THEM_PORT: "18447"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8447
       CONTACC_SERVER_URL: http://node-4-me:28447
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_4:-}
     volumes:
       - ${CONTACC_DATA_DIR}/node-4-them:/data
     depends_on: [node-4-me]
@@ -209,7 +199,6 @@ services:
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28448"
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_5:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8448
       CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6448
     volumes:
@@ -224,7 +213,6 @@ services:
       CONTACC_THEM_PORT: "18448"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8448
       CONTACC_SERVER_URL: http://node-5-me:28448
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_5:-}
     volumes:
       - ${CONTACC_DATA_DIR}/node-5-them:/data
     depends_on: [node-5-me]
@@ -246,7 +234,6 @@ services:
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28449"
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_6:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8449
       CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6449
     volumes:
@@ -261,7 +248,6 @@ services:
       CONTACC_THEM_PORT: "18449"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8449
       CONTACC_SERVER_URL: http://node-6-me:28449
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_6:-}
     volumes:
       - ${CONTACC_DATA_DIR}/node-6-them:/data
     depends_on: [node-6-me]
@@ -283,7 +269,6 @@ services:
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28450"
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_7:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8450
       CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6450
     volumes:
@@ -298,7 +283,6 @@ services:
       CONTACC_THEM_PORT: "18450"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8450
       CONTACC_SERVER_URL: http://node-7-me:28450
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_7:-}
     volumes:
       - ${CONTACC_DATA_DIR}/node-7-them:/data
     depends_on: [node-7-me]
@@ -320,7 +304,6 @@ services:
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28451"
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_8:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8451
       CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6451
     volumes:
@@ -335,7 +318,6 @@ services:
       CONTACC_THEM_PORT: "18451"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8451
       CONTACC_SERVER_URL: http://node-8-me:28451
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_8:-}
     volumes:
       - ${CONTACC_DATA_DIR}/node-8-them:/data
     depends_on: [node-8-me]
@@ -357,7 +339,6 @@ services:
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28452"
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_9:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8452
       CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6452
     volumes:
@@ -372,7 +353,6 @@ services:
       CONTACC_THEM_PORT: "18452"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8452
       CONTACC_SERVER_URL: http://node-9-me:28452
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_9:-}
     volumes:
       - ${CONTACC_DATA_DIR}/node-9-them:/data
     depends_on: [node-9-me]
@@ -394,7 +374,6 @@ services:
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28453"
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_10:-}
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8453
       CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6453
     volumes:
@@ -409,7 +388,6 @@ services:
       CONTACC_THEM_PORT: "18453"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8453
       CONTACC_SERVER_URL: http://node-10-me:28453
-      CONTACC_PASSPHRASE_UNSECURE: ${CONTACC_PASSPHRASE_UNSECURE_10:-}
     volumes:
       - ${CONTACC_DATA_DIR}/node-10-them:/data
     depends_on: [node-10-me]

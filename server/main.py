@@ -368,7 +368,7 @@ def _retry_undelivered_dms(app) -> None:
         log.debug("DM retry error: %s", e)
 
 
-def create_app(config_path: str | Path) -> FastAPI:
+def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
     config_path = Path(config_path)
 
     app = FastAPI(title="contacc node")
@@ -604,10 +604,6 @@ def create_app(config_path: str | Path) -> FastAPI:
                     return JSONResponse({"detail": "Unauthorized"}, status_code=403)
         return await call_next(request)
 
-    # Try to initialize immediately if we have everything we need
-    passphrase = os.environ.get("CONTACC_PASSPHRASE_UNSECURE", "")
-    if not passphrase and os.environ.get("CONTACC_DEV"):
-        passphrase = "foobar"
     if config_path.exists() and passphrase:
         try:
             _initialize(app, config_path, passphrase)
@@ -642,7 +638,7 @@ def main() -> None:
 
     if args.print_token:
         if not app.state.initialized:
-            log.error("--print-token requires the server to be initialized (set CONTACC_PASSPHRASE_UNSECURE)")
+            log.error("--print-token requires the server to be initialized (Tang unlock must complete first)")
             sys.exit(1)
         token = auth_module.issue_token(ttl_seconds=86400 * 30)
         print(f"Owner token: {token}", flush=True)
