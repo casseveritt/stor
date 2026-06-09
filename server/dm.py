@@ -1288,6 +1288,43 @@ async def api_leave_group(group_id: str, request: Request, _: InternalOrOwnerDep
     await leave_group(request.app, request.app.state.db, group_id)
 
 
+@router.delete("/dm/groups/{group_id}", status_code=204)
+async def api_delete_group(group_id: str, request: Request, _: InternalOrOwnerDep):
+    """Creator-only: permanently delete a group and all its messages from this node.
+    Sends a final empty-roster group_state to inform members before deleting locally."""
+    app = request.app
+    db = app.state.db
+    row = db.execute(
+        "SELECT thread_id, group_creator_id FROM dm_threads WHERE group_id = ?", (group_id,)
+    ).fetchone()
+    if not row:
+        raise HTTPException(404, "Group not found")
+    thread_id, creator_id = row
+    if creator_id != app.state.node_id:
+        raise HTTPException(403, "Only the group's creator can delete it")
+    roster = _group_roster(db, group_id)
+    group_name = db.execute("SELECT group_name FROM dm_threads WHERE group_id = ?", (group_id,)).fetchone()
+    group_name = group_name[0] if group_name else ""
+    # Notify all members with an empty roster so their node knows the group is gone.
+    dissolve_env = json.dumps({
+        "type": GROUP_STATE, "group_id": group_id,
+        "group_name": group_name, "members": [],
+    })
+    for member_id in roster:
+        if member_id == app.state.node_id:
+            continue
+        info = await _resolve_member(app, db, member_id)
+        if info:
+            try:
+                await _push_envelope(app, info, thread_id, dissolve_env)
+            except Exception:
+                pass
+    db.execute("DELETE FROM group_members WHERE group_id = ?", (group_id,))
+    db.execute("DELETE FROM dm_messages WHERE thread_id = ?", (thread_id,))
+    db.execute("DELETE FROM dm_threads WHERE thread_id = ?", (thread_id,))
+    db.commit()
+
+
 @router.post("/dm/groups/{group_id}/purge", status_code=204)
 async def api_purge_stillborn_group(group_id: str, request: Request, _: InternalOrOwnerDep):
     """Clean-up valve for groups whose founding broadcast never went out —
