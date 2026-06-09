@@ -485,25 +485,7 @@ async def _creator_relay_chat_message(app, db, group_id: str, sender_id: str, te
     db.commit()
     _push_dm_update("new_message", {"thread_id": thread_id, "message_id": msg_id})
 
-    # Include sender display name so receiving member nodes can cache it without
-    # needing their own registry lookup.
-    sender_name = None
-    row = db.execute("SELECT name FROM users WHERE node_id = ?", (sender_id,)).fetchone()
-    if row and row[0]:
-        sender_name = row[0]
-    else:
-        rc = db.execute("SELECT record FROM registry_cache WHERE node_id = ?", (sender_id,)).fetchone()
-        if rc:
-            try:
-                rec = json.loads(rc[0])
-                sender_name = rec.get("display_name") or rec.get("handle")
-            except Exception:
-                pass
-    relay_payload: dict = {"type": CHAT_MESSAGE, "group_id": group_id,
-                           "sender_node_id": sender_id, "body": text}
-    if sender_name:
-        relay_payload["sender_name"] = sender_name
-    relay = json.dumps(relay_payload)
+    relay = json.dumps({"type": CHAT_MESSAGE, "group_id": group_id, "sender_node_id": sender_id, "body": text})
     for node_id in _group_roster(db, group_id):
         if node_id in (my_node_id, sender_id):
             continue
@@ -569,6 +551,15 @@ async def _creator_handle_membership_request(app, db, body: "ReceiveBody", envel
 # chat_message, sending, and asking to join/leave all reduce to the ordinary
 # 1:1 send/receive primitives plus envelope wrapping/unwrapping.
 
+async def _fetch_member_registry_records(app, db, node_ids: list[str]) -> None:
+    """Background task: fetch and cache registry records for group members we don't know."""
+    for nid in node_ids:
+        try:
+            await resolve_node(app, db, nid)  # populates registry_cache as a side effect
+        except Exception:
+            pass
+
+
 async def _member_handle_group_state(app, db, body: "ReceiveBody", envelope: dict) -> None:
     """Apply a creator-issued roster/name update. The very first one IS our
     welcome — exactly like a 1:1 thread bootstraps from its first inbound
@@ -611,6 +602,18 @@ async def _member_handle_group_state(app, db, body: "ReceiveBody", envelope: dic
     db.commit()
     _push_dm_update("group_state", {"thread_id": thread_id, "group_id": group_id})
 
+    # Populate registry_cache for any group member we don't already know about,
+    # so _member_names can resolve display names without waiting for a message.
+    my_node_id = app.state.node_id
+    unknown = [
+        nid for nid in members
+        if nid != my_node_id
+        and not db.execute("SELECT 1 FROM users WHERE node_id = ?", (nid,)).fetchone()
+        and not db.execute("SELECT 1 FROM registry_cache WHERE node_id = ?", (nid,)).fetchone()
+    ]
+    if unknown:
+        asyncio.create_task(_fetch_member_registry_records(app, db, unknown))
+
 
 async def _member_handle_chat_message(app, db, body: "ReceiveBody", envelope: dict) -> None:
     """Store a creator-relayed group message, attributed to its original
@@ -627,24 +630,11 @@ async def _member_handle_chat_message(app, db, body: "ReceiveBody", envelope: di
     group_id = envelope["group_id"]
     text = envelope.get("body", "")
     author_id = envelope.get("sender_node_id") or body.sender_node_id
-    author_name = envelope.get("sender_name")
 
     row = db.execute("SELECT thread_id, group_creator_id FROM dm_threads WHERE group_id = ?", (group_id,)).fetchone()
     if not row or body.sender_node_id != row[1]:
         return  # unknown group, or relay not from the creator we trust — ignore
     thread_id, _creator_id = row
-
-    # Cache the sender's display name so _member_names can resolve it locally.
-    if author_id and author_name and author_id != app.state.node_id:
-        existing = db.execute("SELECT node_id FROM registry_cache WHERE node_id = ?", (author_id,)).fetchone()
-        if not existing:
-            try:
-                db.execute(
-                    "INSERT OR IGNORE INTO registry_cache (node_id, record, fetched_at) VALUES (?, ?, ?)",
-                    (author_id, json.dumps({"display_name": author_name}), 0)
-                )
-            except Exception:
-                pass
 
     thread_key = _get_thread_key(app, thread_id, _peer_dh_pub(db, thread_id))
     db.execute("""
