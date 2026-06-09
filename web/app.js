@@ -1976,22 +1976,12 @@ async function submitReply(e, parentPostId, parentServerUrl, visibility) {
   fd.append('parent_id', parentPostId);
   if (parentNodeId) fd.append('parent_node_id', parentNodeId);
 
+  const postUrl = '/api/posts' + (notifyCheck?.checked ? '?notify_parent=1' : '');
   try {
-    const r = await apiFetch('/api/posts', {method: 'POST', body: fd});
+    const r = await apiFetch(postUrl, {method: 'POST', body: fd});
     if (r.ok) {
       const reply = await r.json();
       ta.value = '';
-
-      if (notifyCheck?.checked) {
-        const notifyUrl = '/api/posts/' + encodeURIComponent(parentPostId) + '/notify-reply'
-          + (parentServerUrl && parentServerUrl !== CFG?.own_server
-              ? '?server=' + encodeURIComponent(parentServerUrl) : '');
-        apiFetch(notifyUrl, {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({reply_post_id: reply.id, reply_node_id: CFG?.own_node_id || ''}),
-        }).catch(() => {});
-      }
 
       const list = panel.querySelector('.reply-list');
       if (list) {

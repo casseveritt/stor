@@ -874,8 +874,33 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     # ── posts ─────────────────────────────────────────────────────────────
 
+    async def _send_reply_notification(parent_post_id: str, parent_node_id: str, reply_post_id: str):
+        if not parent_node_id or parent_node_id == config.own_node_id:
+            return  # local replies are already queryable; no need to notify own node
+        parent_server = next((c.url for c in config.contacts if c.node_id == parent_node_id), None)
+        if not parent_server:
+            return
+        try:
+            body_bytes = json.dumps({
+                "reply_post_id": reply_post_id,
+                "reply_node_id": config.own_node_id or "",
+            }).encode()
+            path = f"/posts/{parent_post_id}/notify-reply"
+            sign_hdrs = await _sign_federated("POST", path, body_bytes)
+            async with httpx.AsyncClient() as hc:
+                await hc.post(
+                    parent_server.rstrip("/") + path,
+                    content=body_bytes,
+                    headers={"Content-Type": "application/json",
+                             "X-Origin-Server": config.own_server,
+                             **sign_hdrs},
+                    timeout=10.0,
+                )
+        except Exception:
+            pass
+
     @api.post("/posts")
-    async def api_create_post(request: Request):
+    async def api_create_post(request: Request, notify_parent: bool = False):
         if not _token(config.own_server):
             raise HTTPException(status_code=401, detail="Not authenticated")
         body = await request.body()
@@ -894,6 +919,10 @@ def create_app(config_path: str | Path) -> FastAPI:
         post["_server_name"] = "me"
         own_poll_id = config.own_node_id or hashlib.sha256(config.own_server.encode()).hexdigest()[:16]
         asyncio.create_task(_background_fetch_one(config.own_server, own_poll_id))
+        if notify_parent and post.get("parent_id") and post.get("parent_node_id"):
+            asyncio.create_task(
+                _send_reply_notification(post["parent_id"], post["parent_node_id"], post["id"])
+            )
         return post
 
     @api.get("/posts/{post_id}")
@@ -1007,24 +1036,6 @@ def create_app(config_path: str | Path) -> FastAPI:
         if not r.is_success:
             raise HTTPException(status_code=r.status_code, detail=r.text)
         return r.json()
-
-    @api.post("/posts/{post_id}/notify-reply", status_code=204)
-    async def api_notify_reply(post_id: str, request: Request, server: str = ""):
-        """Send a reply notification to the parent post's server."""
-        parent_server = server or config.own_server
-        body_bytes = await request.body()
-        path = f"/posts/{post_id}/notify-reply"
-        hdrs = {
-            **_headers(parent_server),
-            "Content-Type": "application/json",
-            "X-Origin-Server": config.own_server,
-            **await _sign_federated("POST", path, body_bytes),
-        }
-        async with httpx.AsyncClient() as hc:
-            r = await hc.post(_call_url(parent_server) + path, content=body_bytes,
-                              headers=hdrs, timeout=10.0)
-        if not r.is_success:
-            raise HTTPException(status_code=r.status_code, detail=r.text)
 
     # ── assets ────────────────────────────────────────────────────────────
 
