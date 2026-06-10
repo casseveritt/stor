@@ -1612,6 +1612,7 @@ function makePostCard(post, idx) {
   toggle.innerHTML = '<span style="display:inline-flex;align-items:center;gap:0.35rem"><span class="comments-toggle-arrow">▶</span><span class="comments-toggle-label">'
     + count + ' comment' + (count !== 1 ? 's' : '') + '</span></span>' + commentIconHtml;
   toggle.onclick = () => _toggleComments(post, div);
+  toggle.hidden = (count === 0);
   div.appendChild(toggle);
 
   const panel = document.createElement("div");
@@ -1878,9 +1879,10 @@ function _applyFreshPosts(freshPosts) {
     if (post) { post.comment_count = updated.comment_count; post.reactions = updated.reactions; post.body = updated.body; }
     const panel = card.querySelector('.comments-panel');
     const toggle = card.querySelector('.comments-toggle');
-    if (panel?.hidden && toggle) {
+    if (toggle) {
       const count = updated.comment_count || 0;
       toggle.querySelector('.comments-toggle-label').textContent = count + ' comment' + (count !== 1 ? 's' : '');
+      toggle.hidden = (count === 0);
     }
     if (updated.reactions) {
       const serverUrl = post?._server_url || CFG.own_server;
@@ -2161,30 +2163,14 @@ async function _loadCommentsIntoPanel(post, panel) {
   if (!panel.isConnected || panel.hidden) return;
   if (!r.ok) { panel.innerHTML = ""; return; }
   const data = await r.json();
-  // Read draft state just before rebuilding — captures any typing done during the fetch
-  const existingInput = panel.querySelector('.comment-input[data-post-id="' + post.id + '"]');
-  const savedDraft = existingInput ? existingInput.value : "";
-  const hadFocus = existingInput && document.activeElement === existingInput;
-  const savedSelStart = existingInput ? existingInput.selectionStart : 0;
-  const savedSelEnd = existingInput ? existingInput.selectionEnd : 0;
   _renderCommentsInto(post, data.comments, panel);
-  // Restore draft, focus, and cursor position
-  if (savedDraft || hadFocus) {
-    const newInput = panel.querySelector('.comment-input[data-post-id="' + post.id + '"]');
-    if (newInput) {
-      if (savedDraft) newInput.value = savedDraft;
-      if (hadFocus) {
-        newInput.focus();
-        newInput.setSelectionRange(savedSelStart, savedSelEnd);
-      }
-    }
-  }
   // update toggle label with live count
   const toggle = panel.previousElementSibling;
   if (toggle?.classList.contains('comments-toggle')) {
     const live = data.comments.filter(c => !c.deleted).length;
     post.comment_count = live;
     toggle.querySelector('.comments-toggle-label').textContent = live + ' comment' + (live !== 1 ? 's' : '');
+    toggle.hidden = (live === 0);
   }
 }
 
@@ -2225,31 +2211,6 @@ function _renderCommentsInto(post, comments, panel) {
     : '<p style="color:var(--text-5);font-size:0.82rem;margin:0.5rem 0">No comments.</p>';
 }
 
-async function submitComment(postId, serverUrl) {
-  const input = document.querySelector('.comment-input[data-post-id="' + postId + '"]');
-  const body = input ? _expandMentions(input.value.trim()) : "";
-  if (!body) return;
-  const savedText = input ? input.value : "";
-  const btn = document.querySelector('.comment-submit[data-post-id="' + postId + '"]');
-  if (btn) { btn.disabled = true; btn.textContent = "Posting…"; }
-  const params = serverUrl !== CFG.own_server ? "?server=" + encodeURIComponent(serverUrl) : "";
-  const r = await apiFetch("/api/posts/" + postId + "/comments" + params, {
-    method: "POST",
-    headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({body}),
-  });
-  if (btn) { btn.disabled = false; btn.textContent = "Post"; }
-  if (r.ok) {
-    if (input) input.value = "";
-    const post = _openPanels.get(postId);
-    const panel = document.querySelector(`.comments-panel[data-post-id="${postId}"]`);
-    if (post && panel) _loadCommentsIntoPanel(post, panel);
-  } else {
-    if (input) input.value = savedText;
-    const errEl = document.querySelector('.comment-error[data-post-id="' + postId + '"]');
-    if (errEl) errEl.textContent = r.status === 403 ? "Access denied." : "Failed to post comment.";
-  }
-}
 
 // ── @mention autocomplete ──────────────────────────────────────────────────
 let _mentionState = null;
@@ -2273,7 +2234,7 @@ document.addEventListener('keydown', e => {
     e.preventDefault();
     const postId = e.target.dataset.postId;
     const post = allPosts.find(p => p.id === postId);
-    submitComment(postId, post?._server_url || CFG.own_server);
+    submitReply(e, postId, post?._server_url || CFG.own_server, post?.visibility || 'contacts');
     return;
   }
   onComposeKeydown(e);

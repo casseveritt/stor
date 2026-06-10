@@ -1,7 +1,9 @@
 """Identity-mapping, token, and access management endpoints (owner only)."""
 import base64
+import hashlib
 import io
 import json
+import secrets
 import time
 import zipfile
 
@@ -9,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from .auth import OwnerDep, revoke_token
+from .auth import OwnerDep, FederatedOrTokenDep, revoke_token
 from .comments import approve_edit, reject_edit
 from .db import NS, now_ns
 
@@ -515,3 +517,180 @@ def download_backup(request: Request, identity: OwnerDep):
         media_type="application/zip",
         headers={"Content-Disposition": "attachment; filename=contacc-backup.zip"},
     )
+
+
+# ── comment → reply-post migration ───────────────────────────────────────────
+
+def _make_reply_post(db, node_id: str, body: str, created_at: int,
+                     parent_id: str, parent_node_id: str) -> str:
+    """Insert a reply post preserving created_at; return the new post_id."""
+    parent_row = db.execute(
+        "SELECT visibility, visibility_list_id, is_public, comment_access FROM posts WHERE id = ?",
+        (parent_id,),
+    ).fetchone()
+    visibility = parent_row[0] if parent_row else "contacts"
+    visibility_list_id = parent_row[1] if parent_row else None
+    is_public = parent_row[2] if parent_row else 0
+    comment_access = parent_row[3] if parent_row else "contacts"
+
+    nonce = secrets.token_hex(16)
+    post_id = hashlib.sha256(
+        f"{node_id}\n{body}\n{created_at}\n{nonce}\n{parent_id}\n0".encode()
+    ).hexdigest()
+    db.execute(
+        "INSERT INTO posts"
+        " (id, body, created_at, tags, is_public, deleted, post_type, visibility,"
+        "  comment_access, nonce, parent_id, parent_node_id, supersedes, visibility_list_id)"
+        " VALUES (?, ?, ?, '[]', ?, 0, 'post', ?, ?, ?, ?, ?, NULL, ?)",
+        (post_id, body, created_at, is_public, visibility, comment_access,
+         nonce, parent_id, parent_node_id, visibility_list_id),
+    )
+    return post_id
+
+
+@router.post("/admin/migrate-comments")
+async def migrate_comments(request: Request, identity: OwnerDep):
+    """Convert all comments on this node's posts to reply posts.
+
+    Owner comments are converted locally.  Comments from remote nodes are
+    forwarded to those nodes via POST /admin/ingest-comment-migration so they
+    can create the reply posts on their own nodes.
+    """
+    import httpx
+    from .auth import sign_federated_request
+
+    db = request.app.state.db
+    node_id = getattr(request.app.state, "node_id", "") or ""
+    node_address = getattr(request.app.state, "node_address", "") or ""
+    priv = getattr(request.app.state, "private_key", None)
+
+    rows = db.execute(
+        "SELECT id, post_id, parent_id, author_node_id, body, created_at"
+        " FROM comments WHERE deleted = 0 AND post_id IS NOT NULL"
+        " ORDER BY created_at ASC"
+    ).fetchall()
+
+    if not rows:
+        return {"owner_converted": 0, "remote_sent": {}, "errors": []}
+
+    owner_converted = 0
+    remote_groups: dict[str, list] = {}  # author_node_id → list of comment dicts
+    errors: list[str] = []
+    comment_to_post: dict[str, str] = {}  # comment_id → new post_id (for nested chains)
+
+    for comment_id, post_id, parent_comment_id, author_node_id, body, created_at in rows:
+        if not author_node_id:
+            # Owner comment — convert directly on this node.
+            parent_post_id = comment_to_post.get(parent_comment_id, post_id) if parent_comment_id else post_id
+            if not db.execute("SELECT 1 FROM posts WHERE id = ?", (parent_post_id,)).fetchone():
+                errors.append(f"comment {comment_id}: parent post {parent_post_id} not found")
+                continue
+            new_post_id = _make_reply_post(db, node_id, body, created_at, parent_post_id, node_id)
+            comment_to_post[comment_id] = new_post_id
+            owner_converted += 1
+        else:
+            parent_post_id = comment_to_post.get(parent_comment_id, post_id) if parent_comment_id else post_id
+            remote_groups.setdefault(author_node_id, []).append({
+                "id": comment_id,
+                "body": body,
+                "created_at": created_at,
+                "host_post_id": parent_post_id,
+                "host_node_id": node_id,
+                "host_url": node_address,
+            })
+
+    db.commit()
+
+    # Forward remote-node comments to those nodes.
+    remote_sent: dict[str, int] = {}
+    for author_node_id, comment_list in remote_groups.items():
+        url_row = db.execute("SELECT server_url FROM users WHERE node_id = ?", (author_node_id,)).fetchone()
+        if not url_row:
+            errors.append(f"no server_url for node {author_node_id}")
+            continue
+        target_url = url_row[0].rstrip("/") + "/admin/ingest-comment-migration"
+        body_bytes = json.dumps({"comments": comment_list}).encode()
+        headers = {"Content-Type": "application/json"}
+        if priv:
+            headers.update(sign_federated_request(priv, "POST", "/admin/ingest-comment-migration", body_bytes))
+            headers["X-Origin-Server"] = node_address
+        try:
+            r = httpx.post(target_url, content=body_bytes, headers=headers, timeout=15)
+            if r.is_success:
+                remote_sent[url_row[0]] = len(comment_list)
+            else:
+                errors.append(f"{url_row[0]}: HTTP {r.status_code}")
+        except Exception as exc:
+            errors.append(f"{url_row[0]}: {exc}")
+
+    # Delete all comments now that owner ones are converted and remote ones forwarded.
+    db.execute("DELETE FROM comments")
+    db.execute("DELETE FROM comment_edit_requests")
+    db.commit()
+
+    return {"owner_converted": owner_converted, "remote_sent": remote_sent, "errors": errors}
+
+
+class _IngestCommentMigration(BaseModel):
+    comments: list[dict]
+
+
+@router.post("/admin/ingest-comment-migration", status_code=200)
+async def ingest_comment_migration(
+    payload: _IngestCommentMigration,
+    request: Request,
+    identity: FederatedOrTokenDep,
+):
+    """Accept comment-migration requests from a host node.
+
+    Creates a local reply post for each supplied comment and notifies the host
+    via the existing notify-reply mechanism.  Caller must be a known node or
+    the local owner.
+    """
+    from .posts import _notify_parent_of_reply
+
+    if not identity.is_owner and not identity.node_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+    db = request.app.state.db
+    node_id = getattr(request.app.state, "node_id", "") or ""
+    app = request.app
+
+    created: dict[str, str] = {}
+    errors: list[str] = []
+
+    for c in payload.comments:
+        comment_id = c.get("id", "")
+        body = c.get("body", "")
+        created_at = c.get("created_at") or now_ns()
+        host_post_id = c.get("host_post_id", "")
+        host_node_id = c.get("host_node_id", "")
+        host_url = c.get("host_url", "")
+
+        if not body or not host_post_id:
+            errors.append(f"comment {comment_id}: missing body or host_post_id")
+            continue
+
+        # For local posts referenced as parent, check existence; for remote posts, skip the check.
+        parent_exists = db.execute("SELECT 1 FROM posts WHERE id = ?", (host_post_id,)).fetchone()
+        if not parent_exists:
+            # Insert a stub so _make_reply_post can inherit visibility defaults.
+            # The real post lives on the host node; we just need the parent_id linkage.
+            pass  # _make_reply_post will use fallback defaults when parent not found
+
+        new_post_id = _make_reply_post(db, node_id, body, created_at, host_post_id, host_node_id or node_id)
+        db.commit()
+
+        created[comment_id] = new_post_id
+
+        # Register the host in users if we have its URL, then notify.
+        if host_url and host_node_id:
+            db.execute(
+                "INSERT OR IGNORE INTO users (server_url, name, handle, public_key, node_id, relationship)"
+                " VALUES (?, ?, ?, '', ?, 'external')",
+                (host_url, host_url, host_url, host_node_id),
+            )
+            db.commit()
+            _notify_parent_of_reply(host_node_id, host_post_id, node_id, new_post_id, app)
+
+    return {"created": created, "errors": errors}
