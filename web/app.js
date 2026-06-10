@@ -1339,7 +1339,10 @@ function reactionBarHtml(reactions, postId, serverUrl, commentId) {
 }
 
 function _openReplyFromBar(postId) {
-  const card = document.querySelector(`.post-card[data-post-id="${CSS.escape(postId)}"]`);
+  const esc = CSS.escape(postId);
+  const overlay = document.getElementById('detail-overlay');
+  let card = (!overlay?.hidden && overlay?.querySelector(`.post-card[data-post-id="${esc}"]`)) || null;
+  if (!card) card = document.querySelector(`.post-card[data-post-id="${esc}"]`);
   if (!card) return;
   const post = allPosts.find(p => p.id === postId) || {
     id: postId,
@@ -2117,6 +2120,7 @@ function openReplyCompose(post, cardEl) {
     + `</div>`;
 
   panel.hidden = false;
+  panel.scrollIntoView({block: 'nearest', behavior: 'smooth'});
   document.getElementById(taId)?.focus();
 }
 
