@@ -996,7 +996,6 @@ async function resetFeed(allowLoginRedirect = false) {
   document.getElementById("timeline").innerHTML = "";
   document.getElementById("empty-msg").hidden = true;
   document.getElementById("feed-status").textContent = "";
-  document.getElementById("new-posts-banner").hidden = true;
   return await loadMore(allowLoginRedirect);
 }
 
@@ -1919,13 +1918,12 @@ function _applyFreshPosts(freshPosts) {
     if (post) card.classList.toggle('post-cached', _isPostCached(post));
   });
 
-  for (const p of freshPosts) { if (p.created_at > newestTs) newCount++; }
   if (freshPosts.length > 0) _newestKnownAt = Math.max(_newestKnownAt, freshPosts[0].created_at || 0);
-  if (newCount > 0) {
-    const banner = document.getElementById('new-posts-banner');
-    banner.textContent = 'New posts available — click to refresh';
-    banner.hidden = false;
-  }
+  const existingIds = new Set(allPosts.map(p => p.id));
+  const newPosts = freshPosts
+    .filter(p => p.created_at > newestTs && !existingIds.has(p.id))
+    .sort((a, b) => (a.created_at || 0) - (b.created_at || 0));
+  for (const p of newPosts) prependPost(p);
 }
 
 // Merge fresh posts from one server into the global cache on disk.
@@ -1969,10 +1967,6 @@ async function _runBgFetch() {
   }));
 }
 
-function refreshFeed() {
-  document.getElementById('new-posts-banner').hidden = true;
-  resetFeed();
-}
 
 // ── inline comments toggle ─────────────────────────────────────────────────
 function _toggleComments(post, cardEl) {
@@ -2596,13 +2590,10 @@ async function submitInlinePost() {
   const r = await apiFetch("/api/posts", {method: "POST", body: fd});
   if (btn) { btn.disabled = false; btn.textContent = "Post"; }
   if (r.ok) {
+    const post = await r.json();
     ta.value = "";
     ta.style.height = "auto";
-    // Show a brief confirmation rather than resetting the whole feed
-    const banner = document.getElementById("new-posts-banner");
-    banner.textContent = "✓ Posted — tap to refresh";
-    banner.hidden = false;
-    _newestKnownAt = Date.now() * 1_000_000; // mark feed as stale
+    prependPost(post);
   } else {
     ta.value = savedText;
     const err = document.getElementById("feed-status");
