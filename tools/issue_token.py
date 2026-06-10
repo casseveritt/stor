@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from server.config import NodeConfig
 from server.crypto import derive_master_key, derive_subkeys, decrypt_bytes
-from server.auth import setup as auth_setup, issue_token, issue_recipient_token
+from server.auth import setup as auth_setup, issue_token, issue_node_token
 from server.db import open_db
 
 
@@ -77,7 +77,7 @@ def main() -> None:
     else:
         recipient_id = row[0]
 
-    token = issue_recipient_token(db, recipient_id, ttl_seconds=args.ttl)
+    token = issue_node_token(db, recipient_id, ttl_seconds=args.ttl)
     print(token)
     db.close()
 

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from server.auth import issue_token, issue_recipient_token, setup as auth_setup
+from server.auth import issue_token, issue_node_token, setup as auth_setup
 from server.crypto import derive_master_key, decrypt_bytes
 from tests.conftest import TEST_PASSPHRASE, TEST_SALT, TEST_ARGON2
 
@@ -69,7 +69,7 @@ def p12_world(client, owner_token):
     )
     recipient_id = r.json()["id"]
     db = client.app.state.db
-    token = issue_recipient_token(db, recipient_id, ttl_seconds=3600)
+    token = issue_node_token(db, recipient_id, ttl_seconds=3600)
     return {"recipient_id": recipient_id, "token": token}
 
 

@@ -1320,7 +1320,19 @@ function reactionBarHtml(reactions, postId, serverUrl, commentId) {
     return `<button class="${cls}" data-reactors="${reactorsJson}" data-server="${esc(serverUrl)}" onmouseenter="_showReactorTooltip(event,this)" onmouseleave="_hideReactorTooltip()" onclick="if(_longPressActivated){_longPressActivated=false;}else{event.stopPropagation();toggleReaction('${esc(postId)}','${esc(serverUrl)}','${r.emoji}','${esc(cid)}',this)}">${r.emoji} <span>${r.count}</span></button>`;
   }).join('');
   const add = `<button class="reaction-add" onclick="if(_longPressActivated){_longPressActivated=false;}else{event.stopPropagation();showEmojiPicker(event,'${esc(postId)}','${esc(serverUrl)}','${esc(cid)}')}" title="Add reaction • hold to see all reactions">+</button>`;
-  return `<div class="reaction-bar" data-post-id="${esc(postId)}" data-server="${esc(serverUrl)}" data-comment-id="${esc(cid)}">${btns}${add}</div>`;
+  const reply = cid === '' ? `<button class="reaction-add" onclick="event.stopPropagation();_openReplyFromBar('${esc(postId)}')" title="Reply">↩</button>` : '';
+  return `<div class="reaction-bar" data-post-id="${esc(postId)}" data-server="${esc(serverUrl)}" data-comment-id="${esc(cid)}">${btns}${add}${reply}</div>`;
+}
+
+function _openReplyFromBar(postId) {
+  const card = document.querySelector(`.post-card[data-post-id="${CSS.escape(postId)}"]`);
+  if (!card) return;
+  const post = allPosts.find(p => p.id === postId) || {
+    id: postId,
+    _server_url: card.dataset.serverUrl || CFG.own_server,
+    visibility: card.dataset.visibility || 'contacts',
+  };
+  openReplyCompose(post, card);
 }
 
 function _trackEmojiUsed(emoji) {
@@ -1513,6 +1525,44 @@ function makePostCard(post, idx) {
   div.className = "post-card" + (_isPostCached(post) ? " post-cached" : "");
   div.dataset.idx = idx;
   div.dataset.postId = post.id;
+  div.dataset.serverUrl = post._server_url || '';
+  div.dataset.visibility = post.visibility || 'contacts';
+
+  if (post.parent_id) {
+    const parentRef = document.createElement('div');
+    parentRef.className = 'parent-ref';
+    parentRef.innerHTML = '↩ <span class="parent-ref-text">in reply to a post</span>';
+    let _parentCache = null;
+    let _popoverEl = null;
+    parentRef.addEventListener('mouseenter', async () => {
+      if (!_parentCache) {
+        const srv = await _fetchServerForNodeId(post.parent_node_id);
+        const params = srv && srv !== CFG.own_server ? '?server=' + encodeURIComponent(srv) : '';
+        const r = await apiFetch('/api/posts/' + post.parent_id + params);
+        if (r.ok) {
+          _parentCache = await r.json();
+          _parentCache._server_url = _parentCache._server_url || srv || CFG.own_server;
+          const label = parentRef.querySelector('.parent-ref-text');
+          if (label) label.textContent = 'in reply to: ' + (_parentCache.body || '').replace(/\s+/g, ' ').slice(0, 80) + ((_parentCache.body||'').length > 80 ? '…' : '');
+        }
+      }
+      if (_parentCache && !_popoverEl) {
+        _popoverEl = document.createElement('div');
+        _popoverEl.className = 'parent-popover';
+        _popoverEl.textContent = (_parentCache.body || '').replace(/\s+/g, ' ').slice(0, 300) + ((_parentCache.body||'').length > 300 ? '…' : '');
+        parentRef.appendChild(_popoverEl);
+      }
+    });
+    parentRef.addEventListener('mouseleave', () => {
+      if (_popoverEl) { _popoverEl.remove(); _popoverEl = null; }
+    });
+    parentRef.onclick = async (e) => {
+      e.stopPropagation();
+      const srv = _parentCache?._server_url || await _fetchServerForNodeId(post.parent_node_id);
+      openPostOverlay(post.parent_id, srv);
+    };
+    div.appendChild(parentRef);
+  }
 
   const author = document.createElement("div");
   author.className = "post-author";
@@ -1570,12 +1620,21 @@ function makePostCard(post, idx) {
   panel.hidden = true;
   div.appendChild(panel);
 
-  const replyBtn = document.createElement("button");
-  replyBtn.className = "btn btn-muted btn-sm reply-toggle";
-  replyBtn.style.cssText = "margin-top:0.4rem;font-size:0.82rem";
-  replyBtn.textContent = "Reply";
-  replyBtn.onclick = () => openReplyCompose(post, div);
-  div.appendChild(replyBtn);
+  const replyCount = post.reply_count || 0;
+  const repliesToggle = document.createElement('div');
+  repliesToggle.className = 'replies-toggle';
+  repliesToggle.innerHTML = '<span style="display:inline-flex;align-items:center;gap:0.35rem">'
+    + '<span class="replies-toggle-arrow">▶</span>'
+    + '<span class="replies-toggle-label">' + replyCount + ' repl' + (replyCount !== 1 ? 'ies' : 'y') + '</span>'
+    + '</span>';
+  repliesToggle.onclick = () => _toggleReplies(post, div);
+  div.appendChild(repliesToggle);
+
+  const repliesPanel = document.createElement('div');
+  repliesPanel.className = 'replies-panel';
+  repliesPanel.dataset.postId = post.id;
+  repliesPanel.hidden = true;
+  div.appendChild(repliesPanel);
 
   const replyPanel = document.createElement("div");
   replyPanel.className = "reply-panel";
@@ -1589,6 +1648,7 @@ function makePostCard(post, idx) {
 // ── keyboard nav ───────────────────────────────────────────────────────────
 document.addEventListener("keydown", e => {
   if (e.key === "Escape") closeAllPostMenus();
+  if (!document.getElementById("detail-overlay").hidden && e.key === "Escape") closeDetail();
   if (!document.getElementById("lightbox").hidden && e.key === "Escape") closeLightbox();
   if (!document.getElementById("compose-overlay").hidden && e.key === "Escape") closeCompose();
   if (!document.getElementById("edit-overlay").hidden && e.key === "Escape") closeEdit();
@@ -1921,12 +1981,97 @@ function _toggleComments(post, cardEl) {
   }
 }
 
+async function _toggleReplies(post, cardEl) {
+  const panel = cardEl.querySelector('.replies-panel');
+  const toggle = cardEl.querySelector('.replies-toggle');
+  const arrow = toggle?.querySelector('.replies-toggle-arrow');
+  if (!panel) return;
+  if (!panel.hidden) {
+    panel.hidden = true;
+    if (arrow) arrow.textContent = '▶';
+    return;
+  }
+  if (arrow) arrow.textContent = '▼';
+  panel.innerHTML = '<div style="color:var(--text-5);font-size:0.82rem;padding:0.5rem 0">Loading replies…</div>';
+  panel.hidden = false;
+
+  const params = post._server_url && post._server_url !== CFG.own_server
+    ? '?server=' + encodeURIComponent(post._server_url) : '';
+  const r = await apiFetch('/api/posts/' + post.id + '/replies' + params);
+  if (!r.ok) { panel.innerHTML = ''; return; }
+  const refs = (await r.json()).replies || [];
+
+  if (refs.length === 0) {
+    panel.innerHTML = '<div style="color:var(--text-5);font-size:0.82rem;padding:0.5rem 0">No replies yet.</div>';
+    return;
+  }
+
+  const fetched = await Promise.all(refs.map(async ref => {
+    const srv = await _fetchServerForNodeId(ref.reply_node_id);
+    const p = srv && srv !== CFG.own_server ? '?server=' + encodeURIComponent(srv) : '';
+    try {
+      const rr = await apiFetch('/api/posts/' + ref.reply_post_id + p);
+      if (!rr.ok) return null;
+      const rp = await rr.json();
+      rp._server_url = rp._server_url || srv || CFG.own_server;
+      return rp;
+    } catch { return null; }
+  }));
+
+  const sorted = fetched.filter(Boolean).sort((a, b) => a.created_at - b.created_at);
+  panel.innerHTML = '';
+  for (const rp of sorted) {
+    const card = makePostCard(rp, -1);
+    card.style.cssText = 'margin-top:0.5rem;border-left:2px solid #444;padding-left:0.75rem;cursor:pointer';
+    card.addEventListener('click', e => {
+      if (e.target.closest('button, a, input, textarea, .reply-panel, .comments-panel, .replies-panel')) return;
+      openPostOverlay(rp.id, rp._server_url);
+    });
+    panel.appendChild(card);
+  }
+}
+
 // ── reply compose ──────────────────────────────────────────────────────────
 function _nodeIdForServer(serverUrl) {
   const norm = u => (u || '').replace(/\/+$/, '');
   if (norm(serverUrl) === norm(CFG?.own_server)) return CFG?.own_node_id || '';
   const contact = (CFG?.contacts || []).find(c => norm(c.url) === norm(serverUrl));
   return contact?.node_id || '';
+}
+
+function _serverForNodeId(nodeId) {
+  if (!nodeId) return '';
+  if (nodeId === CFG?.own_node_id) return CFG?.own_server || '';
+  const contact = (CFG?.contacts || []).find(c => c.node_id === nodeId);
+  return contact?.url || '';
+}
+
+async function _fetchServerForNodeId(nodeId) {
+  const url = _serverForNodeId(nodeId);
+  if (url) return url;
+  try {
+    const r = await apiFetch('/api/registry/node/' + encodeURIComponent(nodeId));
+    if (r.ok) return (await r.json()).server_url || '';
+  } catch {}
+  return '';
+}
+
+async function openPostOverlay(postId, serverUrl) {
+  const params = serverUrl && serverUrl !== CFG.own_server ? '?server=' + encodeURIComponent(serverUrl) : '';
+  const r = await apiFetch('/api/posts/' + postId + params);
+  if (!r.ok) return;
+  const post = await r.json();
+  post._server_url = post._server_url || serverUrl || CFG.own_server;
+  const body = document.getElementById('detail-body');
+  body.innerHTML = '';
+  body.appendChild(makePostCard(post, -1));
+  document.getElementById('nav-prev').hidden = true;
+  document.getElementById('nav-next').hidden = true;
+  document.getElementById('detail-overlay').hidden = false;
+}
+
+function closeDetail() {
+  document.getElementById('detail-overlay').hidden = true;
 }
 
 function openReplyCompose(post, cardEl) {
@@ -1937,15 +2082,16 @@ function openReplyCompose(post, cardEl) {
   const taId = 'reply-ta-' + post.id;
   const cbId = 'reply-notify-' + post.id;
   panel.innerHTML =
-    `<div class="comment-form" style="margin-top:0.5rem">`
-    + `<div style="font-size:0.78rem;color:#888;margin-bottom:0.3rem">Replying to this post (${esc(post.visibility || 'contacts')} visibility)</div>`
-    + `<textarea id="${esc(taId)}" class="comment-input reply-input" data-post-id="${esc(post.id)}" placeholder="Write a reply…"></textarea>`
-    + `<div class="comment-form-actions">`
-    + `<button class="btn btn-muted btn-sm" onclick="showInlineEmojiPicker(event,'${esc(taId)}')" title="Insert emoji">😊</button>`
-    + `<button class="btn btn-primary btn-sm" onclick="submitReply(event,'${esc(post.id)}','${esc(post._server_url||'')}','${esc(post.visibility||'contacts')}')">Post reply</button>`
-    + `<button class="btn btn-muted btn-sm" onclick="this.closest('.reply-panel').hidden=true">Cancel</button>`
+    `<div style="margin-top:0.5rem">`
+    + `<textarea id="${esc(taId)}" class="comment-input reply-input" data-post-id="${esc(post.id)}" placeholder="Write a reply…" style="width:100%;box-sizing:border-box;display:block"></textarea>`
+    + `<div style="display:flex;align-items:center;gap:0.35rem;margin-top:0.3rem;flex-wrap:wrap">`
+    + `<button class="reaction-add" onclick="showInlineEmojiPicker(event,'${esc(taId)}')" title="Insert emoji">😊</button>`
+    + `<button class="reaction-add" onclick="openPostOverlay('${esc(post.id)}','${esc(post._server_url||'')}')" title="View post">⤢</button>`
     + `<label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.82rem;color:#aaa;cursor:pointer">`
     + `<input type="checkbox" id="${esc(cbId)}" checked> List in parent's replies</label>`
+    + `<span style="flex:1"></span>`
+    + `<button class="btn btn-primary btn-sm" onclick="submitReply(event,'${esc(post.id)}','${esc(post._server_url||'')}','${esc(post.visibility||'contacts')}')">Post reply</button>`
+    + `<button class="btn btn-muted btn-sm" onclick="this.closest('.reply-panel').hidden=true">Cancel</button>`
     + `<span class="reply-error" style="color:#e06c6c;font-size:0.82rem"></span>`
     + `</div>`
     + `<div class="reply-list"></div>`
@@ -1988,6 +2134,13 @@ async function submitReply(e, parentPostId, parentServerUrl, visibility) {
         const card = makePostCard(reply, allPosts.length);
         card.style.cssText = 'margin-top:0.5rem;margin-left:1.5rem;border-left:2px solid #444;padding-left:0.5rem';
         list.appendChild(card);
+      }
+      if (notifyCheck?.checked) {
+        const label = panel.parentElement?.querySelector('.replies-toggle-label');
+        if (label) {
+          const n = (parseInt(label.textContent) || 0) + 1;
+          label.textContent = n + ' repl' + (n !== 1 ? 'ies' : 'y');
+        }
       }
       panel.hidden = true;
     } else {
@@ -2045,14 +2198,14 @@ function _renderCommentsInto(post, comments, panel) {
   for (const c of live) { const k = c.parent_id || "__root__"; (byParent[k] = byParent[k] || []).push(c); }
   function renderOne(c, depth) {
     const replies = byParent[c.id] || [];
-    const au = _commentAuthor(c.author_identity, post._server_url);
+    const au = _commentAuthor(c.author_node_id, post._server_url);
     const avatar = au.photoUrl
       ? `<img src="${esc(au.photoUrl)}" class="post-author-avatar" alt="">`
       : `<span class="post-author-initials">${esc((au.name[0]||'?').toUpperCase())}</span>`;
-    const identityAttr = c.author_identity ? ` data-identity="${esc(c.author_identity)}" data-server="${esc(post._server_url || '')}"` : '';
+    const identityAttr = c.author_node_id ? ` data-identity="${esc(c.author_node_id)}" data-server="${esc(post._server_url || '')}"` : '';
     const dateFmt = fmtDate(c.created_at);
     const dateFull = fmtDateFull(c.created_at);
-    const isOwnComment = IS_OWNER && post._server_url === CFG.own_server && (!c.author_identity || c.author_identity === '');
+    const isOwnComment = IS_OWNER && post._server_url === CFG.own_server && (!c.author_node_id || c.author_node_id === '');
     const menuBtn = `<span style="position:relative;display:inline-flex;align-items:center"><button class="post-menu-btn" title="More options" onclick="openCommentMenu(event,'${esc(post.id)}','${esc(post._server_url)}','${esc(c.id)}',${isOwnComment})">…</button></span>`;
     return '<div class="comment" data-comment-id="' + esc(c.id) + '">'
       + `<div class="comment-author"${identityAttr}>`
@@ -2067,15 +2220,9 @@ function _renderCommentsInto(post, comments, panel) {
       + '</div>';
   }
   const roots = byParent["__root__"] || [];
-  const _ctaId = 'comment-ta-' + post.id;
-  panel.innerHTML =
-    roots.map(c => renderOne(c, 0)).join("")
-    + '<div class="comment-form">'
-    + '<textarea id="' + esc(_ctaId) + '" class="comment-input" data-post-id="' + esc(post.id) + '" placeholder="Add a comment…"></textarea>'
-    + '<div class="comment-form-actions"><button class="btn btn-muted btn-sm" onclick="showInlineEmojiPicker(event,\'' + esc(_ctaId) + '\')" title="Insert emoji">😊</button>'
-    + '<button class="btn btn-primary btn-sm comment-submit" data-post-id="' + esc(post.id) + '" onclick="submitComment(\'' + esc(post.id) + '\',\'' + esc(post._server_url) + '\')">Post</button>'
-    + '<span class="comment-error" data-post-id="' + esc(post.id) + '" style="color:#e06c6c;font-size:0.82rem"></span></div>'
-    + '</div>';
+  panel.innerHTML = roots.length
+    ? roots.map(c => renderOne(c, 0)).join("")
+    : '<p style="color:var(--text-5);font-size:0.82rem;margin:0.5rem 0">No comments.</p>';
 }
 
 async function submitComment(postId, serverUrl) {
@@ -2837,7 +2984,8 @@ function _renderMentionsList() {
     const _actorId = m.author_node_id || m.author_server || '';
     const contact = (CFG?.contacts || []).find(c => c.node_id === _actorId || c.url === _actorId);
     const _resolved = _actorId ? _resolveIdentity(_actorId, '') : null;
-    const name = m.actor_name || (contact ? (contact.name || m.author_handle) : (_resolved?.name || m.author_handle || 'Someone'));
+    const _actorName = m.actor_name && !m.actor_name.startsWith('http') ? m.actor_name : null;
+    const name = _actorName || (contact ? (contact.name || m.author_handle) : (_resolved?.name || m.author_handle || 'Someone'));
     const time = fmtDate(m.received_at);
     const dot = m.seen ? '' : '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#4285f4;flex-shrink:0;margin-top:3px"></span>';
     let text;

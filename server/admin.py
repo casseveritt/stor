@@ -1,9 +1,8 @@
-"""Recipient, identity-mapping, and token management endpoints (owner only)."""
+"""Identity-mapping, token, and access management endpoints (owner only)."""
 import base64
 import io
 import json
 import time
-import uuid
 import zipfile
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -31,83 +30,61 @@ def _encode_cursor(rowid: int) -> str:
     return base64.urlsafe_b64encode(json.dumps(rowid).encode()).rstrip(b"=").decode()
 
 
-# ── recipients ────────────────────────────────────────────────────────────────
+# ── recipients (node_id based) ────────────────────────────────────────────────
 
-def _recipient_dict(row) -> dict:
-    id_, identity, display_name = row
-    return {"id": id_, "identity": identity, "display_name": display_name}
+def _recipient_dict(node_id: str, display_name: str | None) -> dict:
+    return {"node_id": node_id, "display_name": display_name or node_id}
 
 
 @router.get("/recipients")
 def list_recipients(request: Request, identity: OwnerDep):
     db = request.app.state.db
     rows = db.execute(
-        "SELECT id, identity, display_name FROM recipients ORDER BY display_name"
+        """SELECT DISTINCT a.node_id, u.name
+           FROM acl a LEFT JOIN users u ON u.node_id = a.node_id
+           WHERE a.node_id IS NOT NULL
+           UNION
+           SELECT DISTINCT t.node_id, u.name
+           FROM tokens t LEFT JOIN users u ON u.node_id = t.node_id
+           WHERE t.node_id IS NOT NULL AND t.revoked = 0
+           ORDER BY 2"""
     ).fetchall()
-    return {"recipients": [_recipient_dict(r) for r in rows]}
+    return {"recipients": [_recipient_dict(r[0], r[1]) for r in rows]}
 
 
-class _CreateRecipientBody(BaseModel):
-    identity: str
-    display_name: str | None = None
-
-
-@router.post("/recipients", status_code=201)
-def create_recipient(payload: _CreateRecipientBody, request: Request, identity: OwnerDep):
+@router.get("/recipients/{node_id}")
+def get_recipient(node_id: str, request: Request, identity: OwnerDep):
     db = request.app.state.db
-    if db.execute("SELECT id FROM recipients WHERE identity = ?", (payload.identity,)).fetchone():
-        raise HTTPException(status_code=409, detail="Identity already exists")
-    recipient_id = str(uuid.uuid4())
-    display_name = payload.display_name or payload.identity
-    db.execute(
-        "INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
-        (recipient_id, payload.identity, display_name),
-    )
-    db.commit()
-    return {"id": recipient_id, "identity": payload.identity, "display_name": display_name}
+    row = db.execute("SELECT name FROM users WHERE node_id = ?", (node_id,)).fetchone()
+    return _recipient_dict(node_id, row[0] if row else None)
 
 
-@router.get("/recipients/{recipient_id}")
-def get_recipient(recipient_id: str, request: Request, identity: OwnerDep):
+@router.delete("/recipients/{node_id}", status_code=204)
+def delete_recipient(node_id: str, request: Request, identity: OwnerDep):
     db = request.app.state.db
-    row = db.execute(
-        "SELECT id, identity, display_name FROM recipients WHERE id = ?", (recipient_id,)
-    ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Recipient not found")
-    return _recipient_dict(row)
-
-
-@router.delete("/recipients/{recipient_id}", status_code=204)
-def delete_recipient(recipient_id: str, request: Request, identity: OwnerDep):
-    db = request.app.state.db
-    if db.execute("SELECT id FROM recipients WHERE id = ?", (recipient_id,)).fetchone() is None:
-        raise HTTPException(status_code=404, detail="Recipient not found")
-    db.execute("DELETE FROM acl WHERE recipient_id = ?", (recipient_id,))
-    db.execute("DELETE FROM identity_mappings WHERE recipient_id = ?", (recipient_id,))
-    db.execute("UPDATE tokens SET revoked = 1 WHERE recipient_id = ?", (recipient_id,))
-    db.execute("DELETE FROM recipients WHERE id = ?", (recipient_id,))
+    db.execute("DELETE FROM acl WHERE node_id = ?", (node_id,))
+    db.execute("DELETE FROM post_acl WHERE node_id = ?", (node_id,))
+    db.execute("DELETE FROM identity_mappings WHERE recipient_id = ?", (node_id,))
+    db.execute("UPDATE tokens SET revoked = 1 WHERE node_id = ?", (node_id,))
     db.commit()
 
 
 # ── identity mappings ─────────────────────────────────────────────────────────
 
 class _SetMappingBody(BaseModel):
-    recipient_id: str
+    node_id: str
 
 
 @router.post("/identity-mappings", status_code=201)
 def set_identity_mapping(payload: _SetMappingBody, request: Request, identity: OwnerDep,
                          mapped_identity: str = Query(..., alias="identity")):
     db = request.app.state.db
-    if db.execute("SELECT id FROM recipients WHERE id = ?", (payload.recipient_id,)).fetchone() is None:
-        raise HTTPException(status_code=404, detail="Recipient not found")
     db.execute(
         "INSERT OR REPLACE INTO identity_mappings (identity, recipient_id) VALUES (?, ?)",
-        (mapped_identity, payload.recipient_id),
+        (mapped_identity, payload.node_id),
     )
     db.commit()
-    return {"identity": mapped_identity, "recipient_id": payload.recipient_id}
+    return {"identity": mapped_identity, "node_id": payload.node_id}
 
 
 @router.delete("/identity-mappings", status_code=204)
@@ -126,9 +103,8 @@ def delete_identity_mapping(request: Request, identity: OwnerDep,
 def list_tokens(request: Request, identity: OwnerDep):
     db = request.app.state.db
     rows = db.execute(
-        """SELECT t.id, t.recipient_id, t.expiry, r.identity
+        """SELECT t.id, t.node_id, t.expiry
            FROM tokens t
-           LEFT JOIN recipients r ON r.id = t.recipient_id
            WHERE t.revoked = 0 AND t.expiry > ?
            ORDER BY t.expiry DESC""",
         (now_ns(),),
@@ -137,9 +113,8 @@ def list_tokens(request: Request, identity: OwnerDep):
         "tokens": [
             {
                 "id": r[0],
-                "recipient_id": r[1],
+                "node_id": r[1],
                 "expiry": r[2],
-                "recipient_identity": r[3],
             }
             for r in rows
         ]
@@ -157,13 +132,12 @@ def revoke_token_endpoint(token_id: str, request: Request, identity: OwnerDep):
 # ── access log ────────────────────────────────────────────────────────────────
 
 def _access_log_row(row) -> dict:
-    id_, asset_id, recipient_id, share_identity, endpoint, accessed_at, rec_identity = row
+    id_, asset_id, node_id, share_identity, endpoint, accessed_at = row
     return {
         "id": id_,
         "asset_id": asset_id,
-        "recipient_id": recipient_id,
+        "node_id": node_id,
         "share_identity": share_identity,
-        "recipient_identity": rec_identity,
         "endpoint": endpoint,
         "accessed_at": accessed_at,
     }
@@ -174,7 +148,7 @@ def get_access_log(
     request: Request,
     identity: OwnerDep,
     asset_id: str | None = Query(default=None),
-    recipient_id: str | None = Query(default=None),
+    node_id: str | None = Query(default=None),
     since: int | None = Query(default=None),
     until: int | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=500),
@@ -187,9 +161,9 @@ def get_access_log(
     if asset_id is not None:
         conditions.append("al.asset_id = ?")
         params.append(asset_id)
-    if recipient_id is not None:
-        conditions.append("al.recipient_id = ?")
-        params.append(recipient_id)
+    if node_id is not None:
+        conditions.append("al.node_id = ?")
+        params.append(node_id)
     if since is not None:
         conditions.append("al.accessed_at >= ?")
         params.append(since)
@@ -201,10 +175,9 @@ def get_access_log(
     params.extend([limit, offset])
 
     rows = db.execute(
-        f"""SELECT al.id, al.asset_id, al.recipient_id, al.share_identity,
-                   al.endpoint, al.accessed_at, r.identity AS recipient_identity
+        f"""SELECT al.id, al.asset_id, al.node_id, al.share_identity,
+                   al.endpoint, al.accessed_at
             FROM access_log al
-            LEFT JOIN recipients r ON r.id = al.recipient_id
             {where}
             ORDER BY al.accessed_at DESC
             LIMIT ? OFFSET ?""",
@@ -251,10 +224,9 @@ def get_asset_access_log(
     params.extend([limit, offset])
 
     rows = db.execute(
-        f"""SELECT al.id, al.asset_id, al.recipient_id, al.share_identity,
-                   al.endpoint, al.accessed_at, r.identity AS recipient_identity
+        f"""SELECT al.id, al.asset_id, al.node_id, al.share_identity,
+                   al.endpoint, al.accessed_at
             FROM access_log al
-            LEFT JOIN recipients r ON r.id = al.recipient_id
             {where}
             ORDER BY al.accessed_at DESC
             LIMIT ? OFFSET ?""",
@@ -286,8 +258,6 @@ def get_stats(request: Request, identity: OwnerDep):
     ).fetchone()
     asset_deleted = asset_deleted or 0
 
-    recipient_total = db.execute("SELECT COUNT(*) FROM recipients").fetchone()[0]
-
     active_tokens = db.execute(
         "SELECT COUNT(*) FROM tokens WHERE revoked = 0 AND expiry > ?", (now,)
     ).fetchone()[0]
@@ -306,7 +276,6 @@ def get_stats(request: Request, identity: OwnerDep):
             "deleted": asset_deleted,
             "total_size_bytes": asset_size,
         },
-        "recipients": {"total": recipient_total},
         "tokens": {"active": active_tokens},
         "comments": {
             "total": comment_total,
@@ -319,30 +288,26 @@ def get_stats(request: Request, identity: OwnerDep):
 
 # ── per-recipient analytics ───────────────────────────────────────────────────
 
-@router.get("/recipients/{recipient_id}/stats")
-def get_recipient_stats(recipient_id: str, request: Request, identity: OwnerDep):
+@router.get("/recipients/{node_id}/stats")
+def get_recipient_stats(node_id: str, request: Request, identity: OwnerDep):
     db = request.app.state.db
-    row = db.execute(
-        "SELECT id, identity, display_name FROM recipients WHERE id = ?", (recipient_id,)
-    ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Recipient not found")
-    _, rec_identity, display_name = row
+    u_row = db.execute("SELECT name FROM users WHERE node_id = ?", (node_id,)).fetchone()
+    display_name = u_row[0] if u_row else node_id
 
     acl_count = db.execute(
-        "SELECT COUNT(*) FROM acl WHERE recipient_id = ?", (recipient_id,)
+        "SELECT COUNT(*) FROM acl WHERE node_id = ?", (node_id,)
     ).fetchone()[0]
 
     active_tokens = db.execute(
-        "SELECT COUNT(*) FROM tokens WHERE recipient_id = ? AND revoked = 0 AND expiry > ?",
-        (recipient_id, now_ns()),
+        "SELECT COUNT(*) FROM tokens WHERE node_id = ? AND revoked = 0 AND expiry > ?",
+        (node_id, now_ns()),
     ).fetchone()[0]
 
     access_row = db.execute(
         """SELECT COUNT(*), MAX(accessed_at),
                   COUNT(DISTINCT asset_id)
-           FROM access_log WHERE recipient_id = ?""",
-        (recipient_id,),
+           FROM access_log WHERE node_id = ?""",
+        (node_id,),
     ).fetchone()
     total_accesses, last_accessed_at, unique_assets = access_row
     total_accesses = total_accesses or 0
@@ -350,14 +315,13 @@ def get_recipient_stats(recipient_id: str, request: Request, identity: OwnerDep)
 
     by_endpoint = {}
     for ep_row in db.execute(
-        "SELECT endpoint, COUNT(*) FROM access_log WHERE recipient_id = ? GROUP BY endpoint",
-        (recipient_id,),
+        "SELECT endpoint, COUNT(*) FROM access_log WHERE node_id = ? GROUP BY endpoint",
+        (node_id,),
     ).fetchall():
         by_endpoint[ep_row[0]] = ep_row[1]
 
     return {
-        "recipient_id": recipient_id,
-        "identity": rec_identity,
+        "node_id": node_id,
         "display_name": display_name,
         "acl": {"asset_count": acl_count},
         "tokens": {"active": active_tokens},
@@ -373,7 +337,7 @@ def get_recipient_stats(recipient_id: str, request: Request, identity: OwnerDep)
 # ── edit request management ───────────────────────────────────────────────────
 
 def _edit_request_row(row) -> dict:
-    req_id, comment_id, asset_id, orig_body, new_body, status, created_at, req_rid, req_identity = row
+    req_id, comment_id, asset_id, orig_body, new_body, status, created_at, requester_node_id = row
     return {
         "id": req_id,
         "comment_id": comment_id,
@@ -383,8 +347,7 @@ def _edit_request_row(row) -> dict:
         "action": "delete" if new_body is None else "edit",
         "status": status,
         "created_at": created_at,
-        "requester_recipient_id": req_rid,
-        "requester_identity": req_identity,
+        "requester_node_id": requester_node_id,
     }
 
 
@@ -406,10 +369,9 @@ def list_edit_requests(
     rows = db.execute(
         f"""SELECT r.id, r.comment_id, c.asset_id, c.body AS original_body,
                    r.new_body, r.status, r.created_at,
-                   r.requester_recipient_id, rec.identity AS requester_identity
+                   r.requester_node_id
             FROM comment_edit_requests r
             JOIN comments c ON c.id = r.comment_id
-            LEFT JOIN recipients rec ON rec.id = r.requester_recipient_id
             {where}
             ORDER BY r.created_at ASC""",
         params,
@@ -461,9 +423,9 @@ def list_tags(request: Request, identity: OwnerDep):
 
 # ── recipient feed preview ────────────────────────────────────────────────────
 
-@router.get("/recipients/{recipient_id}/feed")
+@router.get("/recipients/{node_id}/feed")
 def get_recipient_feed(
-    recipient_id: str,
+    node_id: str,
     request: Request,
     identity: OwnerDep,
     since: int | None = Query(default=None),
@@ -473,19 +435,12 @@ def get_recipient_feed(
     include_superseded: bool = Query(default=False),
 ):
     db = request.app.state.db
-    row = db.execute(
-        "SELECT id, identity FROM recipients WHERE id = ?", (recipient_id,)
-    ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Recipient not found")
-    _, rec_identity = row
-
     until_ts = until if until is not None else now_ns()
     conditions = [
         "deleted = 0", "created_at <= ?",
-        "EXISTS (SELECT 1 FROM acl WHERE asset_id = assets.id AND recipient_id = ?)",
+        "EXISTS (SELECT 1 FROM acl WHERE asset_id = assets.id AND node_id = ?)",
     ]
-    params: list = [until_ts, recipient_id]
+    params: list = [until_ts, node_id]
 
     if since is not None:
         conditions.append("created_at >= ?")
@@ -528,8 +483,7 @@ def get_recipient_feed(
     next_cursor = _encode_cursor(rows[-1][0]) if has_more and rows else None
 
     return {
-        "recipient_id": recipient_id,
-        "recipient_identity": rec_identity,
+        "node_id": node_id,
         "since": since,
         "until": until_ts,
         "include_superseded": include_superseded,

@@ -2,7 +2,7 @@
 import json
 import pytest
 
-from server.auth import issue_recipient_token
+from server.auth import issue_node_token
 
 
 # ── fixtures ──────────────────────────────────────────────────────────────────
@@ -24,7 +24,7 @@ def recipient_a(client, owner_headers):
     assert r.status_code == 201
     rid = r.json()["id"]
     db = client.app.state.db
-    token = issue_recipient_token(db, rid)
+    token = issue_node_token(db, rid)
     return {"id": rid, "token": token, "headers": {"Authorization": f"Bearer {token}"}}
 
 
@@ -34,7 +34,7 @@ def recipient_b(client, owner_headers):
     assert r.status_code == 201
     rid = r.json()["id"]
     db = client.app.state.db
-    token = issue_recipient_token(db, rid)
+    token = issue_node_token(db, rid)
     return {"id": rid, "token": token, "headers": {"Authorization": f"Bearer {token}"}}
 
 

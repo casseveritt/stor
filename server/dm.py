@@ -811,7 +811,7 @@ async def dm_receive(body: ReceiveBody, request: Request, identity: FederatedOrT
     The FederatedOrTokenDep will verify against known contacts or do an on-the-fly
     /node fetch if the sender's key is unknown (requires X-Origin-Server header).
     """
-    if not identity.is_owner and identity.recipient_id is None:
+    if not identity.is_owner and identity.node_id is None:
         raise HTTPException(403, "Valid federated signature required")
 
     app = request.app

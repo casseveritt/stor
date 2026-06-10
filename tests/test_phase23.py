@@ -87,9 +87,9 @@ class TestEditPost:
         assert fetched["body"] == "final body"
 
     def test_edit_requires_owner(self, client, owner_token, post):
-        from server.auth import issue_recipient_token
+        from server.auth import issue_node_token
         r = client.post("/recipients", json={"identity": "p23e@x.com"}, headers=_auth(owner_token))
-        tok = issue_recipient_token(client.app.state.db, r.json()["id"])
+        tok = issue_node_token(client.app.state.db, r.json()["id"])
         r2 = client.patch(f"/posts/{post['id']}", json={"body": "hack"}, headers=_auth(tok))
         assert r2.status_code == 403
 
@@ -122,9 +122,9 @@ class TestDeletePost:
     def test_delete_requires_owner(self, client, owner_token):
         r = client.post("/posts", data={"body": "protected"}, headers=_auth(owner_token))
         pid = r.json()["id"]
-        from server.auth import issue_recipient_token
+        from server.auth import issue_node_token
         r2 = client.post("/recipients", json={"identity": "p23d@x.com"}, headers=_auth(owner_token))
-        tok = issue_recipient_token(client.app.state.db, r2.json()["id"])
+        tok = issue_node_token(client.app.state.db, r2.json()["id"])
         assert client.delete(f"/posts/{pid}", headers=_auth(tok)).status_code == 403
 
 

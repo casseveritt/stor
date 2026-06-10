@@ -8,7 +8,7 @@ import pytest
 from PIL import Image
 
 from server.auth import (
-    TokenIdentity, check_acl, issue_recipient_token,
+    TokenIdentity, check_acl, issue_node_token,
     setup as auth_setup, issue_token, revoke_token,
 )
 from server.crypto import derive_master_key, derive_subkeys, decrypt_bytes, encrypt_bytes
@@ -83,7 +83,7 @@ def alice(client):
     # Asset Alice cannot access
     denied_id = _insert_asset(db, title="Alice cannot see this")
 
-    token = issue_recipient_token(db, recipient_id, ttl_seconds=3600)
+    token = issue_node_token(db, recipient_id, ttl_seconds=3600)
     return {
         "recipient_id": recipient_id,
         "token": token,
@@ -112,7 +112,7 @@ class TestTokenValidation:
         db = client.app.state.db
         recipient_id = _add_recipient(db, "google:expired@test.com", "Expired")
         # Issue a token then manually set its expiry to the past
-        token = issue_recipient_token(db, recipient_id, ttl_seconds=3600)
+        token = issue_node_token(db, recipient_id, ttl_seconds=3600)
         db.execute("UPDATE tokens SET expiry = ? WHERE id = ?", (time.time() - 1, token))
         db.commit()
         r = client.get("/feed", headers=_auth(token))
@@ -121,7 +121,7 @@ class TestTokenValidation:
     def test_revoked_token_rejected(self, client):
         db = client.app.state.db
         recipient_id = _add_recipient(db, "google:revoked@test.com", "Revoked")
-        token = issue_recipient_token(db, recipient_id, ttl_seconds=3600)
+        token = issue_node_token(db, recipient_id, ttl_seconds=3600)
         revoke_token(db, token)
         r = client.get("/feed", headers=_auth(token))
         assert r.status_code == 401

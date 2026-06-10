@@ -223,16 +223,26 @@ def _comment_count(db, post_id: str) -> int:
     return row[0] if row else 0
 
 
+def _reply_count(db, post_id: str) -> int:
+    local = db.execute(
+        "SELECT COUNT(*) FROM posts WHERE parent_id = ? AND deleted = 0", (post_id,)
+    ).fetchone()[0]
+    remote = db.execute(
+        "SELECT COUNT(*) FROM reply_refs WHERE parent_post_id = ?", (post_id,)
+    ).fetchone()[0]
+    return local + remote
+
+
 _VALID_POST_TYPES = {"post", "inner_monologue"}
 
 
 _POST_COLS = (
     "p.id, p.body, p.created_at, p.tags, p.visibility, p.comment_access, p.deleted, p.post_type, p.nonce,"
-    " p.parent_id, p.parent_node_id, p.supersedes"
+    " p.parent_id, p.parent_node_id, p.supersedes, p.visibility_list_id"
 )
 _POST_COLS_NO_ALIAS = (
     "id, body, created_at, tags, visibility, comment_access, deleted, post_type, nonce,"
-    " parent_id, parent_node_id, supersedes"
+    " parent_id, parent_node_id, supersedes, visibility_list_id"
 )
 
 _VALID_VISIBILITY = ("private", "contacts", "authenticated", "public")
@@ -242,7 +252,7 @@ _VALID_COMMENT_ACCESS = ("contacts", "authenticated", "public")
 def _post_dict(row, db, viewer: str = "") -> dict:
     from .reactions import get_reactions
     (id_, body, created_at, tags_json, visibility, comment_access, deleted, post_type, nonce,
-     parent_id, parent_node_id, supersedes) = row
+     parent_id, parent_node_id, supersedes, visibility_list_id) = row
     assets = _get_post_assets(db, id_, body)
     successor_row = db.execute(
         "SELECT id FROM posts WHERE parent_id = ? AND supersedes = '1' AND deleted = 0 LIMIT 1", (id_,)
@@ -261,8 +271,10 @@ def _post_dict(row, db, viewer: str = "") -> dict:
         "parent_node_id": parent_node_id,
         "supersedes": bool(supersedes),
         "superseded_by": successor_row[0] if successor_row else None,
+        "visibility_list_id": visibility_list_id,
         "assets": assets,
         "comment_count": _comment_count(db, id_),
+        "reply_count": _reply_count(db, id_),
         "deleted": bool(deleted),
         "reactions": get_reactions(db, id_, "", viewer),
     }
@@ -302,6 +314,7 @@ async def create_post(
     parent_id: str = Form(default=""),
     parent_node_id: str = Form(default=""),
     supersedes: str = Form(default=""),   # boolean: "1" = this post supersedes its parent
+    visibility_list_id: str = Form(default=""),
     files: list[UploadFile] = File(default=[]),
 ):
     try:
@@ -370,6 +383,13 @@ async def create_post(
             parent_node_id = node_id
     supersedes_stored = "1" if is_supersession else None
 
+    # visibility_list_id: replies inherit from parent; top-level posts use what the client provides
+    visibility_list_id = visibility_list_id or None
+    if parent_id:
+        parent_row = db.execute("SELECT visibility_list_id FROM posts WHERE id = ?", (parent_id,)).fetchone()
+        if parent_row:
+            visibility_list_id = parent_row[0]
+
     # compute content-addressable post ID after body is finalized
     nonce = secrets.token_hex(16)
     post_id = hashlib.sha256(
@@ -381,10 +401,10 @@ async def create_post(
     db.execute(
         "INSERT INTO posts"
         " (id, body, created_at, tags, is_public, deleted, post_type, visibility, comment_access,"
-        "  nonce, parent_id, parent_node_id, supersedes)"
-        " VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)",
+        "  nonce, parent_id, parent_node_id, supersedes, visibility_list_id)"
+        " VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)",
         (post_id, body, now, json.dumps(tags_list), int(is_public), post_type, visibility, comment_access,
-         nonce, parent_id, parent_node_id, supersedes_stored),
+         nonce, parent_id, parent_node_id, supersedes_stored, visibility_list_id),
     )
     for aid in all_ids:
         db.execute("INSERT OR IGNORE INTO post_assets (post_id, asset_id) VALUES (?, ?)", (post_id, aid))
@@ -475,11 +495,11 @@ def get_posts(
                 placeholders = ",".join("?" * len(identity.share_post_ids))
                 conditions.append(f"(p.visibility = 'public' OR p.id IN ({placeholders}))")
                 params.extend(identity.share_post_ids)
-        elif identity.recipient_id is not None:
+        elif identity.node_id is not None:
             conditions.append(
-                "(p.visibility = 'public' OR EXISTS (SELECT 1 FROM post_acl WHERE post_id = p.id AND recipient_id = ?))"
+                "(p.visibility = 'public' OR EXISTS (SELECT 1 FROM post_acl WHERE post_id = p.id AND node_id = ?))"
             )
-            params.append(identity.recipient_id)
+            params.append(identity.node_id)
         elif is_contact:
             conditions.append("p.visibility IN ('contacts', 'authenticated', 'public')")
         elif origin_server:
@@ -704,9 +724,9 @@ def _check_post_access(db, post_id: str, identity) -> bool:
         if identity.share_post_ids is None:
             return True  # node-wide share
         return post_id in identity.share_post_ids
-    if identity.recipient_id:
+    if identity.node_id:
         return db.execute(
-            "SELECT 1 FROM post_acl WHERE post_id = ? AND recipient_id = ?", (post_id, identity.recipient_id)
+            "SELECT 1 FROM post_acl WHERE post_id = ? AND node_id = ?", (post_id, identity.node_id)
         ).fetchone() is not None
     return False
 
@@ -760,21 +780,20 @@ def fetch_post_comments(post_id: str, request: Request, identity: OptionalAuthDe
     db = request.app.state.db
     _require_post_access(db, post_id, identity, request.headers.get("X-Origin-Server"), request.headers.get("X-Public-Key"))
     rows = db.execute(
-        """SELECT c.id, c.content_hash, c.post_id, c.parent_id, c.author_recipient_id,
+        """SELECT c.id, c.content_hash, c.post_id, c.parent_id, c.author_node_id,
                   c.body, c.created_at, c.predecessor, c.successor, c.deleted,
-                  COALESCE(c.author_identity, r.identity)
+                  COALESCE(c.author_identity, c.author_node_id) AS author_node_id
            FROM comments c
-           LEFT JOIN recipients r ON r.id = c.author_recipient_id
            WHERE c.post_id = ? ORDER BY c.created_at ASC""",
         (post_id,),
     ).fetchall()
     viewer = "" if identity.is_owner else (request.headers.get("X-Origin-Server", "") or "__anon__")
     comments = []
     for row in rows:
-        id_, ch, pid, parent_id, author_id, body, created_at, pred, succ, deleted, author_identity = row
+        id_, ch, pid, parent_id, _anid, body, created_at, pred, succ, deleted, author_node_id = row
         comments.append({
             "id": id_, "content_hash": ch, "post_id": pid, "parent_id": parent_id,
-            "author_recipient_id": author_id, "author_identity": author_identity,
+            "author_node_id": author_node_id,
             "body": None if deleted else body, "deleted": bool(deleted),
             "created_at": created_at, "predecessor": pred, "successor": succ,
             "reactions": get_reactions(db, post_id, id_, viewer),
@@ -802,45 +821,43 @@ async def post_comment(post_id: str, payload: _CommentBody, request: Request, id
     comment_id = str(uuid.uuid4())
     content_hash = hashlib.sha256(payload.body.encode()).hexdigest()
     now = now_ns()
-    author_id = identity.recipient_id
-
-    author_identity = None
-    if author_id:
-        row = db.execute("SELECT identity FROM recipients WHERE id = ?", (author_id,)).fetchone()
-        if row:
-            author_identity = row[0]
+    author_node_id = identity.node_id
 
     db.execute(
         """INSERT INTO comments
-             (id, content_hash, asset_id, post_id, parent_id, author_recipient_id,
+             (id, content_hash, asset_id, post_id, parent_id, author_node_id,
               author_identity, body, created_at, predecessor, successor, deleted)
            VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, 0)""",
-        (comment_id, content_hash, post_id, payload.parent_id, author_id,
-         author_identity, payload.body, now),
+        (comment_id, content_hash, post_id, payload.parent_id, author_node_id,
+         author_node_id, payload.body, now),
     )
     db.commit()
 
     if not identity.is_owner:
         node_address = getattr(request.app.state, "node_address", "") or ""
         _actor = None
-        if author_identity:
-            _row = db.execute("SELECT name FROM users WHERE node_id = ?", (author_identity,)).fetchone()
-            _actor = _row[0] if _row else author_identity
+        if author_node_id:
+            _row = db.execute(
+                "SELECT name FROM users WHERE node_id = ?",
+                (author_node_id,),
+            ).fetchone()
+            if _row:
+                _actor = _row[0]
         db.execute(
             "INSERT OR IGNORE INTO mention_notifications "
             "(id, post_id, author_node_id, author_handle, received_at, notif_type, actor_name, emoji, post_server) "
             "VALUES (?,?,?,?,?,?,?,?,?)",
-            (comment_id, post_id, author_identity or '', '', now_ns(), 'comment', _actor, None, node_address)
+            (comment_id, post_id, author_node_id or '', '', now_ns(), 'comment', _actor, None, node_address)
         )
         db.commit()
 
     _notify_mentions(payload.body, post_id, request.app)
-    if author_identity:
-        _notify_thread_participants(post_id, author_identity, request.app)
+    if author_node_id:
+        _notify_thread_participants(post_id, author_node_id, request.app)
     result = {
         "id": comment_id, "content_hash": content_hash,
         "post_id": post_id, "parent_id": payload.parent_id,
-        "author_recipient_id": author_id, "author_identity": author_identity,
+        "author_node_id": author_node_id,
         "body": payload.body, "deleted": False,
         "created_at": now, "predecessor": None, "successor": None,
     }
@@ -903,13 +920,13 @@ def get_post_acl(post_id: str, request: Request, identity: OwnerDep):
     if db.execute("SELECT id FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Post not found")
     rows = db.execute(
-        """SELECT r.id, r.identity, r.display_name
-           FROM post_acl pa JOIN recipients r ON r.id = pa.recipient_id
+        """SELECT pa.node_id, u.name
+           FROM post_acl pa LEFT JOIN users u ON u.node_id = pa.node_id
            WHERE pa.post_id = ?""",
         (post_id,),
     ).fetchall()
     return {"post_id": post_id, "recipients": [
-        {"id": r[0], "identity": r[1], "display_name": r[2]} for r in rows
+        {"node_id": r[0], "display_name": r[1] or r[0]} for r in rows
     ]}
 
 
@@ -923,20 +940,17 @@ def update_post_acl(post_id: str, payload: _AclUpdateBody, request: Request, ide
     db = request.app.state.db
     if db.execute("SELECT id FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    for rid in payload.add:
-        if db.execute("SELECT id FROM recipients WHERE id = ?", (rid,)).fetchone() is None:
-            raise HTTPException(status_code=404, detail=f"Recipient {rid} not found")
-    for rid in payload.add:
-        db.execute("INSERT OR IGNORE INTO post_acl (post_id, recipient_id) VALUES (?, ?)", (post_id, rid))
-    for rid in payload.remove:
-        db.execute("DELETE FROM post_acl WHERE post_id = ? AND recipient_id = ?", (post_id, rid))
+    for nid in payload.add:
+        db.execute("INSERT OR IGNORE INTO post_acl (post_id, node_id) VALUES (?, ?)", (post_id, nid))
+    for nid in payload.remove:
+        db.execute("DELETE FROM post_acl WHERE post_id = ? AND node_id = ?", (post_id, nid))
     db.commit()
     rows = db.execute(
-        """SELECT r.id, r.identity, r.display_name
-           FROM post_acl pa JOIN recipients r ON r.id = pa.recipient_id
+        """SELECT pa.node_id, u.name
+           FROM post_acl pa LEFT JOIN users u ON u.node_id = pa.node_id
            WHERE pa.post_id = ?""",
         (post_id,),
     ).fetchall()
     return {"post_id": post_id, "recipients": [
-        {"id": r[0], "identity": r[1], "display_name": r[2]} for r in rows
+        {"node_id": r[0], "display_name": r[1] or r[0]} for r in rows
     ]}

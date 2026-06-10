@@ -55,13 +55,7 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         con.commit()
     except Exception:
         pass
-    con.execute("""
-        CREATE TABLE IF NOT EXISTS recipients (
-            id           TEXT PRIMARY KEY,
-            identity     TEXT NOT NULL UNIQUE,
-            display_name TEXT
-        )
-    """)
+    # recipients table removed: acl/post_acl/tokens etc. now store node_id directly
     con.execute("""
         CREATE TABLE IF NOT EXISTS acl (
             asset_id     TEXT NOT NULL,
@@ -155,6 +149,11 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         pass
     try:
         con.execute("ALTER TABLE posts ADD COLUMN supersedes_node_id TEXT")
+        con.commit()
+    except Exception:
+        pass
+    try:
+        con.execute("ALTER TABLE posts ADD COLUMN visibility_list_id TEXT")
         con.commit()
     except Exception:
         pass
@@ -510,50 +509,17 @@ def init_schema(con: sqlcipher3.Connection) -> None:
     if _stale_identities:
         con.commit()
 
-    # Resolve conflicts before migration: if a server_url recipient's target node_id already
-    # exists as another recipient, merge references into the node_id row and delete the stale one.
-    _conflicts = con.execute("""
-        SELECT r_url.id, r_nid.id
-        FROM recipients r_url
-        JOIN users u ON u.server_url = r_url.identity AND u.node_id IS NOT NULL
-        JOIN recipients r_nid ON r_nid.identity = u.node_id
-    """).fetchall()
-    for _url_id, _nid_id in _conflicts:
-        for _tbl, _pk_col, _rec_col in [("acl", "asset_id", "recipient_id"),
-                                         ("post_acl", "post_id", "recipient_id")]:
-            con.execute(
-                f"INSERT OR IGNORE INTO {_tbl} ({_pk_col}, {_rec_col}) "
-                f"SELECT {_pk_col}, ? FROM {_tbl} WHERE {_rec_col} = ?",
-                (_nid_id, _url_id))
-            con.execute(f"DELETE FROM {_tbl} WHERE {_rec_col} = ?", (_url_id,))
-        for _tbl, _col in [("tokens", "recipient_id"), ("comments", "author_recipient_id"),
-                            ("comment_edit_requests", "requester_recipient_id"),
-                            ("access_log", "recipient_id"), ("identity_mappings", "recipient_id")]:
-            con.execute(f"UPDATE {_tbl} SET {_col} = ? WHERE {_col} = ?", (_nid_id, _url_id))
-        con.execute("DELETE FROM recipients WHERE id = ?", (_url_id,))
-    if _conflicts:
-        con.commit()
-
-    # Migrate recipients.identity and comments.author_identity from server_url to node_id.
-    # Only updates rows where a matching users entry has a node_id; leaves the rest unchanged.
-    _recipients_migrated = con.execute("""
-        UPDATE recipients SET identity = (
-            SELECT u.node_id FROM users u WHERE u.server_url = recipients.identity AND u.node_id IS NOT NULL
+    # Migrate comments.author_identity from server_url to node_id.
+    _url_comments = con.execute("""
+        UPDATE comments SET author_identity = (
+            SELECT u.node_id FROM users u WHERE u.server_url = comments.author_identity AND u.node_id IS NOT NULL
         )
-        WHERE (
-            SELECT u.node_id FROM users u WHERE u.server_url = recipients.identity AND u.node_id IS NOT NULL
-        ) IS NOT NULL
+        WHERE author_identity IS NOT NULL AND author_identity != ''
+          AND (
+            SELECT u.node_id FROM users u WHERE u.server_url = comments.author_identity AND u.node_id IS NOT NULL
+          ) IS NOT NULL
     """).rowcount
-    if _recipients_migrated:
-        con.execute("""
-            UPDATE comments SET author_identity = (
-                SELECT u.node_id FROM users u WHERE u.server_url = comments.author_identity AND u.node_id IS NOT NULL
-            )
-            WHERE author_identity IS NOT NULL AND author_identity != ''
-              AND (
-                SELECT u.node_id FROM users u WHERE u.server_url = comments.author_identity AND u.node_id IS NOT NULL
-              ) IS NOT NULL
-        """)
+    if _url_comments:
         con.execute("""
             UPDATE mention_notifications SET author_node_id = (
                 SELECT u.node_id FROM users u WHERE u.server_url = mention_notifications.author_node_id AND u.node_id IS NOT NULL
@@ -564,3 +530,87 @@ def init_schema(con: sqlcipher3.Connection) -> None:
               ) IS NOT NULL
         """)
         con.commit()
+
+    # Migrate recipients table: replace UUID FK columns with identity (node_id) values, then drop.
+    try:
+        con.execute("SELECT id FROM recipients LIMIT 1")
+    except Exception:
+        pass  # already dropped
+    else:
+        # First, resolve conflicts: if a server_url recipient's node_id already has its own recipient
+        # row, merge references into the node_id row and delete the stale URL-keyed row.
+        _conflicts = con.execute("""
+            SELECT r_url.id, r_nid.id
+            FROM recipients r_url
+            JOIN users u ON u.server_url = r_url.identity AND u.node_id IS NOT NULL
+            JOIN recipients r_nid ON r_nid.identity = u.node_id
+        """).fetchall()
+        for _url_id, _nid_id in _conflicts:
+            for _tbl, _pk_col, _rec_col in [("acl", "asset_id", "recipient_id"),
+                                             ("post_acl", "post_id", "recipient_id")]:
+                con.execute(
+                    f"INSERT OR IGNORE INTO {_tbl} ({_pk_col}, {_rec_col}) "
+                    f"SELECT {_pk_col}, ? FROM {_tbl} WHERE {_rec_col} = ?",
+                    (_nid_id, _url_id))
+                con.execute(f"DELETE FROM {_tbl} WHERE {_rec_col} = ?", (_url_id,))
+            for _tbl, _col in [("tokens", "recipient_id"), ("comments", "author_recipient_id"),
+                                ("comment_edit_requests", "requester_recipient_id"),
+                                ("access_log", "recipient_id"), ("identity_mappings", "recipient_id")]:
+                con.execute(f"UPDATE {_tbl} SET {_col} = ? WHERE {_col} = ?", (_nid_id, _url_id))
+            con.execute("DELETE FROM recipients WHERE id = ?", (_url_id,))
+
+        # Migrate remaining recipients.identity from server_url to node_id.
+        con.execute("""
+            UPDATE recipients SET identity = (
+                SELECT u.node_id FROM users u WHERE u.server_url = recipients.identity AND u.node_id IS NOT NULL
+            )
+            WHERE (
+                SELECT u.node_id FROM users u WHERE u.server_url = recipients.identity AND u.node_id IS NOT NULL
+            ) IS NOT NULL
+        """)
+
+        # Replace UUID values with the corresponding identity (node_id) in all referencing tables.
+        for _tbl, _col in [
+            ("acl", "recipient_id"),
+            ("post_acl", "recipient_id"),
+            ("tokens", "recipient_id"),
+            ("access_log", "recipient_id"),
+            ("identity_mappings", "recipient_id"),
+        ]:
+            con.execute(f"""
+                UPDATE {_tbl} SET {_col} = (
+                    SELECT r.identity FROM recipients r WHERE r.id = {_tbl}.{_col}
+                )
+                WHERE {_col} IS NOT NULL
+                  AND (SELECT r.identity FROM recipients r WHERE r.id = {_tbl}.{_col}) IS NOT NULL
+            """)
+        for _tbl, _col in [
+            ("comments", "author_recipient_id"),
+            ("comment_edit_requests", "requester_recipient_id"),
+        ]:
+            con.execute(f"""
+                UPDATE {_tbl} SET {_col} = (
+                    SELECT r.identity FROM recipients r WHERE r.id = {_tbl}.{_col}
+                )
+                WHERE {_col} IS NOT NULL
+                  AND (SELECT r.identity FROM recipients r WHERE r.id = {_tbl}.{_col}) IS NOT NULL
+            """)
+
+        con.execute("DROP TABLE recipients")
+        con.commit()
+
+    # Rename recipient_id → node_id in all tables that store it.
+    for _tbl, _old, _new in [
+        ("acl", "recipient_id", "node_id"),
+        ("post_acl", "recipient_id", "node_id"),
+        ("tokens", "recipient_id", "node_id"),
+        ("access_log", "recipient_id", "node_id"),
+        ("identity_mappings", "recipient_id", "node_id"),
+        ("comments", "author_recipient_id", "author_node_id"),
+        ("comment_edit_requests", "requester_recipient_id", "requester_node_id"),
+    ]:
+        try:
+            con.execute(f"ALTER TABLE {_tbl} RENAME COLUMN {_old} TO {_new}")
+            con.commit()
+        except Exception:
+            pass  # already renamed or table doesn't exist

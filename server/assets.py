@@ -127,12 +127,9 @@ def _apply_watermark_if_needed(content: bytes, media_type: str, request: Request
     if identity.is_share:
         wm_identity = identity.share_identity
     else:
-        row = request.app.state.db.execute(
-            "SELECT identity FROM recipients WHERE id = ?", (identity.recipient_id,)
-        ).fetchone()
-        if row is None:
+        if not identity.node_id:
             return content
-        wm_identity = row[0]
+        wm_identity = identity.node_id
     try:
         return watermark_module.apply(content, media_type, wm_identity)
     except WatermarkError:

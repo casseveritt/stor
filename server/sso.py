@@ -11,7 +11,7 @@ from urllib.parse import urlencode
 
 import httpx
 
-from .auth import issue_recipient_token
+from .auth import issue_node_token
 from .db import NS, now_ns
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
@@ -101,25 +101,16 @@ def normalize_google_identity(claims: dict) -> str:
 # ── identity resolution ───────────────────────────────────────────────────────
 
 def resolve_identity(db, identity: str) -> str | None:
-    """Map provider:identifier → recipient_id.
-
-    Checks identity_mappings first (supports multi-identity aliases),
-    then falls back to direct match on recipients.identity.
-    """
+    """Map provider:identifier → node_id via identity_mappings."""
     row = db.execute(
         "SELECT recipient_id FROM identity_mappings WHERE identity = ?", (identity,)
-    ).fetchone()
-    if row:
-        return row[0]
-    row = db.execute(
-        "SELECT id FROM recipients WHERE identity = ?", (identity,)
     ).fetchone()
     return row[0] if row else None
 
 
 def complete_callback(db, identity: str, ttl_seconds: int = 86400) -> str:
-    """Resolve identity to a recipient and issue a session token."""
-    recipient_id = resolve_identity(db, identity)
-    if recipient_id is None:
-        raise UnknownIdentityError(f"No recipient configured for identity: {identity}")
-    return issue_recipient_token(db, recipient_id, ttl_seconds=ttl_seconds)
+    """Resolve SSO identity to a node_id and issue a session token."""
+    node_id = resolve_identity(db, identity)
+    if node_id is None:
+        raise UnknownIdentityError(f"No node configured for identity: {identity}")
+    return issue_node_token(db, node_id, ttl_seconds=ttl_seconds)

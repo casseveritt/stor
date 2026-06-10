@@ -5,7 +5,7 @@ import uuid
 
 import pytest
 
-from server.auth import issue_token, issue_recipient_token, setup as auth_setup
+from server.auth import issue_token, issue_node_token, setup as auth_setup
 from server.crypto import derive_master_key, decrypt_bytes
 from tests.conftest import TEST_PASSPHRASE, TEST_SALT, TEST_ARGON2
 
@@ -135,7 +135,7 @@ class TestRecipients:
         )
         recipient_id = r.json()["id"]
         db = client.app.state.db
-        token = issue_recipient_token(db, recipient_id, ttl_seconds=3600)
+        token = issue_node_token(db, recipient_id, ttl_seconds=3600)
         client.delete(f"/recipients/{recipient_id}", headers=_auth(owner_token))
         # Token should now be revoked
         r2 = client.get("/feed", headers=_auth(token))
@@ -153,7 +153,7 @@ class TestRecipients:
         )
         recipient_id = r.json()["id"]
         db = client.app.state.db
-        token = issue_recipient_token(db, recipient_id, ttl_seconds=3600)
+        token = issue_node_token(db, recipient_id, ttl_seconds=3600)
         r2 = client.get("/recipients", headers=_auth(token))
         assert r2.status_code == 403
 
@@ -250,7 +250,7 @@ class TestTokenManagement:
         )
         recipient_id = r.json()["id"]
         db = client.app.state.db
-        issue_recipient_token(db, recipient_id, ttl_seconds=3600)
+        issue_node_token(db, recipient_id, ttl_seconds=3600)
         r2 = client.get("/tokens", headers=_auth(owner_token))
         assert r2.status_code == 200
         assert isinstance(r2.json()["tokens"], list)
@@ -265,7 +265,7 @@ class TestTokenManagement:
         )
         recipient_id = r.json()["id"]
         db = client.app.state.db
-        token = issue_recipient_token(db, recipient_id, ttl_seconds=3600)
+        token = issue_node_token(db, recipient_id, ttl_seconds=3600)
 
         r2 = client.post(f"/tokens/{token}/revoke", headers=_auth(owner_token))
         assert r2.status_code == 200
@@ -279,7 +279,7 @@ class TestTokenManagement:
         )
         recipient_id = r.json()["id"]
         db = client.app.state.db
-        token = issue_recipient_token(db, recipient_id, ttl_seconds=3600)
+        token = issue_node_token(db, recipient_id, ttl_seconds=3600)
 
         client.post(f"/tokens/{token}/revoke", headers=_auth(owner_token))
         r2 = client.get("/feed", headers=_auth(token))
@@ -297,7 +297,7 @@ class TestTokenManagement:
         )
         recipient_id = r.json()["id"]
         db = client.app.state.db
-        token = issue_recipient_token(db, recipient_id, ttl_seconds=3600)
+        token = issue_node_token(db, recipient_id, ttl_seconds=3600)
         client.post(f"/tokens/{token}/revoke", headers=_auth(owner_token))
 
         r2 = client.get("/tokens", headers=_auth(owner_token))
@@ -384,7 +384,7 @@ class TestPublishWithInitialACL:
         )
         recipient_id = r.json()["id"]
         db = client.app.state.db
-        token = issue_recipient_token(db, recipient_id, ttl_seconds=3600)
+        token = issue_node_token(db, recipient_id, ttl_seconds=3600)
 
         import json as _json
         r2 = client.post(

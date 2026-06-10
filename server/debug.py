@@ -151,7 +151,6 @@ def _run_checks(db, store_path: Path) -> list[dict]:
     # Valid comment author_identity: NULL/'' (owner), or a known recipient identity.
     _valid = "('', '<anon>', '__anon__')"
     _known_node_ids_sub = "SELECT node_id FROM users WHERE node_id IS NOT NULL"
-    _known_recipients_sub = "SELECT identity FROM recipients WHERE identity IS NOT NULL"
     bad_reactions = db.execute(
         f"SELECT id, reactor_identity FROM reactions "
         f"WHERE reactor_identity NOT IN {_valid} "
@@ -161,7 +160,7 @@ def _run_checks(db, store_path: Path) -> list[dict]:
         f"SELECT id, author_identity FROM comments "
         f"WHERE deleted = 0 AND author_identity IS NOT NULL AND author_identity != '' "
         f"AND author_identity NOT IN {_valid} "
-        f"AND author_identity NOT IN ({_known_recipients_sub})"
+        f"AND author_identity NOT IN ({_known_node_ids_sub})"
     ).fetchall()
     if bad_reactions or bad_comments:
         items = (
@@ -178,7 +177,7 @@ def _run_checks(db, store_path: Path) -> list[dict]:
                 f"UPDATE comments SET deleted = 1 WHERE deleted = 0 "
                 f"AND author_identity IS NOT NULL AND author_identity != '' "
                 f"AND author_identity NOT IN {_valid} "
-                f"AND author_identity NOT IN ({_known_recipients_sub})"
+                f"AND author_identity NOT IN ({_known_node_ids_sub})"
             ),
         })
 

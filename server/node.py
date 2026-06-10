@@ -42,7 +42,7 @@ def _activity_tier(request: Request, identity: TokenIdentity) -> str:
             return "close_contact" if (w is not None and w >= 0.8) else "contact"
         return "authenticated"
     # Bearer / query-param token that verified but isn't owner or federated
-    if identity.recipient_id is not None or identity.share_identity is not None:
+    if identity.node_id is not None or identity.share_identity is not None:
         return "authenticated"
     return "public"
 
@@ -145,12 +145,10 @@ def node_stats(request: Request, identity: OwnerDep):
     total_assets = db.execute("SELECT COUNT(*) FROM assets WHERE deleted = 0").fetchone()[0]
     public_assets = db.execute("SELECT COUNT(*) FROM assets WHERE is_public = 1 AND deleted = 0").fetchone()[0]
     total_storage = db.execute("SELECT COALESCE(SUM(size), 0) FROM assets WHERE deleted = 0").fetchone()[0]
-    recipients = db.execute("SELECT COUNT(*) FROM recipients").fetchone()[0]
     total_comments = db.execute("SELECT COUNT(*) FROM comments WHERE deleted = 0").fetchone()[0]
     return {
         "posts": {"total": total_posts, "public": public_posts, "private": total_posts - public_posts},
         "assets": {"total": total_assets, "public": public_assets, "private": total_assets - public_assets},
         "storage_bytes": total_storage,
-        "recipients": recipients,
         "comments": total_comments,
     }

@@ -117,10 +117,10 @@ class TestCreatePost:
         assert r.status_code == 401
 
     def test_requires_owner(self, client, owner_token):
-        from server.auth import issue_recipient_token
+        from server.auth import issue_node_token
         r = client.post("/recipients", json={"identity": "p21@x.com"}, headers=_auth(owner_token))
         rid = r.json()["id"]
-        tok = issue_recipient_token(client.app.state.db, rid)
+        tok = issue_node_token(client.app.state.db, rid)
         r = client.post("/posts", data={"body": "recipient post"}, headers=_auth(tok))
         assert r.status_code == 403
 

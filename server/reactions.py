@@ -112,8 +112,8 @@ async def toggle_reaction(post_id: str, payload: _ReactBody, request: Request, i
         if _pub:
             _row = db.execute("SELECT name FROM users WHERE public_key = ?", (_pub,)).fetchone()
             _actor = _row[0] if _row else None
-        elif identity.recipient_id:
-            _row = db.execute("SELECT display_name FROM recipients WHERE id = ?", (identity.recipient_id,)).fetchone()
+        elif identity.node_id:
+            _row = db.execute("SELECT name FROM users WHERE node_id = ?", (identity.node_id,)).fetchone()
             _actor = _row[0] if _row else None
         import hashlib as _hl
         _nid = _hl.sha256(f"reaction:{post_id}:{reactor}:{payload.emoji}".encode()).hexdigest()[:36]

@@ -51,10 +51,6 @@ async def publish_asset(
         if db.execute("SELECT id FROM assets WHERE id = ?", (predecessor,)).fetchone() is None:
             raise HTTPException(status_code=404, detail="Predecessor asset not found")
 
-    for recipient_id in acl_list:
-        if db.execute("SELECT id FROM recipients WHERE id = ?", (recipient_id,)).fetchone() is None:
-            raise HTTPException(status_code=404, detail=f"Recipient {recipient_id} not found")
-
     store_path: Path = request.app.state.store_path
     file_dir = store_path / "files" / content_hash[:2]
     file_dir.mkdir(parents=True, exist_ok=True)
@@ -75,8 +71,8 @@ async def publish_asset(
     )
     if predecessor is not None:
         db.execute("UPDATE assets SET successor = ? WHERE id = ?", (asset_id, predecessor))
-    for recipient_id in acl_list:
-        db.execute("INSERT OR IGNORE INTO acl (asset_id, recipient_id) VALUES (?, ?)", (asset_id, recipient_id))
+    for node_id in acl_list:
+        db.execute("INSERT OR IGNORE INTO acl (asset_id, node_id) VALUES (?, ?)", (asset_id, node_id))
     db.commit()
 
     return {
@@ -166,24 +162,22 @@ def update_acl(asset_id: str, payload: _UpdateACLBody, request: Request, identit
     if db.execute("SELECT id FROM assets WHERE id = ?", (asset_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Asset not found")
 
-    for recipient_id in payload.add:
-        if db.execute("SELECT id FROM recipients WHERE id = ?", (recipient_id,)).fetchone() is None:
-            raise HTTPException(status_code=404, detail=f"Recipient {recipient_id} not found")
+    for node_id in payload.add:
         db.execute(
-            "INSERT OR IGNORE INTO acl (asset_id, recipient_id) VALUES (?, ?)",
-            (asset_id, recipient_id),
+            "INSERT OR IGNORE INTO acl (asset_id, node_id) VALUES (?, ?)",
+            (asset_id, node_id),
         )
 
-    for recipient_id in payload.remove:
+    for node_id in payload.remove:
         db.execute(
-            "DELETE FROM acl WHERE asset_id = ? AND recipient_id = ?",
-            (asset_id, recipient_id),
+            "DELETE FROM acl WHERE asset_id = ? AND node_id = ?",
+            (asset_id, node_id),
         )
 
     db.commit()
 
     rows = db.execute(
-        "SELECT recipient_id FROM acl WHERE asset_id = ?", (asset_id,)
+        "SELECT node_id FROM acl WHERE asset_id = ?", (asset_id,)
     ).fetchall()
     return {"asset_id": asset_id, "recipients": [r[0] for r in rows]}
 
@@ -196,16 +190,16 @@ def get_acl(asset_id: str, request: Request, identity: OwnerDep):
     if db.execute("SELECT id FROM assets WHERE id = ? AND deleted = 0", (asset_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Asset not found")
     rows = db.execute(
-        """SELECT r.id, r.identity, r.display_name
-           FROM acl a JOIN recipients r ON r.id = a.recipient_id
+        """SELECT a.node_id, u.name
+           FROM acl a LEFT JOIN users u ON u.node_id = a.node_id
            WHERE a.asset_id = ?
-           ORDER BY r.display_name""",
+           ORDER BY u.name""",
         (asset_id,),
     ).fetchall()
     return {
         "asset_id": asset_id,
         "recipients": [
-            {"id": r[0], "identity": r[1], "display_name": r[2]} for r in rows
+            {"node_id": r[0], "display_name": r[1] or r[0]} for r in rows
         ],
     }
 

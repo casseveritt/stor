@@ -57,8 +57,8 @@ def _watermark_image(content: bytes, identity: str) -> bytes:
     return buf.getvalue()
 
 
-def apply(content: bytes, media_type: str, recipient_identity: str) -> bytes:
-    """Watermark content for the given recipient.
+def apply(content: bytes, media_type: str, node_id: str) -> bytes:
+    """Watermark content for the given node.
 
     Images get a visible text overlay. Other types pass through unchanged.
     Raises WatermarkError if image watermarking fails — callers must not
@@ -67,6 +67,6 @@ def apply(content: bytes, media_type: str, recipient_identity: str) -> bytes:
     if not media_type.startswith("image/"):
         return content
     try:
-        return _watermark_image(content, recipient_identity)
+        return _watermark_image(content, node_id)
     except Exception as exc:
         raise WatermarkError(f"Watermarking failed: {exc}") from exc

@@ -145,9 +145,9 @@ class TestQueryParamAuth:
             headers={"Authorization": f"Bearer {owner_token}"},
         )
         assert r_acl.status_code == 200
-        from server.auth import issue_recipient_token
+        from server.auth import issue_node_token
         db = client.app.state.db
-        recip_token = issue_recipient_token(db, ui_user["recipient_id"])
+        recip_token = issue_node_token(db, ui_user["recipient_id"])
         r = client.get(f"/assets/{image_asset['id']}?token={recip_token}")
         assert r.status_code == 200
 

@@ -8,7 +8,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from server.auth import issue_token, issue_recipient_token, issue_share_token, setup as auth_setup
+from server.auth import issue_token, issue_node_token, issue_share_token, setup as auth_setup
 from server.crypto import derive_master_key, decrypt_bytes
 from tests.conftest import TEST_PASSPHRASE, TEST_SALT, TEST_ARGON2
 
@@ -36,7 +36,7 @@ def recipient_token(client, owner_token):
     assert r.status_code == 201
     recipient_id = r.json()["id"]
     db = client.app.state.db
-    return issue_recipient_token(db, recipient_id, ttl_seconds=3600)
+    return issue_node_token(db, recipient_id, ttl_seconds=3600)
 
 
 @pytest.fixture(scope="module")

@@ -879,13 +879,26 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def api_create_post(request: Request, notify_parent: bool = False):
         if not _token(config.own_server):
             raise HTTPException(status_code=401, detail="Not authenticated")
-        body = await request.body()
-        content_type = request.headers.get("content-type", "")
+        form = await request.form()
+        fields: dict[str, str] = {}
+        file_tuples: list = []
+        for key, value in form.multi_items():
+            if hasattr(value, "read"):
+                content = await value.read()
+                file_tuples.append((key, (value.filename or key, content, value.content_type or "application/octet-stream")))
+            else:
+                fields[key] = value
+        # inject visibility_list_id for contacts-visibility top-level posts
+        if fields.get("visibility", "contacts") == "contacts" and not fields.get("parent_id"):
+            node_ids = [c.node_id for c in config.contacts if c.node_id]
+            if node_ids:
+                fields["visibility_list_id"] = store_node_list(_client_db, node_ids)
         async with httpx.AsyncClient() as hc:
             r = await hc.post(
                 _server + "/posts",
-                content=body,
-                headers={**_headers(config.own_server), "content-type": content_type},
+                data=fields,
+                files=file_tuples or None,
+                headers=_headers(config.own_server),
                 timeout=60.0,
             )
         if not r.is_success:

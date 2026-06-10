@@ -6,7 +6,7 @@ import uuid
 
 import pytest
 
-from server.auth import issue_recipient_token, setup as auth_setup, issue_token
+from server.auth import issue_node_token, setup as auth_setup, issue_token
 from server.comments import approve_edit, reject_edit
 from server.crypto import derive_master_key, decrypt_bytes
 from tests.conftest import TEST_PASSPHRASE, TEST_SALT, TEST_ARGON2
@@ -66,8 +66,8 @@ def comment_world(client, owner_token):
     alice_id = _add_recipient(db, "google:alice-c@test.com")
     bob_id = _add_recipient(db, "google:bob-c@test.com")
     _grant_acl(db, asset_id, alice_id)
-    alice_token = issue_recipient_token(db, alice_id, ttl_seconds=3600)
-    bob_token = issue_recipient_token(db, bob_id, ttl_seconds=3600)
+    alice_token = issue_node_token(db, alice_id, ttl_seconds=3600)
+    bob_token = issue_node_token(db, bob_id, ttl_seconds=3600)
     return {
         "asset_id": asset_id,
         "alice_id": alice_id,

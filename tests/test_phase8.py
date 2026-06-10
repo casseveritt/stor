@@ -75,9 +75,9 @@ class TestPublishAsset:
         assert data["content_hash"] == __import__("hashlib").sha256(content).hexdigest()
 
     def test_non_owner_denied(self, client, write_world):
-        from server.auth import issue_recipient_token
+        from server.auth import issue_node_token
         db = client.app.state.db
-        token = issue_recipient_token(db, write_world["alice_id"], ttl_seconds=3600)
+        token = issue_node_token(db, write_world["alice_id"], ttl_seconds=3600)
         r = client.post(
             "/assets",
             files={"file": ("x.txt", b"x", "text/plain")},

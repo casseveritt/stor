@@ -7,7 +7,7 @@ import uuid
 import pytest
 from PIL import Image
 
-from server.auth import issue_token, issue_recipient_token, setup as auth_setup
+from server.auth import issue_token, issue_node_token, setup as auth_setup
 from server.crypto import derive_master_key, decrypt_bytes
 from tests.conftest import TEST_PASSPHRASE, TEST_SALT, TEST_ARGON2
 
@@ -42,7 +42,7 @@ def recipient(client):
     db.execute("INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
                (rid, "google:upload-test@example.com", "Upload Tester"))
     db.commit()
-    return {"id": rid, "token": issue_recipient_token(db, rid)}
+    return {"id": rid, "token": issue_node_token(db, rid)}
 
 
 # ── response shape (fields the SPA's makeCard() needs) ────────────────────────

@@ -78,11 +78,11 @@ def query_feed(
                 conditions.append(f"id IN ({placeholders})")
                 params.extend(identity.share_asset_ids)
             # else: node-wide share — no filter needed
-        elif identity.recipient_id is not None:
+        elif identity.node_id is not None:
             conditions.append(
-                "(is_public = 1 OR EXISTS (SELECT 1 FROM acl WHERE asset_id = assets.id AND recipient_id = ?))"
+                "(is_public = 1 OR EXISTS (SELECT 1 FROM acl WHERE asset_id = assets.id AND node_id = ?))"
             )
-            params.append(identity.recipient_id)
+            params.append(identity.node_id)
         else:
             # unauthenticated guest — only public assets
             conditions.append("is_public = 1")

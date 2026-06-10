@@ -138,13 +138,8 @@ def me(request: Request, identity: AuthDep):
     if identity.is_share:
         return {"role": "share", "identity": identity.share_identity}
     db = request.app.state.db
-    row = db.execute(
-        "SELECT identity, display_name FROM recipients WHERE id = ?",
-        (identity.recipient_id,),
-    ).fetchone()
-    if row:
-        return {"role": "recipient", "identity": row[0], "display_name": row[1]}
-    return {"role": "recipient", "identity": None}
+    row = db.execute("SELECT name FROM users WHERE node_id = ?", (identity.node_id,)).fetchone()
+    return {"role": "recipient", "node_id": identity.node_id, "display_name": row[0] if row else None}
 
 
 class _SignBody(BaseModel):

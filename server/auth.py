@@ -16,7 +16,6 @@ import json
 import os
 import struct
 import time
-import uuid
 from dataclasses import dataclass, field
 from typing import Annotated
 
@@ -39,7 +38,7 @@ OWNER_TOKEN_LEN = ID_LEN + EXPIRY_LEN + SIG_LEN  # 104 bytes raw
 @dataclass
 class TokenIdentity:
     is_owner: bool
-    recipient_id: str | None = None       # set for recipient tokens
+    node_id: str | None = None            # set for non-owner tokens
     share_identity: str | None = None     # set for share tokens (watermark label)
     share_asset_ids: list[str] | None = None  # None = node-wide; list = scoped
     share_post_ids: list[str] | None = None   # None = not present; list = scoped
@@ -88,15 +87,15 @@ def _verify_owner_token(token: str) -> bool:
         return False
 
 
-# ── recipient token (DB-backed, revocable) ────────────────────────────────────
+# ── node token (DB-backed, revocable) ────────────────────────────────────────
 
-def issue_recipient_token(db, recipient_id: str, ttl_seconds: int = 86400 * 30) -> str:
+def issue_node_token(db, node_id: str, ttl_seconds: int = 86400 * 30) -> str:
     raw = os.urandom(ID_LEN)
     token_str = base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
     expiry = now_ns() + ttl_seconds * NS
     db.execute(
-        "INSERT INTO tokens (id, recipient_id, expiry, revoked) VALUES (?, ?, ?, 0)",
-        (token_str, recipient_id, expiry),
+        "INSERT INTO tokens (id, node_id, expiry, revoked) VALUES (?, ?, ?, 0)",
+        (token_str, node_id, expiry),
     )
     db.commit()
     return token_str
@@ -184,16 +183,16 @@ def _identity_from_token(request: Request, token: str) -> TokenIdentity:
         return TokenIdentity(is_owner=True)
     db = request.app.state.db
     row = db.execute(
-        "SELECT recipient_id, expiry, revoked FROM tokens WHERE id = ?", (token,)
+        "SELECT node_id, expiry, revoked FROM tokens WHERE id = ?", (token,)
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
-    recipient_id, expiry, revoked = row
+    node_id, expiry, revoked = row
     if revoked:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has been revoked")
     if now_ns() > expiry:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token has expired")
-    return TokenIdentity(is_owner=recipient_id is None, recipient_id=recipient_id)
+    return TokenIdentity(is_owner=node_id is None, node_id=node_id)
 
 
 def get_identity(
@@ -298,24 +297,11 @@ async def get_identity_or_federated(
     except Exception:
         return _GUEST  # invalid signature — treat as guest
 
-    # Signature is valid. Find or create a recipient keyed by node_id.
+    # Signature is valid. Only proceed if we have a node_id — it is the sole identity.
     node_id = row[2]
-    server_url = row[1] or request.headers.get("X-Origin-Server", "")
-    recipient_identity = node_id or server_url  # node_id preferred; fall back for legacy contacts without one
-    if not recipient_identity:
+    if not node_id:
         return _GUEST
-    rec = db.execute("SELECT id FROM recipients WHERE identity = ?", (recipient_identity,)).fetchone()
-    if rec:
-        return TokenIdentity(is_owner=False, recipient_id=rec[0])
-
-    # Auto-create a recipient entry so the comment is attributed properly.
-    recipient_id = str(uuid.uuid4())
-    db.execute(
-        "INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
-        (recipient_id, recipient_identity, recipient_identity),
-    )
-    db.commit()
-    return TokenIdentity(is_owner=False, recipient_id=recipient_id)
+    return TokenIdentity(is_owner=False, node_id=node_id)
 
 
 FederatedOrTokenDep = Annotated[TokenIdentity, Depends(get_identity_or_federated)]
@@ -423,7 +409,7 @@ def check_acl(db, asset_id: str, identity: TokenIdentity) -> bool:
             return True  # node-wide share
         return asset_id in identity.share_asset_ids
     row = db.execute(
-        "SELECT 1 FROM acl WHERE asset_id = ? AND recipient_id = ?",
-        (asset_id, identity.recipient_id),
+        "SELECT 1 FROM acl WHERE asset_id = ? AND node_id = ?",
+        (asset_id, identity.node_id),
     ).fetchone()
     return row is not None

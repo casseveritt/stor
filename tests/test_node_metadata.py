@@ -49,7 +49,7 @@ class TestNodeMetadataTiers:
         client, app = node_client
         import uuid
         from server import auth as auth_mod
-        recipient_token = auth_mod.issue_recipient_token(
+        recipient_token = auth_mod.issue_node_token(
             app.state.db, str(uuid.uuid4()), ttl_seconds=3600
         )
         r = client.get("/node", headers={"Authorization": f"Bearer {recipient_token}"})

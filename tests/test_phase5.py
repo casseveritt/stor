@@ -7,7 +7,7 @@ import uuid
 import pytest
 from PIL import Image
 
-from server.auth import issue_recipient_token, setup as auth_setup, issue_token
+from server.auth import issue_node_token, setup as auth_setup, issue_token
 from server.crypto import derive_master_key, decrypt_bytes, encrypt_bytes
 from server.watermark import WatermarkError, apply as wm_apply
 from tests.conftest import TEST_PASSPHRASE, TEST_SALT, TEST_ARGON2
@@ -87,7 +87,7 @@ def recipient_with_image(store, client, watermarked_client):
     db.execute("INSERT OR IGNORE INTO acl (asset_id, recipient_id) VALUES (?, ?)", (asset_id, recipient_id))
     db.commit()
 
-    token = issue_recipient_token(db, recipient_id, ttl_seconds=3600)
+    token = issue_node_token(db, recipient_id, ttl_seconds=3600)
     return {
         "token": token,
         "asset_id": asset_id,
@@ -114,7 +114,7 @@ def text_asset_for_wm(store, client):
     )
     db.execute("INSERT OR IGNORE INTO acl (asset_id, recipient_id) VALUES (?, ?)", (asset_id, recipient_id))
     db.commit()
-    token = issue_recipient_token(db, recipient_id, ttl_seconds=3600)
+    token = issue_node_token(db, recipient_id, ttl_seconds=3600)
     return {"token": token, "asset_id": asset_id, "content": content}
 
 
@@ -227,7 +227,7 @@ class TestWatermarkFailure:
         )
         db.execute("INSERT OR IGNORE INTO acl (asset_id, recipient_id) VALUES (?, ?)", (asset_id, recipient_id))
         db.commit()
-        token = issue_recipient_token(db, recipient_id, ttl_seconds=3600)
+        token = issue_node_token(db, recipient_id, ttl_seconds=3600)
 
         r = watermarked_client.get(f"/assets/{asset_id}", headers=_auth(token))
         assert r.status_code == 500

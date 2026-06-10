@@ -138,11 +138,21 @@
   #inline-compose-body { background: var(--surface-3); color: var(--text-1); border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.92rem; line-height: 1.5; outline: none; font-family: inherit; }
   #inline-compose-body:focus { border-color: var(--accent); }
 
+  /* ── parent ref ── */
+  .parent-ref { font-size: 0.78rem; color: var(--text-5); cursor: pointer; padding-bottom: 0.5rem; margin-bottom: 0.35rem; border-bottom: 1px solid var(--surface-2); display: flex; align-items: baseline; gap: 0.3rem; position: relative; }
+  .parent-ref:hover { color: #999; }
+  .parent-ref-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 40ch; }
+  .parent-popover { position: absolute; top: 1.6rem; left: 0; z-index: 20; background: var(--surface-2); border: 1px solid var(--surface-3); border-radius: 6px; padding: 0.6rem 0.75rem; font-size: 0.82rem; color: var(--text-3); max-width: 360px; white-space: pre-wrap; word-break: break-word; pointer-events: none; box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
   /* ── comments ── */
   .comments-toggle { display: flex; align-items: center; gap: 0.35rem; padding: 0.45rem 0 0; margin-top: 0.5rem; border-top: 1px solid var(--surface-2); font-size: 0.8rem; color: var(--text-5); cursor: pointer; user-select: none; justify-content: space-between; }
   .comments-toggle:hover { color: #999; }
   .comments-toggle-arrow { font-size: 0.65rem; transition: transform 0.15s; }
   .comments-panel { padding-top: 0.75rem; }
+  /* ── replies ── */
+  .replies-toggle { display: flex; align-items: center; gap: 0.35rem; padding: 0.45rem 0 0; margin-top: 0.25rem; font-size: 0.8rem; color: var(--text-5); cursor: pointer; user-select: none; justify-content: space-between; }
+  .replies-toggle:hover { color: #999; }
+  .replies-toggle-arrow { font-size: 0.65rem; transition: transform 0.15s; }
+  .replies-panel { padding-top: 0.5rem; }
   .comments { margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--surface-3); }
   .comments-header { font-size: 0.85rem; color: var(--text-5); margin-bottom: 0.75rem; }
   .comment { padding: 0.5rem 0; border-bottom: 1px solid var(--surface-0); }
