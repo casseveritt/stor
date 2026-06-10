@@ -2960,7 +2960,7 @@ function _renderMentionsList() {
     const contact = (CFG?.contacts || []).find(c => c.node_id === _actorId || c.url === _actorId);
     const _resolved = _actorId ? _resolveIdentity(_actorId, '') : null;
     const _actorName = m.actor_name && !m.actor_name.startsWith('http') ? m.actor_name : null;
-    const name = _actorName || (contact ? (contact.name || m.author_handle) : (_resolved?.name || m.author_handle || 'Someone'));
+    const name = _actorName || (contact ? (contact.name || m.author_handle) : (_resolved?.name || m.author_handle || 'Satan'));
     const time = fmtDate(m.received_at);
     const dot = m.seen ? '' : '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#4285f4;flex-shrink:0;margin-top:3px"></span>';
     let text;

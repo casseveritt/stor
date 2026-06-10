@@ -121,7 +121,7 @@ async def toggle_reaction(post_id: str, payload: _ReactBody, request: Request, i
             "INSERT OR IGNORE INTO mention_notifications "
             "(id, post_id, author_node_id, author_handle, received_at, notif_type, actor_name, emoji) "
             "VALUES (?,?,?,?,?,?,?,?)",
-            (_nid, post_id, '', '', now_ns(), 'reaction', _actor, payload.emoji)
+            (_nid, post_id, reactor, '', now_ns(), 'reaction', _actor, payload.emoji)
         )
         db.commit()
 
