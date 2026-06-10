@@ -2041,7 +2041,9 @@ async function _toggleReplies(post, cardEl) {
     const card = makePostCard(rp, -1);
     card.style.cssText = 'margin-top:0.5rem;border-left:2px solid var(--border-strong);padding-left:0.75rem;cursor:pointer';
     card.addEventListener('click', e => {
-      if (e.target.closest('button, a, input, textarea, .reply-panel, .comments-panel, .replies-panel')) return;
+      if (e.target.closest('button, a, input, textarea, .reply-panel, .comments-panel')) return;
+      const nestedReplies = card.querySelector('.replies-panel');
+      if (nestedReplies && nestedReplies.contains(e.target)) return;
       openPostOverlay(rp.id, rp._server_url);
     });
     panel.appendChild(card);
