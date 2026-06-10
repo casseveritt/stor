@@ -99,9 +99,9 @@ function _showProfilePopup(serverUrl, anchorEl) {
   }
   const info = document.createElement('div'); info.style.minWidth = '0';
   const nameEl = document.createElement('div');
-  nameEl.style.cssText = 'font-size:0.95rem;font-weight:500;color:#e0e0e0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
+  nameEl.style.cssText = 'font-size:0.95rem;font-weight:500;color:var(--text-1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis';
   nameEl.textContent = name; info.appendChild(nameEl);
-  if (handle) { const hEl = document.createElement('div'); hEl.style.cssText = 'font-size:0.8rem;color:#666'; hEl.textContent = '@' + handle; info.appendChild(hEl); }
+  if (handle) { const hEl = document.createElement('div'); hEl.style.cssText = 'font-size:0.8rem;color:var(--text-5)'; hEl.textContent = '@' + handle; info.appendChild(hEl); }
   row.appendChild(info); popup.appendChild(row);
 
   if (!isOwn) {
@@ -401,6 +401,20 @@ async function logout() {
   location.reload();
 }
 
+function setTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  localStorage.setItem('theme', theme);
+  _updateThemeButtons();
+}
+
+function _updateThemeButtons() {
+  const theme = document.documentElement.getAttribute('data-theme') || 'dark';
+  const darkBtn = document.getElementById('theme-btn-dark');
+  const lightBtn = document.getElementById('theme-btn-light');
+  if (darkBtn) { darkBtn.style.background = theme === 'dark' ? 'var(--accent-surface)' : ''; darkBtn.style.color = theme === 'dark' ? 'var(--accent-light)' : ''; }
+  if (lightBtn) { lightBtn.style.background = theme === 'light' ? 'var(--accent-surface)' : ''; lightBtn.style.color = theme === 'light' ? 'var(--accent-light)' : ''; }
+}
+
 async function loadIdentity() {
   const r = await apiFetch("/api/auth/me");
   if (!r.ok) return;
@@ -530,8 +544,8 @@ function openContactMenu(e, url) {
     b.textContent = item.icon;
     b.title = item.title;
     b.style.cssText = 'font-size:1.05rem;padding:0.25rem 0.4rem;background:none;border:none;cursor:pointer;border-radius:4px;line-height:1';
-    b.style.color = item.danger ? '#c0392b' : '#ccc';
-    b.onmouseenter = () => b.style.background = '#2a2a2a';
+    b.style.color = item.danger ? 'var(--error)' : 'var(--text-2)';
+    b.onmouseenter = () => b.style.background = 'var(--surface-3)';
     b.onmouseleave = () => b.style.background = 'none';
     b.onclick = item.onclick;
     popup.appendChild(b);
@@ -1370,7 +1384,7 @@ async function showEmojiPicker(event, postId, serverUrl, commentId) {
     }
     picker.appendChild(freqRow);
     const sep = document.createElement('div');
-    sep.style.cssText = 'border-top:1px solid #333;margin:0.25rem 0';
+    sep.style.cssText = 'border-top:1px solid var(--border);margin:0.25rem 0';
     picker.appendChild(sep);
   }
 
@@ -1435,7 +1449,7 @@ async function showInlineEmojiPicker(event, taId) {
     }
     picker.appendChild(freqRow);
     const sep = document.createElement('div');
-    sep.style.cssText = 'border-top:1px solid #333;margin:0.25rem 0';
+    sep.style.cssText = 'border-top:1px solid var(--border);margin:0.25rem 0';
     picker.appendChild(sep);
   }
 
@@ -2025,7 +2039,7 @@ async function _toggleReplies(post, cardEl) {
   panel.innerHTML = '';
   for (const rp of sorted) {
     const card = makePostCard(rp, -1);
-    card.style.cssText = 'margin-top:0.5rem;border-left:2px solid #444;padding-left:0.75rem;cursor:pointer';
+    card.style.cssText = 'margin-top:0.5rem;border-left:2px solid var(--border-strong);padding-left:0.75rem;cursor:pointer';
     card.addEventListener('click', e => {
       if (e.target.closest('button, a, input, textarea, .reply-panel, .comments-panel, .replies-panel')) return;
       openPostOverlay(rp.id, rp._server_url);
@@ -2135,7 +2149,7 @@ async function submitReply(e, parentPostId, parentServerUrl, visibility) {
       const list = panel.querySelector('.reply-list');
       if (list) {
         const card = makePostCard(reply, allPosts.length);
-        card.style.cssText = 'margin-top:0.5rem;margin-left:1.5rem;border-left:2px solid #444;padding-left:0.5rem';
+        card.style.cssText = 'margin-top:0.5rem;margin-left:1.5rem;border-left:2px solid var(--border-strong);padding-left:0.5rem';
         list.appendChild(card);
       }
       if (notifyCheck?.checked) {
@@ -2410,9 +2424,9 @@ function composeShowTab(tab) {
   document.getElementById("compose-body-wrap").hidden = isPreview;
   document.getElementById("compose-preview-wrap").hidden = !isPreview;
   document.getElementById("compose-tab-write").style.cssText =
-    "background:none;border:none;border-bottom:2px solid " + (isPreview ? "transparent" : "#4285f4") + ";color:" + (isPreview ? "#888" : "#e0e0e0") + ";padding:0.3rem 0.75rem;cursor:pointer;font-size:0.85rem";
+    "background:none;border:none;border-bottom:2px solid " + (isPreview ? "transparent" : "var(--accent)") + ";color:" + (isPreview ? "var(--text-4)" : "var(--text-1)") + ";padding:0.3rem 0.75rem;cursor:pointer;font-size:0.85rem";
   document.getElementById("compose-tab-preview").style.cssText =
-    "background:none;border:none;border-bottom:2px solid " + (isPreview ? "#4285f4" : "transparent") + ";color:" + (isPreview ? "#e0e0e0" : "#888") + ";padding:0.3rem 0.75rem;cursor:pointer;font-size:0.85rem";
+    "background:none;border:none;border-bottom:2px solid " + (isPreview ? "var(--accent)" : "transparent") + ";color:" + (isPreview ? "var(--text-1)" : "var(--text-4)") + ";padding:0.3rem 0.75rem;cursor:pointer;font-size:0.85rem";
   if (isPreview) {
     const body = document.getElementById("compose-body").value;
     const previewPost = {
@@ -2702,7 +2716,7 @@ function editCommentInline(postId, serverUrl, commentId) {
   const original = bodyEl.textContent;
   const ta = document.createElement('textarea');
   ta.value = original;
-  ta.style.cssText = 'width:100%;background:#222;color:#e0e0e0;border:1px solid #4285f4;border-radius:4px;padding:0.4rem;font-size:0.88rem;resize:vertical;min-height:60px;outline:none;font-family:inherit;box-sizing:border-box';
+  ta.style.cssText = 'width:100%;background:var(--surface-input);color:var(--text-1);border:1px solid var(--accent);border-radius:4px;padding:0.4rem;font-size:0.88rem;resize:vertical;min-height:60px;outline:none;font-family:inherit;box-sizing:border-box';
   const actions = document.createElement('div');
   actions.style.cssText = 'display:flex;gap:0.5rem;justify-content:flex-end;margin-top:0.3rem';
   const saveBtn = document.createElement('button');
@@ -2857,7 +2871,7 @@ function fmtDateFull(ts) {
 function fmtSize(b) { if (b < 1024) return b + " B"; if (b < 1048576) return (b/1024).toFixed(1) + " KB"; return (b/1048576).toFixed(1) + " MB"; }
 
 // ── profile ────────────────────────────────────────────────────────────────
-function openProfile() { loadProfileAvatar(); document.getElementById("profile-overlay").hidden = false; }
+function openProfile() { loadProfileAvatar(); _updateThemeButtons(); document.getElementById("profile-overlay").hidden = false; }
 function closeProfile() { document.getElementById("profile-overlay").hidden = true; }
 
 function downloadBackup() {
@@ -2866,8 +2880,8 @@ function downloadBackup() {
 async function downloadPrivateKey() {
   const passphrase = document.getElementById("privkey-passphrase").value;
   const status = document.getElementById("privkey-status");
-  if (!passphrase) { status.style.color = "#e06c6c"; status.textContent = "Enter your passphrase."; return; }
-  status.style.color = "#888"; status.textContent = "Verifying…";
+  if (!passphrase) { status.style.color = "var(--error)"; status.textContent = "Enter your passphrase."; return; }
+  status.style.color = "var(--text-4)"; status.textContent = "Verifying…";
   const r = await apiFetch("/api/profile/private-key", {
     method: "POST",
     headers: {"Content-Type": "application/json"},

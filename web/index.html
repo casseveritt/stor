@@ -6,6 +6,7 @@
   <title>contacc</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css?v=702515c-7">
+  <script>(function(){var t=localStorage.getItem('theme')||'dark';document.documentElement.setAttribute('data-theme',t)})();</script>
 </head>
 <body>
 
@@ -15,7 +16,7 @@
     <div class="setup-inner">
       <div class="setup-logo"><img src="/favicon.svg"><span>contacc</span></div>
       <div id="setup-token-step" class="setup-form">
-        <p style="color:#888;font-size:0.9rem;text-align:center">Enter your setup token to continue.</p>
+        <p style="color:var(--text-4);font-size:0.9rem;text-align:center">Enter your setup token to continue.</p>
         <input type="text" id="setup-token-input" placeholder="Setup token" autocomplete="off" onkeydown="if(event.key==='Enter')acceptSetupToken()">
         <button class="btn btn-primary" onclick="acceptSetupToken()">Continue</button>
         <div class="setup-error" id="setup-token-error"></div>
@@ -29,24 +30,24 @@
           <input type="email" id="setup-owner-email" placeholder="your@email.com (Google account)">
           <input type="text" id="setup-display-name" placeholder="Full name" autocomplete="name">
           <input type="text" id="setup-handle" placeholder="Handle — short name you go by" autocomplete="off" autocapitalize="none">
-          <div style="font-size:0.78rem;color:#555;margin-top:-0.3rem;padding-left:0.1rem">Not required to be unique. Just use your first name or a nickname.</div>
+          <div style="font-size:0.78rem;color:var(--text-dim);margin-top:-0.3rem;padding-left:0.1rem">Not required to be unique. Just use your first name or a nickname.</div>
           <input type="password" id="setup-passphrase" placeholder="Choose a passphrase">
           <input type="password" id="setup-passphrase-confirm" placeholder="Confirm passphrase">
-          <div style="font-size:0.78rem;color:#888;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;padding:0.5rem 0.65rem;line-height:1.5">
+          <div style="font-size:0.78rem;color:var(--text-4);background:var(--surface-input);border:1px solid var(--surface-3);border-radius:4px;padding:0.5rem 0.65rem;line-height:1.5">
             Your passphrase encrypts all your data at rest and is required to make changes to your account.
-            Choose something strong and save it somewhere safe — <strong style="color:#aaa">it cannot be recovered if lost</strong> (unless you set up account recovery below).
+            Choose something strong and save it somewhere safe — <strong style="color:var(--text-3)">it cannot be recovered if lost</strong> (unless you set up account recovery below).
           </div>
-          <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:#aaa;cursor:pointer">
+          <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-3);cursor:pointer">
             <input type="checkbox" id="setup-tang" checked>
             Allow registry to unlock this node automatically
           </label>
-          <div style="font-size:0.75rem;color:#555;margin-top:-0.25rem">The registry can unlock your node on startup without requiring you to enter the passphrase manually.</div>
-          <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:#aaa;cursor:pointer;margin-top:0.25rem">
+          <div style="font-size:0.75rem;color:var(--text-dim);margin-top:-0.25rem">The registry can unlock your node on startup without requiring you to enter the passphrase manually.</div>
+          <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-3);cursor:pointer;margin-top:0.25rem">
             <input type="checkbox" id="setup-existing-owner" onchange="toggleExistingOwner()">
             This node belongs to an existing owner
           </label>
-          <div id="setup-existing-owner-fields" hidden style="display:flex;flex-direction:column;gap:0.75rem;background:#1a1a1a;border:1px solid #2a2a2a;border-radius:4px;padding:0.65rem">
-            <div style="font-size:0.78rem;color:#888">Enter your owner ID and owner passphrase to link this node to your existing identity.</div>
+          <div id="setup-existing-owner-fields" hidden style="display:flex;flex-direction:column;gap:0.75rem;background:var(--surface-input);border:1px solid var(--surface-3);border-radius:4px;padding:0.65rem">
+            <div style="font-size:0.78rem;color:var(--text-4)">Enter your owner ID and owner passphrase to link this node to your existing identity.</div>
             <input type="text" id="setup-owner-id" placeholder="Owner ID (UUID)" autocomplete="off" autocapitalize="none" style="font-family:monospace;font-size:0.82rem">
             <input type="password" id="setup-owner-passphrase" placeholder="Owner passphrase">
           </div>
@@ -74,12 +75,12 @@
 
       <!-- default: escrow path -->
       <div id="identity-escrow-section">
-        <p style="font-size:0.85rem;color:#aaa;margin-bottom:1rem;text-align:center">Your identity key will be securely stored in the registry. You only need to remember your passphrase.</p>
+        <p style="font-size:0.85rem;color:var(--text-3);margin-bottom:1rem;text-align:center">Your identity key will be securely stored in the registry. You only need to remember your passphrase.</p>
         <div class="setup-form">
           <input type="password" id="identity-owner-passphrase" placeholder="Owner passphrase">
           <input type="password" id="identity-owner-passphrase-confirm" placeholder="Confirm owner passphrase">
           <button class="btn btn-primary" onclick="uploadIdentityEscrowAndContinue()" id="identity-escrow-btn">Continue</button>
-          <div id="identity-escrow-status" style="font-size:0.82rem;min-height:1.2em;color:#e06c6c"></div>
+          <div id="identity-escrow-status" style="font-size:0.82rem;min-height:1.2em;color:var(--error)"></div>
           <div style="text-align:center;margin-top:0.25rem">
             <button class="btn btn-muted btn-sm" onclick="showIdentityManualPath()" style="font-size:0.75rem">I'll manage my own key instead</button>
           </div>
@@ -88,14 +89,14 @@
 
       <!-- opt-out: manual key path -->
       <div id="identity-manual-section" hidden>
-        <p style="color:#e06c6c;font-size:0.85rem;margin-bottom:0.75rem;text-align:center">⚠ You must be able to provide this key when making changes to your account.</p>
-        <div style="background:#111;border:1px solid #444;border-radius:4px;padding:0.6rem;margin-bottom:0.75rem">
-          <div style="font-size:0.72rem;color:#666;margin-bottom:0.3rem">Identity Private Key (hex)</div>
+        <p style="color:var(--error);font-size:0.85rem;margin-bottom:0.75rem;text-align:center">⚠ You must be able to provide this key when making changes to your account.</p>
+        <div style="background:var(--surface-code);border:1px solid var(--border-strong);border-radius:4px;padding:0.6rem;margin-bottom:0.75rem">
+          <div style="font-size:0.72rem;color:var(--text-5);margin-bottom:0.3rem">Identity Private Key (hex)</div>
           <textarea id="identity-key-display" readonly
-            style="width:100%;background:transparent;color:#6aa3f5;border:none;outline:none;font-family:monospace;font-size:0.75rem;resize:none;height:4rem;word-break:break-all"></textarea>
+            style="width:100%;background:transparent;color:var(--accent-light);border:none;outline:none;font-family:monospace;font-size:0.75rem;resize:none;height:4rem;word-break:break-all"></textarea>
         </div>
         <div class="setup-form">
-          <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:#aaa;cursor:pointer">
+          <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-3);cursor:pointer">
             <input type="checkbox" id="identity-saved-confirm" onchange="document.getElementById('identity-continue-btn').disabled=!this.checked">
             I have saved my identity key offline
           </label>
@@ -116,7 +117,7 @@
     <div class="setup-inner">
       <div class="setup-logo"><img src="/favicon.svg"><span>contacc</span></div>
       <div class="setup-form">
-        <p style="color:#888;font-size:0.9rem;text-align:center">Enter your passphrase to unlock the server.</p>
+        <p style="color:var(--text-4);font-size:0.9rem;text-align:center">Enter your passphrase to unlock the server.</p>
         <input type="password" id="unlock-passphrase" placeholder="Passphrase" onkeydown="if(event.key==='Enter')doUnlock()">
         <button class="btn btn-primary" onclick="doUnlock()">Unlock</button>
         <div class="setup-error" id="unlock-error"></div>
@@ -130,7 +131,7 @@
   <div class="setup-logo"><img src="/favicon.svg"><span>contacc</span></div>
   <div id="login-server"></div>
   <button class="btn btn-primary" onclick="loginGoogle()">Sign in with Google</button>
-  <div id="login-error" style="color:#e06c6c;font-size:0.85rem"></div>
+  <div id="login-error" style="color:var(--error);font-size:0.85rem"></div>
 </div>
 
 <!-- ── feed ───────────────────────────────────────────────────────────────── -->
@@ -150,10 +151,10 @@
       <span id="mentions-wrap" style="position:relative;display:none">
         <button id="mentions-btn" class="btn btn-muted btn-sm" onclick="_toggleMentionsPanel()" title="Mentions" style="position:relative;padding:0.3rem 0.55rem;font-size:1rem">
           @
-          <span id="mentions-badge" hidden style="position:absolute;top:-3px;right:-3px;background:#e06c6c;color:#fff;border-radius:50%;width:16px;height:16px;font-size:0.65rem;display:flex;align-items:center;justify-content:center;font-weight:600"></span>
+          <span id="mentions-badge" hidden style="position:absolute;top:-3px;right:-3px;background:var(--error);color:var(--text-bright);border-radius:50%;width:16px;height:16px;font-size:0.65rem;display:flex;align-items:center;justify-content:center;font-weight:600"></span>
         </button>
-        <div id="mentions-panel" hidden style="position:fixed;right:0.5rem;background:#1e1e1e;border:1px solid #333;border-radius:8px;z-index:1000;width:min(340px,calc(100vw - 1rem));max-height:min(420px,calc(100svh - 80px));overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,0.6)">
-          <div style="padding:0.5rem 0.75rem;font-size:0.78rem;color:#555;text-transform:uppercase;letter-spacing:0.06em;border-bottom:1px solid #2a2a2a;display:flex;justify-content:space-between;align-items:center">
+        <div id="mentions-panel" hidden style="position:fixed;right:0.5rem;background:var(--surface-1);border:1px solid var(--border);border-radius:8px;z-index:1000;width:min(340px,calc(100vw - 1rem));max-height:min(420px,calc(100svh - 80px));overflow-y:auto;box-shadow:0 4px 16px rgba(0,0,0,0.6)">
+          <div style="padding:0.5rem 0.75rem;font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.06em;border-bottom:1px solid var(--surface-3);display:flex;justify-content:space-between;align-items:center">
             Mentions
             <button class="btn btn-muted btn-sm" style="font-size:0.7rem;padding:0.1rem 0.4rem" onclick="_markMentionsSeen()">Mark read</button>
           </div>
@@ -163,11 +164,11 @@
       <span id="dm-wrap" style="position:relative;display:none">
         <button id="dm-btn" class="btn btn-muted btn-sm" onclick="_toggleDmPanel()" title="Messages" style="position:relative;padding:0.3rem 0.55rem;font-size:1rem">
           ✉
-          <span id="dm-badge" hidden style="position:absolute;top:-3px;right:-3px;background:#4285f4;color:#fff;border-radius:50%;width:16px;height:16px;font-size:0.65rem;display:flex;align-items:center;justify-content:center;font-weight:600"></span>
+          <span id="dm-badge" hidden style="position:absolute;top:-3px;right:-3px;background:var(--accent);color:var(--text-bright);border-radius:50%;width:16px;height:16px;font-size:0.65rem;display:flex;align-items:center;justify-content:center;font-weight:600"></span>
         </button>
-        <div id="dm-panel" hidden style="position:fixed;right:0.5rem;background:#1e1e1e;border:1px solid #333;border-radius:8px;z-index:1000;width:min(340px,calc(100vw - 1rem));max-height:min(520px,calc(100svh - 80px));overflow:hidden;display:flex;flex-direction:column;box-shadow:0 4px 16px rgba(0,0,0,0.6)">
+        <div id="dm-panel" hidden style="position:fixed;right:0.5rem;background:var(--surface-1);border:1px solid var(--border);border-radius:8px;z-index:1000;width:min(340px,calc(100vw - 1rem));max-height:min(520px,calc(100svh - 80px));overflow:hidden;display:flex;flex-direction:column;box-shadow:0 4px 16px rgba(0,0,0,0.6)">
           <div id="dm-thread-list-view" style="display:flex;flex-direction:column;flex:1;min-height:0">
-            <div style="padding:0.5rem 0.75rem;font-size:0.78rem;color:#555;text-transform:uppercase;letter-spacing:0.06em;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;justify-content:space-between">
+            <div style="padding:0.5rem 0.75rem;font-size:0.78rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.06em;border-bottom:1px solid var(--surface-3);display:flex;align-items:center;justify-content:space-between">
               <span>Messages</span>
               <span>
                 <button class="btn btn-muted btn-sm" onclick="_dmShowNewGroup()" title="New group" style="padding:0.1rem 0.4rem;font-size:0.85rem">+👥</button>
@@ -177,17 +178,17 @@
             <div id="dm-threads-list" style="flex:1;min-height:0;overflow-y:auto;padding:0.25rem 0"></div>
           </div>
           <div id="dm-conversation-view" hidden style="display:flex;flex-direction:column;flex:1;min-height:320px">
-            <div style="padding:0.4rem 0.75rem;border-bottom:1px solid #2a2a2a;display:flex;align-items:center;gap:0.5rem">
-              <button onclick="_dmBackToThreads()" style="background:none;border:none;color:#888;cursor:pointer;font-size:0.9rem;padding:0.1rem 0.3rem">‹</button>
-              <span id="dm-conv-name" style="font-size:0.88rem;color:#e0e0e0;font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
-              <button id="dm-conv-members-btn" hidden onclick="_dmShowGroupMembers()" title="Members" style="background:none;border:none;color:#888;cursor:pointer;font-size:0.9rem;padding:0.1rem 0.3rem">👥</button>
+            <div style="padding:0.4rem 0.75rem;border-bottom:1px solid var(--surface-3);display:flex;align-items:center;gap:0.5rem">
+              <button onclick="_dmBackToThreads()" style="background:none;border:none;color:var(--text-4);cursor:pointer;font-size:0.9rem;padding:0.1rem 0.3rem">‹</button>
+              <span id="dm-conv-name" style="font-size:0.88rem;color:var(--text-1);font-weight:500;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+              <button id="dm-conv-members-btn" hidden onclick="_dmShowGroupMembers()" title="Members" style="background:none;border:none;color:var(--text-4);cursor:pointer;font-size:0.9rem;padding:0.1rem 0.3rem">👥</button>
               <button class="dm-expand-btn" onclick="_dmToggleExpand()" title="Expand">⤢</button>
             </div>
             <div id="dm-messages-list" style="flex:1;overflow-y:auto;padding:0.5rem 0.75rem;display:flex;flex-direction:column;gap:0.4rem"></div>
-            <div id="dm-send-error" style="font-size:0.75rem;color:#e06c6c;padding:0 0.75rem;min-height:1rem"></div>
-            <div style="padding:0.5rem 0.75rem;border-top:1px solid #2a2a2a;display:flex;gap:0.4rem">
+            <div id="dm-send-error" style="font-size:0.75rem;color:var(--error);padding:0 0.75rem;min-height:1rem"></div>
+            <div style="padding:0.5rem 0.75rem;border-top:1px solid var(--surface-3);display:flex;gap:0.4rem">
               <textarea id="dm-compose" placeholder="Message…" rows="1"
-                style="flex:1;background:#222;border:1px solid #333;border-radius:4px;color:#e0e0e0;font-size:0.85rem;padding:0.35rem 0.5rem;resize:none;font-family:inherit;line-height:1.4;max-height:100px;overflow-y:auto"
+                style="flex:1;background:var(--surface-input);border:1px solid var(--border);border-radius:4px;color:var(--text-1);font-size:0.85rem;padding:0.35rem 0.5rem;resize:none;font-family:inherit;line-height:1.4;max-height:100px;overflow-y:auto"
                 onkeydown="if(event.key==='Enter'&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey){_dmSend();event.preventDefault()}"
                 oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px'"></textarea>
               <button class="btn btn-muted btn-sm" onclick="showInlineEmojiPicker(event,'dm-compose')" title="Insert emoji" style="align-self:flex-end">😊</button>
@@ -222,7 +223,7 @@
     </nav>
     <div id="main-area">
       <div id="default-passphrase-banner" hidden onclick="openDefaultPassphrasePanel()" style="cursor:pointer;text-align:center;padding:0.55rem 1rem;background:#7a2020;color:#fff;font-size:0.9rem;font-weight:bold;border-radius:6px;margin-bottom:0.75rem;max-width:680px;margin-left:auto;margin-right:auto;letter-spacing:0.03em">⚠ PLEASE set your passphrase — click here</div>
-      <div id="new-posts-banner" hidden onclick="refreshFeed()" style="cursor:pointer;text-align:center;padding:0.4rem;background:#1e2d4a;color:#6aa3f5;font-size:0.85rem;border-radius:6px;margin-bottom:0.5rem;max-width:680px;margin-left:auto;margin-right:auto"></div>
+      <div id="new-posts-banner" hidden onclick="refreshFeed()" style="cursor:pointer;text-align:center;padding:0.4rem;background:var(--accent-surface);color:var(--accent-light);font-size:0.85rem;border-radius:6px;margin-bottom:0.5rem;max-width:680px;margin-left:auto;margin-right:auto"></div>
       <div id="inline-compose" hidden style="max-width:680px;margin:0 auto 0.75rem;position:relative">
         <div id="inline-mention-dropdown" class="mention-dropdown" hidden style="top:100%;margin-top:2px"></div>
         <div style="display:flex;gap:0.5rem;align-items:center">
@@ -262,14 +263,14 @@
   <div class="modal" id="compose-modal">
     <button class="modal-close" onclick="closeCompose()">&#x2715;</button>
     <h3>New post</h3>
-    <div style="display:flex;gap:0;border-bottom:1px solid #2a2a2a;margin-bottom:0.5rem;align-items:center">
+    <div style="display:flex;gap:0;border-bottom:1px solid var(--surface-3);margin-bottom:0.5rem;align-items:center">
       <button id="compose-tab-write" onclick="composeShowTab('write')"
-        style="background:none;border:none;border-bottom:2px solid #4285f4;color:#e0e0e0;padding:0.3rem 0.75rem;cursor:pointer;font-size:0.85rem">Write</button>
+        style="background:none;border:none;border-bottom:2px solid var(--accent);color:var(--text-1);padding:0.3rem 0.75rem;cursor:pointer;font-size:0.85rem">Write</button>
       <button id="compose-tab-preview" onclick="composeShowTab('preview')"
-        style="background:none;border:none;border-bottom:2px solid transparent;color:#888;padding:0.3rem 0.75rem;cursor:pointer;font-size:0.85rem">Preview</button>
+        style="background:none;border:none;border-bottom:2px solid transparent;color:var(--text-4);padding:0.3rem 0.75rem;cursor:pointer;font-size:0.85rem">Preview</button>
       <span style="flex:1"></span>
       <button onclick="document.getElementById('file-picker').click()" title="Attach file"
-        style="background:none;border:none;color:#888;cursor:pointer;font-size:1.1rem;padding:0.2rem 0.5rem;line-height:1" onmouseover="this.style.color='#ccc'" onmouseout="this.style.color='#888'">📎</button>
+        style="background:none;border:none;color:var(--text-4);cursor:pointer;font-size:1.1rem;padding:0.2rem 0.5rem;line-height:1" onmouseover="this.style.color=getComputedStyle(document.documentElement).getPropertyValue('--text-2')" onmouseout="this.style.color=getComputedStyle(document.documentElement).getPropertyValue('--text-4')">📎</button>
     </div>
     <div id="compose-body-wrap">
       <div id="compose-highlight" aria-hidden="true"></div>
@@ -280,19 +281,19 @@
       <div id="compose-mention-dropdown" class="mention-dropdown" hidden></div>
     </div>
     <div id="compose-preview-wrap" hidden
-         style="min-height:6rem;max-height:16rem;overflow-y:auto;border:1px solid #333;border-radius:4px;padding:0.5rem 0.75rem;font-size:0.9rem;color:#e0e0e0;background:#141414;margin-bottom:0.5rem"></div>
+         style="min-height:6rem;max-height:16rem;overflow-y:auto;border:1px solid var(--border);border-radius:4px;padding:0.5rem 0.75rem;font-size:0.9rem;color:var(--text-1);background:var(--surface-input);margin-bottom:0.5rem"></div>
     <input type="file" id="file-picker" multiple hidden onchange="addFiles(this.files);this.value=''">
     <div id="file-list"></div>
     <div class="compose-fields">
       <input type="text" id="compose-tags" placeholder="Tags — space-separated">
-      <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;font-size:0.85rem;color:#aaa">
-        <label>Visible to <select id="compose-visibility" style="background:#222;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
+      <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;font-size:0.85rem;color:var(--text-3)">
+        <label>Visible to <select id="compose-visibility" style="background:var(--surface-input);color:var(--text-1);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
           <option value="contacts">Contacts</option>
           <option value="authenticated">Authenticated</option>
           <option value="public">Public</option>
           <option value="private">Private</option>
         </select></label>
-        <label>Comments <select id="compose-comment-access" style="background:#222;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
+        <label>Comments <select id="compose-comment-access" style="background:var(--surface-input);color:var(--text-1);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
           <option value="contacts">Contacts</option>
           <option value="authenticated">Authenticated</option>
           <option value="public">Public</option>
@@ -318,7 +319,7 @@
         <input type="text" id="add-contact-handle" placeholder="name or @handle" style="flex:1" oninput="scheduleContactSearch(this.value)" onkeydown="if(event.key==='Enter')searchContacts()">
         <button class="btn btn-muted btn-sm" onclick="searchContacts()">Search</button>
       </div>
-      <div id="add-contact-result" style="font-size:0.85rem;color:#aaa;min-height:1.4em"></div>
+      <div id="add-contact-result" style="font-size:0.85rem;color:var(--text-3);min-height:1.4em"></div>
       <div id="add-contact-results-list" style="display:flex;flex-direction:column;gap:0.25rem"></div>
       <div id="add-contact-card" hidden class="contact-profile-card">
         <img id="add-contact-photo" alt="" hidden>
@@ -331,7 +332,7 @@
       <div id="add-contact-confirm" hidden style="display:flex;flex-direction:column;gap:0.5rem">
         <button class="btn btn-primary" onclick="confirmAddContact()">Add contact</button>
       </div>
-      <div id="add-contact-error" style="color:#e06c6c;font-size:0.85rem;min-height:1.2em"></div>
+      <div id="add-contact-error" style="color:var(--error);font-size:0.85rem;min-height:1.2em"></div>
     </div>
   </div>
 </div>
@@ -343,9 +344,9 @@
     <h3>New group</h3>
     <div style="display:flex;flex-direction:column;gap:0.75rem">
       <input type="text" id="new-group-name" placeholder="Group name" style="width:100%">
-      <div style="font-size:0.78rem;color:#888;text-transform:uppercase;letter-spacing:0.05em">Members</div>
+      <div style="font-size:0.78rem;color:var(--text-4);text-transform:uppercase;letter-spacing:0.05em">Members</div>
       <div id="new-group-contacts" style="display:flex;flex-direction:column;gap:0.3rem;max-height:240px;overflow-y:auto"></div>
-      <div id="new-group-error" style="color:#e06c6c;font-size:0.85rem;min-height:1.2em"></div>
+      <div id="new-group-error" style="color:var(--error);font-size:0.85rem;min-height:1.2em"></div>
       <button class="btn btn-primary" onclick="_dmCreateGroup()">Create group</button>
     </div>
   </div>
@@ -365,7 +366,7 @@
       <select id="group-add-member-select" style="flex:1"></select>
       <button class="btn btn-muted btn-sm" onclick="_dmAddGroupMember()">Add</button>
     </div>
-    <div id="group-members-error" style="color:#e06c6c;font-size:0.85rem;min-height:1.2em"></div>
+    <div id="group-members-error" style="color:var(--error);font-size:0.85rem;min-height:1.2em"></div>
     <button id="group-leave-btn" class="btn btn-muted" onclick="_dmLeaveGroup()" style="width:100%">Leave group</button>
   </div>
 </div>
@@ -389,16 +390,24 @@
         <button class="btn btn-primary btn-sm" onclick="saveProfileName()">Save</button>
       </div>
       <div id="profile-status" style="font-size:0.85rem;min-height:1.2em"></div>
-      <hr style="border:none;border-top:1px solid #2a2a2a;margin:0.5rem 0">
+      <hr style="border:none;border-top:1px solid var(--surface-3);margin:0.5rem 0">
       <div id="profile-pubkey-wrap" hidden style="display:flex;flex-direction:column;gap:0.3rem">
-        <div style="font-size:0.72rem;color:#555;text-transform:uppercase;letter-spacing:0.08em">Public key</div>
+        <div style="font-size:0.72rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em">Public key</div>
         <div style="display:flex;gap:0.4rem;align-items:center">
-          <code id="profile-pubkey" style="font-size:0.7rem;color:#888;word-break:break-all;flex:1;line-height:1.4"></code>
+          <code id="profile-pubkey" style="font-size:0.7rem;color:var(--text-4);word-break:break-all;flex:1;line-height:1.4"></code>
           <button class="btn btn-muted btn-sm" style="flex-shrink:0;white-space:nowrap" onclick="copyPublicKey()">Copy</button>
         </div>
-        <div id="profile-pubkey-copied" style="font-size:0.75rem;color:#4caf50;min-height:1em"></div>
+        <div id="profile-pubkey-copied" style="font-size:0.75rem;color:var(--ok);min-height:1em"></div>
       </div>
-      <hr style="border:none;border-top:1px solid #2a2a2a;margin:0.5rem 0">
+      <hr style="border:none;border-top:1px solid var(--surface-3);margin:0.5rem 0">
+      <div style="display:flex;align-items:center;justify-content:space-between;font-size:0.85rem;color:var(--text-3)">
+        <span>Theme</span>
+        <div style="display:flex;gap:0.35rem">
+          <button id="theme-btn-dark" class="btn btn-muted btn-sm" onclick="setTheme('dark')" style="font-size:0.9rem">🌙 Dark</button>
+          <button id="theme-btn-light" class="btn btn-muted btn-sm" onclick="setTheme('light')" style="font-size:0.9rem">☀️ Light</button>
+        </div>
+      </div>
+      <hr style="border:none;border-top:1px solid var(--surface-3);margin:0.5rem 0">
       <button class="btn btn-muted btn-sm" style="width:100%" onclick="downloadBackup()">Download backup</button>
       <div id="privkey-download-wrap" style="display:flex;flex-direction:column;gap:0.4rem">
         <div style="display:flex;gap:0.5rem">
@@ -407,23 +416,23 @@
         </div>
         <div id="privkey-status" style="font-size:0.8rem;min-height:1em"></div>
       </div>
-      <hr style="border:none;border-top:1px solid #2a2a2a;margin:0.5rem 0">
+      <hr style="border:none;border-top:1px solid var(--surface-3);margin:0.5rem 0">
       <div id="change-pass-wrap" style="display:flex;flex-direction:column;gap:0.4rem">
-        <div style="font-size:0.72rem;color:#555;text-transform:uppercase;letter-spacing:0.08em">Change passphrase</div>
+        <div style="font-size:0.72rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em">Change passphrase</div>
         <input type="password" id="cp-current" placeholder="Current passphrase">
         <input type="password" id="cp-new" placeholder="New passphrase">
         <input type="password" id="cp-confirm" placeholder="Confirm new passphrase" onkeydown="if(event.key==='Enter')changePassphrase()">
-        <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;color:#aaa;cursor:pointer">
+        <label style="display:flex;align-items:center;gap:0.4rem;font-size:0.82rem;color:var(--text-3);cursor:pointer">
           <input type="checkbox" id="cp-tang" checked>
           Keep registry unlock enabled
         </label>
         <button class="btn btn-muted btn-sm" onclick="changePassphrase()">Change passphrase</button>
         <div id="cp-status" style="font-size:0.8rem;min-height:1em"></div>
       </div>
-      <hr style="border:none;border-top:1px solid #2a2a2a;margin:0.5rem 0">
+      <hr style="border:none;border-top:1px solid var(--surface-3);margin:0.5rem 0">
       <div id="escrow-upload-wrap" style="display:flex;flex-direction:column;gap:0.4rem">
-        <div style="font-size:0.72rem;color:#555;text-transform:uppercase;letter-spacing:0.08em">Upload identity escrow</div>
-        <div style="font-size:0.78rem;color:#666">For nodes set up before automatic escrow. Paste your identity private key (hex) to store it encrypted in the registry.</div>
+        <div style="font-size:0.72rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em">Upload identity escrow</div>
+        <div style="font-size:0.78rem;color:var(--text-5)">For nodes set up before automatic escrow. Paste your identity private key (hex) to store it encrypted in the registry.</div>
         <input type="password" id="eu-key" placeholder="Identity private key (hex)" style="font-family:monospace;font-size:0.78rem">
         <input type="password" id="eu-pass" placeholder="Owner passphrase (to encrypt key)">
         <button class="btn btn-muted btn-sm" onclick="uploadEscrowFromSettings()">Upload escrow</button>
@@ -432,9 +441,9 @@
     </div>
   </div>
 </div>
-<div id="emoji-preview" hidden style="position:fixed;z-index:9000;pointer-events:none;background:#1e1e1e;border:1px solid #333;border-radius:8px;padding:0.3rem 0.5rem;box-shadow:0 4px 16px rgba(0,0,0,0.6);text-align:center;max-width:180px">
+<div id="emoji-preview" hidden style="position:fixed;z-index:9000;pointer-events:none;background:var(--surface-1);border:1px solid var(--border);border-radius:8px;padding:0.3rem 0.5rem;box-shadow:0 4px 16px rgba(0,0,0,0.6);text-align:center;max-width:180px">
   <div id="emoji-preview-char" style="font-size:2rem;line-height:1.2"></div>
-  <div id="emoji-preview-names" hidden style="font-size:0.72rem;color:#aaa;margin-top:0.2rem;white-space:pre-line;text-align:left;line-height:1.5"></div>
+  <div id="emoji-preview-names" hidden style="font-size:0.72rem;color:var(--text-3);margin-top:0.2rem;white-space:pre-line;text-align:left;line-height:1.5"></div>
 </div>
 
 <!-- ── lightbox ───────────────────────────────────────────────────────────── -->
@@ -447,32 +456,32 @@
   <div class="modal" style="min-width:min(90vw,440px);max-width:500px;display:flex;flex-direction:column;gap:1rem">
     <button class="modal-close" onclick="closeContactEdit()">&#x2715;</button>
     <div id="ce-header" style="display:flex;align-items:center;gap:0.75rem">
-      <div id="ce-avatar" style="width:40px;height:40px;border-radius:50%;background:#2a4a7a;display:flex;align-items:center;justify-content:center;font-size:1rem;color:#aac8ff;flex-shrink:0"></div>
+      <div id="ce-avatar" style="width:40px;height:40px;border-radius:50%;background:var(--avatar-bg);display:flex;align-items:center;justify-content:center;font-size:1rem;color:var(--avatar-text);flex-shrink:0"></div>
       <div>
-        <div id="ce-name" style="font-size:1rem;font-weight:500;color:#e0e0e0"></div>
-        <div id="ce-url" style="font-size:0.75rem;color:#555;margin-top:0.1rem"></div>
+        <div id="ce-name" style="font-size:1rem;font-weight:500;color:var(--text-1)"></div>
+        <div id="ce-url" style="font-size:0.75rem;color:var(--text-dim);margin-top:0.1rem"></div>
       </div>
     </div>
 
     <div style="display:flex;flex-direction:column;gap:0.3rem">
-      <label style="font-size:0.72rem;color:#666;text-transform:uppercase;letter-spacing:0.06em">Description</label>
+      <label style="font-size:0.72rem;color:var(--text-5);text-transform:uppercase;letter-spacing:0.06em">Description</label>
       <textarea id="ce-description" rows="3" placeholder="Notes about this contact…"
-        style="background:#1a1a1a;border:1px solid #333;border-radius:4px;color:#e0e0e0;font-size:0.88rem;padding:0.45rem 0.6rem;resize:vertical;font-family:inherit;line-height:1.5"></textarea>
+        style="background:var(--surface-input);border:1px solid var(--border);border-radius:4px;color:var(--text-1);font-size:0.88rem;padding:0.45rem 0.6rem;resize:vertical;font-family:inherit;line-height:1.5"></textarea>
     </div>
 
     <div style="display:flex;flex-direction:column;gap:0.3rem">
-      <label style="font-size:0.72rem;color:#666;text-transform:uppercase;letter-spacing:0.06em">@tag alias <span style="color:#444;font-style:normal;text-transform:none">(used in @mentions)</span></label>
+      <label style="font-size:0.72rem;color:var(--text-5);text-transform:uppercase;letter-spacing:0.06em">@tag alias <span style="color:var(--border-strong);font-style:normal;text-transform:none">(used in @mentions)</span></label>
       <input id="ce-tag" type="text" placeholder="e.g. alice" autocomplete="off" autocapitalize="none"
-        style="background:#1a1a1a;border:1px solid #333;border-radius:4px;color:#e0e0e0;font-size:0.88rem;padding:0.4rem 0.6rem">
+        style="background:var(--surface-input);border:1px solid var(--border);border-radius:4px;color:var(--text-1);font-size:0.88rem;padding:0.4rem 0.6rem">
     </div>
 
     <div style="display:flex;flex-direction:column;gap:0.6rem">
-      <label style="font-size:0.72rem;color:#666;text-transform:uppercase;letter-spacing:0.06em">Categories</label>
-      <div style="font-size:0.72rem;color:#555;margin-top:-0.2rem">Set each that applies. 0 = not applicable, 1 = fully.</div>
+      <label style="font-size:0.72rem;color:var(--text-5);text-transform:uppercase;letter-spacing:0.06em">Categories</label>
+      <div style="font-size:0.72rem;color:var(--text-dim);margin-top:-0.2rem">Set each that applies. 0 = not applicable, 1 = fully.</div>
       <div id="ce-cats" style="display:flex;flex-direction:column;gap:0.5rem"></div>
     </div>
 
-    <div id="ce-status" style="font-size:0.82rem;min-height:1em;color:#e06c6c"></div>
+    <div id="ce-status" style="font-size:0.82rem;min-height:1em;color:var(--error)"></div>
     <div style="display:flex;gap:0.5rem;justify-content:flex-end">
       <button class="btn btn-muted" onclick="closeContactEdit()">Cancel</button>
       <button class="btn btn-primary" onclick="saveContactEdit()">Save</button>
@@ -485,9 +494,9 @@
   <div class="modal" id="edit-modal" style="min-width:min(90vw,560px)">
     <button class="modal-close" onclick="closeEdit()">&#x2715;</button>
     <h3>Edit post</h3>
-    <div id="edit-body-wrap" style="position:relative;margin-bottom:0.75rem;background:#222;border:1px solid #333;border-radius:4px">
+    <div id="edit-body-wrap" style="position:relative;margin-bottom:0.75rem;background:var(--surface-input);border:1px solid var(--border);border-radius:4px">
       <div id="edit-highlight" aria-hidden="true"></div>
-      <textarea id="edit-body" style="background:transparent;color:#e0e0e0;border:none;border-radius:4px;padding:0.6rem;width:100%;font-size:0.95rem;line-height:1.5;resize:vertical;min-height:100px;outline:none;font-family:inherit;position:relative;z-index:1;box-sizing:border-box"
+      <textarea id="edit-body" style="background:transparent;color:var(--text-1);border:none;border-radius:4px;padding:0.6rem;width:100%;font-size:0.95rem;line-height:1.5;resize:vertical;min-height:100px;outline:none;font-family:inherit;position:relative;z-index:1;box-sizing:border-box"
                 oninput="onComposeInput()" onkeydown="onComposeKeydown(event)"
                 onscroll="_updateHighlight()"
                 onblur="setTimeout(hideMentionDropdown,150)"></textarea>
@@ -495,14 +504,14 @@
     </div>
     <div class="compose-fields">
       <input type="text" id="edit-tags" placeholder="Tags — space-separated">
-      <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;font-size:0.85rem;color:#aaa">
-        <label>Visible to <select id="edit-visibility" style="background:#222;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
+      <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;font-size:0.85rem;color:var(--text-3)">
+        <label>Visible to <select id="edit-visibility" style="background:var(--surface-input);color:var(--text-1);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
           <option value="contacts">Contacts</option>
           <option value="authenticated">Authenticated</option>
           <option value="public">Public</option>
           <option value="private">Private</option>
         </select></label>
-        <label>Comments <select id="edit-comment-access" style="background:#222;color:#e0e0e0;border:1px solid #333;border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
+        <label>Comments <select id="edit-comment-access" style="background:var(--surface-input);color:var(--text-1);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
           <option value="contacts">Contacts</option>
           <option value="authenticated">Authenticated</option>
           <option value="public">Public</option>
@@ -522,12 +531,12 @@
 <div id="default-passphrase-overlay" class="overlay" hidden onclick="maybeClose('default-passphrase-overlay',event)">
   <div class="modal" style="max-width:420px">
     <button class="modal-close" onclick="document.getElementById('default-passphrase-overlay').hidden=true">&#x2715;</button>
-    <h3 style="color:#e06c6c;margin-bottom:0.5rem">Set Your Passphrase</h3>
-    <p style="font-size:0.85rem;color:#aaa;margin-bottom:1.25rem">Choose a strong passphrase and save it somewhere safe. You'll need it to make changes to your account.</p>
+    <h3 style="color:var(--error);margin-bottom:0.5rem">Set Your Passphrase</h3>
+    <p style="font-size:0.85rem;color:var(--text-3);margin-bottom:1.25rem">Choose a strong passphrase and save it somewhere safe. You'll need it to make changes to your account.</p>
     <div class="setup-form" style="gap:0.75rem">
       <input type="password" id="dp-new" placeholder="New passphrase">
       <input type="password" id="dp-confirm" placeholder="Confirm new passphrase">
-      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;color:#aaa;cursor:pointer">
+      <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;color:var(--text-3);cursor:pointer">
         <input type="checkbox" id="dp-tang" checked>
         Keep registry unlock enabled
       </label>
