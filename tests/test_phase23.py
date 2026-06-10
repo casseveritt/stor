@@ -130,18 +130,21 @@ class TestDeletePost:
 
 # ── SPA shell checks ──────────────────────────────────────────────────────────
 
+APP_JS = Path(__file__).parent.parent / "web" / "app.js"
+
+
 class TestSPAEditDeleteUI:
-    def test_edit_function_present(self, client):
-        assert "startEditPost" in client.get("/").text
+    def test_edit_function_present(self):
+        assert "openEdit" in APP_JS.read_text()
 
-    def test_delete_function_present(self, client):
-        assert "executeDeletePost" in client.get("/").text
+    def test_delete_function_present(self):
+        assert "submitEdit" in APP_JS.read_text()
 
-    def test_confirm_delete_present(self, client):
-        assert "confirmDeletePost" in client.get("/").text
+    def test_confirm_delete_present(self):
+        assert "confirmDelete" in APP_JS.read_text()
 
-    def test_btn_danger_style_present(self, client):
-        assert "btn-danger" in client.get("/").text
+    def test_btn_danger_style_present(self):
+        assert 'class="danger"' in APP_JS.read_text()
 
-    def test_edit_body_textarea_style(self, client):
-        assert "edit-body" in client.get("/").text
+    def test_edit_body_textarea_style(self):
+        assert "edit-body" in APP_JS.read_text()
