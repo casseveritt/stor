@@ -62,16 +62,13 @@ def _build_history_chain(db, asset_id: str) -> list[dict]:
 def _get_asset_row(db, asset_id: str) -> dict | None:
     row = db.execute(
         """SELECT id, content_hash, media_type, size, created_at,
-                  title, tags, predecessor, successor, is_public,
-                  (SELECT COUNT(*) FROM comments
-                   WHERE comments.asset_id = assets.id
-                     AND comments.parent_id IS NULL AND comments.deleted = 0) AS comment_count
+                  title, tags, predecessor, successor, is_public
            FROM assets WHERE id = ? AND deleted = 0""",
         (asset_id,),
     ).fetchone()
     if row is None:
         return None
-    id_, content_hash, media_type, size, created_at, title, tags_json, predecessor, successor, is_public, comment_count = row
+    id_, content_hash, media_type, size, created_at, title, tags_json, predecessor, successor, is_public = row
     return {
         "id": id_,
         "content_hash": content_hash,
@@ -83,7 +80,6 @@ def _get_asset_row(db, asset_id: str) -> dict | None:
         "predecessor": predecessor,
         "successor": successor,
         "public": bool(is_public),
-        "comment_count": comment_count,
     }
 
 

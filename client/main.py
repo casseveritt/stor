@@ -959,49 +959,6 @@ def create_app(config_path: str | Path) -> FastAPI:
         if not r.is_success:
             raise HTTPException(status_code=r.status_code, detail=r.text)
 
-    @api.get("/posts/{post_id}/comments")
-    async def api_get_comments(post_id: str, server: str = ""):
-        src = server or config.own_server
-        path = f"/posts/{post_id}/comments"
-        h = {**_headers(src), "X-Origin-Server": config.own_server, **await _sign_federated("GET", path, b"")}
-        async with httpx.AsyncClient() as hc:
-            r = await hc.get(_call_url(src) + path, headers=h)
-        if not r.is_success:
-            raise HTTPException(status_code=r.status_code)
-        return r.json()
-
-    @api.post("/posts/{post_id}/comments")
-    async def api_post_comment(post_id: str, request: Request, server: str = ""):
-        src = server or config.own_server
-        path = f"/posts/{post_id}/comments"
-        body = json.dumps(await request.json()).encode()
-        h = {**_headers(src), "X-Origin-Server": config.own_server,
-             "Content-Type": "application/json", **await _sign_federated("POST", path, body)}
-        async with httpx.AsyncClient() as hc:
-            r = await hc.post(_call_url(src) + path, content=body, headers=h)
-        if not r.is_success:
-            raise HTTPException(status_code=r.status_code)
-        return r.json()
-
-    @api.patch("/posts/{post_id}/comments/{comment_id}")
-    async def api_edit_comment(post_id: str, comment_id: str, request: Request):
-        path = f"/posts/{post_id}/comments/{comment_id}"
-        body = json.dumps(await request.json()).encode()
-        h = {**_headers(config.own_server), "Content-Type": "application/json"}
-        async with httpx.AsyncClient() as hc:
-            r = await hc.patch(_call_url(config.own_server) + path, content=body, headers=h)
-        if not r.is_success:
-            raise HTTPException(status_code=r.status_code, detail=r.text)
-        return r.json()
-
-    @api.delete("/posts/{post_id}/comments/{comment_id}", status_code=204)
-    async def api_delete_comment(post_id: str, comment_id: str):
-        path = f"/posts/{post_id}/comments/{comment_id}"
-        async with httpx.AsyncClient() as hc:
-            r = await hc.delete(_call_url(config.own_server) + path, headers=_headers(config.own_server))
-        if not r.is_success and r.status_code != 204:
-            raise HTTPException(status_code=r.status_code, detail=r.text)
-
     @api.post("/posts/{post_id}/react")
     async def api_react(post_id: str, request: Request, server: str = ""):
         src = server or config.own_server

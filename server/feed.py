@@ -93,10 +93,7 @@ def query_feed(
     rows = db.execute(
         f"""
         SELECT rowid, id, content_hash, media_type, size, created_at,
-               title, tags, predecessor, successor,
-               (SELECT COUNT(*) FROM comments
-                WHERE comments.asset_id = assets.id
-                  AND comments.parent_id IS NULL AND comments.deleted = 0) AS comment_count
+               title, tags, predecessor, successor
         FROM assets
         WHERE {where}
         ORDER BY rowid DESC
@@ -121,7 +118,6 @@ def query_feed(
             "tags": json.loads(row[7]) if row[7] else [],
             "predecessor": row[8],
             "successor": row[9],
-            "comment_count": row[10],
         }
         for row in rows
     ]

@@ -10,7 +10,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .auth import OwnerDep, revoke_token
-from .comments import approve_edit, reject_edit
 from .db import NS, now_ns
 
 router = APIRouter()
@@ -262,11 +261,6 @@ def get_stats(request: Request, identity: OwnerDep):
         "SELECT COUNT(*) FROM tokens WHERE revoked = 0 AND expiry > ?", (now,)
     ).fetchone()[0]
 
-    comment_total, comment_deleted = db.execute(
-        "SELECT COUNT(*), SUM(deleted) FROM comments"
-    ).fetchone()
-    comment_deleted = comment_deleted or 0
-
     access_log_total = db.execute("SELECT COUNT(*) FROM access_log").fetchone()[0]
 
     return {
@@ -277,11 +271,6 @@ def get_stats(request: Request, identity: OwnerDep):
             "total_size_bytes": asset_size,
         },
         "tokens": {"active": active_tokens},
-        "comments": {
-            "total": comment_total,
-            "active": comment_total - comment_deleted,
-            "deleted": comment_deleted,
-        },
         "access_log": {"total": access_log_total},
     }
 
@@ -334,67 +323,6 @@ def get_recipient_stats(node_id: str, request: Request, identity: OwnerDep):
     }
 
 
-# ── edit request management ───────────────────────────────────────────────────
-
-def _edit_request_row(row) -> dict:
-    req_id, comment_id, asset_id, orig_body, new_body, status, created_at, requester_node_id = row
-    return {
-        "id": req_id,
-        "comment_id": comment_id,
-        "asset_id": asset_id,
-        "original_body": orig_body,
-        "new_body": new_body,
-        "action": "delete" if new_body is None else "edit",
-        "status": status,
-        "created_at": created_at,
-        "requester_node_id": requester_node_id,
-    }
-
-
-@router.get("/edit-requests")
-def list_edit_requests(
-    request: Request,
-    identity: OwnerDep,
-    status: str = Query(default="pending"),
-    asset_id: str | None = Query(default=None),
-):
-    db = request.app.state.db
-    conditions = ["r.status = ?"]
-    params: list = [status]
-    if asset_id is not None:
-        conditions.append("c.asset_id = ?")
-        params.append(asset_id)
-
-    where = "WHERE " + " AND ".join(conditions)
-    rows = db.execute(
-        f"""SELECT r.id, r.comment_id, c.asset_id, c.body AS original_body,
-                   r.new_body, r.status, r.created_at,
-                   r.requester_node_id
-            FROM comment_edit_requests r
-            JOIN comments c ON c.id = r.comment_id
-            {where}
-            ORDER BY r.created_at ASC""",
-        params,
-    ).fetchall()
-    return {"status": status, "requests": [_edit_request_row(r) for r in rows]}
-
-
-@router.post("/edit-requests/{request_id}/approve")
-def approve_edit_endpoint(request_id: str, request: Request, identity: OwnerDep):
-    db = request.app.state.db
-    try:
-        return approve_edit(db, request_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404 if "not found" in str(e).lower() else 409, detail=str(e))
-
-
-@router.post("/edit-requests/{request_id}/reject")
-def reject_edit_endpoint(request_id: str, request: Request, identity: OwnerDep):
-    db = request.app.state.db
-    try:
-        return reject_edit(db, request_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404 if "not found" in str(e).lower() else 409, detail=str(e))
 
 
 # ── tag enumeration ───────────────────────────────────────────────────────────
@@ -458,10 +386,7 @@ def get_recipient_feed(
 
     rows = db.execute(
         f"""SELECT rowid, id, content_hash, media_type, size, created_at,
-                   title, tags, predecessor, successor,
-                   (SELECT COUNT(*) FROM comments
-                    WHERE comments.asset_id = assets.id
-                      AND comments.parent_id IS NULL AND comments.deleted = 0) AS comment_count
+                   title, tags, predecessor, successor
             FROM assets WHERE {where}
             ORDER BY rowid DESC LIMIT ?""",
         params,
@@ -476,7 +401,7 @@ def get_recipient_feed(
             "id": r[1], "node": node_url, "content_hash": r[2],
             "media_type": r[3], "size": r[4], "created_at": r[5],
             "title": r[6], "tags": json.loads(r[7]) if r[7] else [],
-            "predecessor": r[8], "successor": r[9], "comment_count": r[10],
+            "predecessor": r[8], "successor": r[9],
         }
         for r in rows
     ]

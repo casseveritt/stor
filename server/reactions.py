@@ -80,14 +80,7 @@ async def toggle_reaction(post_id: str, payload: _ReactBody, request: Request, i
     if db.execute("SELECT id FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Post not found")
 
-    if payload.comment_id:
-        if db.execute(
-            "SELECT id FROM comments WHERE id = ? AND post_id = ? AND deleted = 0",
-            (payload.comment_id, post_id),
-        ).fetchone() is None:
-            raise HTTPException(status_code=404, detail="Comment not found")
-
-    reactor = await _reactor(identity, request)
+reactor = await _reactor(identity, request)
     if reactor is None:
         raise HTTPException(status_code=401, detail="Reactions require an authenticated identity")
     existing = db.execute(

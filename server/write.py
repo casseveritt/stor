@@ -86,7 +86,6 @@ async def publish_asset(
         "predecessor": predecessor,
         "successor": None,
         "public": is_public,
-        "comment_count": 0,
     }
 
 
@@ -126,14 +125,11 @@ def update_metadata(asset_id: str, payload: _UpdateMetaBody, request: Request, i
 
     row = db.execute(
         """SELECT id, content_hash, media_type, size, created_at, title, tags, predecessor, successor,
-                  is_public,
-                  (SELECT COUNT(*) FROM comments
-                   WHERE comments.asset_id = assets.id
-                     AND comments.parent_id IS NULL AND comments.deleted = 0) AS comment_count
+                  is_public
            FROM assets WHERE id = ?""",
         (asset_id,),
     ).fetchone()
-    id_, content_hash, media_type, size, created_at, title, tags_json, pred, succ, is_public, comment_count = row
+    id_, content_hash, media_type, size, created_at, title, tags_json, pred, succ, is_public = row
     return {
         "id": id_,
         "content_hash": content_hash,
@@ -145,7 +141,6 @@ def update_metadata(asset_id: str, payload: _UpdateMetaBody, request: Request, i
         "predecessor": pred,
         "successor": succ,
         "public": bool(is_public),
-        "comment_count": comment_count,
     }
 
 

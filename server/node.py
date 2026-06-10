@@ -92,11 +92,9 @@ def node_metadata(request: Request, identity: OptionalAuthDep):
     ).fetchone()
     week_ago = now_ns() - 7 * 86400 * NS
     posts_7d = db.execute("SELECT COUNT(*) FROM posts WHERE created_at > ? AND deleted = 0", (week_ago,)).fetchone()[0]
-    comments_7d = db.execute("SELECT COUNT(*) FROM comments WHERE created_at > ? AND deleted = 0", (week_ago,)).fetchone()[0]
     last_post    = db.execute("SELECT MAX(created_at) FROM posts WHERE deleted = 0").fetchone()[0] or 0
-    last_comment = db.execute("SELECT MAX(created_at) FROM comments WHERE deleted = 0").fetchone()[0] or 0
     last_reaction = db.execute("SELECT MAX(created_at) FROM reactions").fetchone()[0] or 0
-    last_activity = max(last_post, last_comment, last_reaction)
+    last_activity = max(last_post, last_reaction)
 
     tier = _activity_tier(request, identity)
 
@@ -109,7 +107,6 @@ def node_metadata(request: Request, identity: OptionalAuthDep):
         "public_posts": public_posts,
         "public_assets": public_assets,
         "posts_7d": posts_7d,
-        "comments_7d": comments_7d,
     }
     # last_activity_at granularity depends on how well the owner knows the requester
     if tier in ("owner", "close_contact"):
@@ -145,10 +142,8 @@ def node_stats(request: Request, identity: OwnerDep):
     total_assets = db.execute("SELECT COUNT(*) FROM assets WHERE deleted = 0").fetchone()[0]
     public_assets = db.execute("SELECT COUNT(*) FROM assets WHERE is_public = 1 AND deleted = 0").fetchone()[0]
     total_storage = db.execute("SELECT COALESCE(SUM(size), 0) FROM assets WHERE deleted = 0").fetchone()[0]
-    total_comments = db.execute("SELECT COUNT(*) FROM comments WHERE deleted = 0").fetchone()[0]
     return {
         "posts": {"total": total_posts, "public": public_posts, "private": total_posts - public_posts},
         "assets": {"total": total_assets, "public": public_assets, "private": total_assets - public_assets},
         "storage_bytes": total_storage,
-        "comments": total_comments,
     }

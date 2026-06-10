@@ -76,49 +76,6 @@ def subscribe_post(post_id: str, body: SubscribeBody):
         existing.append((body.callback_url, expires))
 
 
-def _notify_thread_participants(post_id: str, new_commenter_identity: str, app) -> None:
-    """Push a 'thread' notification to all prior commenters on the post (excluding the new commenter)."""
-    import threading
-    node_address = getattr(app.state, "node_address", "") or ""
-    own_node_id = getattr(app.state, "node_id", "") or ""
-
-    def _send():
-        import httpx as _hx, time as _t, base64 as _b64
-        db = app.state.db
-        priv = getattr(app.state, "private_key", None)
-        rows = db.execute(
-            """SELECT DISTINCT author_identity FROM comments
-               WHERE post_id = ? AND deleted = 0
-               AND author_identity IS NOT NULL AND author_identity != ''
-               AND author_identity != ?""",
-            (post_id, new_commenter_identity or "__none__"),
-        ).fetchall()
-        for (follower_node_id,) in rows:
-            try:
-                row = db.execute("SELECT server_url FROM users WHERE node_id = ?", (follower_node_id,)).fetchone()
-                if not row:
-                    continue
-                ts = int(_t.time())
-                payload = {
-                    "post_id": post_id,
-                    "author_node_id": own_node_id,
-                    "notif_type": "thread",
-                    "post_server": node_address,
-                    "timestamp": ts,
-                }
-                headers = {"Content-Type": "application/json"}
-                if priv:
-                    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-                    sig = _b64.b64encode(priv.sign(f"contacc:mention:{post_id}:{ts}".encode())).decode()
-                    pub_b64 = _b64.b64encode(priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)).decode()
-                    headers.update({"X-Public-Key": pub_b64, "X-Timestamp": str(ts),
-                                    "X-Signature": sig, "X-Origin-Server": node_address})
-                _hx.post(row[0].rstrip("/") + "/notifications/mention",
-                         json=payload, headers=headers, timeout=5)
-            except Exception:
-                pass
-    threading.Thread(target=_send, daemon=True).start()
-
 
 def _notify_mentions(body: str, post_id: str, app) -> None:
     """Best-effort federated notification to any nodes mentioned in body."""
@@ -215,13 +172,6 @@ def _get_post_assets(db, post_id: str, body: str) -> list[dict]:
     return [by_id[aid] for aid in asset_ids if aid in by_id]
 
 
-def _comment_count(db, post_id: str) -> int:
-    row = db.execute(
-        "SELECT COUNT(*) FROM comments WHERE post_id = ? AND parent_id IS NULL AND deleted = 0",
-        (post_id,),
-    ).fetchone()
-    return row[0] if row else 0
-
 
 def _reply_count(db, post_id: str) -> int:
     local = db.execute(
@@ -237,21 +187,20 @@ _VALID_POST_TYPES = {"post", "inner_monologue"}
 
 
 _POST_COLS = (
-    "p.id, p.body, p.created_at, p.tags, p.visibility, p.comment_access, p.deleted, p.post_type, p.nonce,"
+    "p.id, p.body, p.created_at, p.tags, p.visibility, p.deleted, p.post_type, p.nonce,"
     " p.parent_id, p.parent_node_id, p.supersedes, p.visibility_list_id"
 )
 _POST_COLS_NO_ALIAS = (
-    "id, body, created_at, tags, visibility, comment_access, deleted, post_type, nonce,"
+    "id, body, created_at, tags, visibility, deleted, post_type, nonce,"
     " parent_id, parent_node_id, supersedes, visibility_list_id"
 )
 
 _VALID_VISIBILITY = ("private", "contacts", "authenticated", "public")
-_VALID_COMMENT_ACCESS = ("contacts", "authenticated", "public")
 
 
 def _post_dict(row, db, viewer: str = "") -> dict:
     from .reactions import get_reactions
-    (id_, body, created_at, tags_json, visibility, comment_access, deleted, post_type, nonce,
+    (id_, body, created_at, tags_json, visibility, deleted, post_type, nonce,
      parent_id, parent_node_id, supersedes, visibility_list_id) = row
     assets = _get_post_assets(db, id_, body)
     successor_row = db.execute(
@@ -263,7 +212,6 @@ def _post_dict(row, db, viewer: str = "") -> dict:
         "tags": json.loads(tags_json) if tags_json else [],
         "created_at": created_at,
         "visibility": visibility or "private",
-        "comment_access": comment_access or "contacts",
         "public": (visibility or "private") == "public",  # backwards compat
         "post_type": post_type or "post",
         "nonce": nonce,
@@ -273,7 +221,6 @@ def _post_dict(row, db, viewer: str = "") -> dict:
         "superseded_by": successor_row[0] if successor_row else None,
         "visibility_list_id": visibility_list_id,
         "assets": assets,
-        "comment_count": _comment_count(db, id_),
         "reply_count": _reply_count(db, id_),
         "deleted": bool(deleted),
         "reactions": get_reactions(db, id_, "", viewer),
@@ -309,7 +256,6 @@ async def create_post(
     tags: str = Form(default="[]"),
     public: str = Form(default=""),        # legacy — ignored if visibility set
     visibility: str = Form(default="contacts"),
-    comment_access: str = Form(default="contacts"),
     post_type: str = Form(default="post"),
     parent_id: str = Form(default=""),
     parent_node_id: str = Form(default=""),
@@ -332,8 +278,6 @@ async def create_post(
         visibility = "public" if public.lower() in ("true", "1", "yes") else "contacts"
     if visibility not in _VALID_VISIBILITY:
         raise HTTPException(status_code=422, detail=f"visibility must be one of {_VALID_VISIBILITY}")
-    if comment_access not in _VALID_COMMENT_ACCESS:
-        raise HTTPException(status_code=422, detail=f"comment_access must be one of {_VALID_COMMENT_ACCESS}")
 
     is_public = visibility == "public"
     db = request.app.state.db
@@ -400,10 +344,10 @@ async def create_post(
     all_ids = _asset_ids_in_order(body)
     db.execute(
         "INSERT INTO posts"
-        " (id, body, created_at, tags, is_public, deleted, post_type, visibility, comment_access,"
+        " (id, body, created_at, tags, is_public, deleted, post_type, visibility,"
         "  nonce, parent_id, parent_node_id, supersedes, visibility_list_id)"
-        " VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)",
-        (post_id, body, now, json.dumps(tags_list), int(is_public), post_type, visibility, comment_access,
+        " VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)",
+        (post_id, body, now, json.dumps(tags_list), int(is_public), post_type, visibility,
          nonce, parent_id, parent_node_id, supersedes_stored, visibility_list_id),
     )
     for aid in all_ids:
@@ -516,13 +460,8 @@ def get_posts(
         if q_lower in handle.lower() or (display_name and q_lower in display_name.lower()):
             pass  # query matches this node's identity — return all posts unfiltered
         else:
-            conditions.append(
-                "(p.body LIKE ? OR EXISTS ("
-                "  SELECT 1 FROM comments c"
-                "  WHERE c.post_id = p.id AND c.body LIKE ? AND c.deleted = 0"
-                "))"
-            )
-            params.extend([f"%{q}%", f"%{q}%"])
+            conditions.append("p.body LIKE ?")
+            params.append(f"%{q}%")
 
     if cursor:
         conditions.append("p.created_at < ?")
@@ -565,7 +504,7 @@ def get_post(post_id: str, request: Request, identity: OptionalAuthDep, _sig: Fe
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    visibility, post_type = row[4], row[7]
+    visibility, post_type = row[4], row[6]
     if not identity.is_owner:
         origin_server = request.headers.get("X-Origin-Server", "")
         if post_type == "inner_monologue":
@@ -588,7 +527,6 @@ class _UpdatePostBody(BaseModel):
     tags: list[str] | None = None
     public: bool | None = None             # legacy shim
     visibility: str | None = None
-    comment_access: str | None = None
 
 
 @router.patch("/posts/{post_id}")
@@ -615,12 +553,6 @@ def update_post(post_id: str, payload: _UpdatePostBody, request: Request, identi
         updates.append("is_public = ?")
         params.append(payload.visibility)
         params.append(int(payload.visibility == "public"))
-    if payload.comment_access is not None:
-        if payload.comment_access not in _VALID_COMMENT_ACCESS:
-            raise HTTPException(status_code=422, detail=f"comment_access must be one of {_VALID_COMMENT_ACCESS}")
-        updates.append("comment_access = ?")
-        params.append(payload.comment_access)
-
     if not updates:
         raise HTTPException(status_code=422, detail="No fields to update")
 
@@ -678,6 +610,18 @@ def notify_reply(post_id: str, payload: _ReplyNotification, request: Request,
         " VALUES (?, ?, ?, ?)",
         (payload.reply_post_id, payload.reply_node_id, post_id, now_ns()),
     )
+    if not identity.is_owner:
+        import hashlib as _hl
+        replier_node_id = payload.reply_node_id or (identity.node_id or '')
+        actor_row = db.execute("SELECT name FROM users WHERE node_id = ?", (replier_node_id,)).fetchone()
+        actor_name = actor_row[0] if actor_row else None
+        nid = _hl.sha256(f"reply:{post_id}:{payload.reply_post_id}".encode()).hexdigest()[:36]
+        db.execute(
+            "INSERT OR IGNORE INTO mention_notifications "
+            "(id, post_id, author_node_id, author_handle, received_at, notif_type, actor_name, emoji) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (nid, post_id, replier_node_id, '', now_ns(), 'reply', actor_name, None),
+        )
     db.commit()
 
 
@@ -717,7 +661,7 @@ def get_replies(post_id: str, request: Request, identity: OptionalAuthDep,
     return {"replies": replies}
 
 
-# ── post comments ─────────────────────────────────────────────────────────────
+# ── post access helpers ───────────────────────────────────────────────────────
 
 def _check_post_access(db, post_id: str, identity) -> bool:
     if identity.is_share:
@@ -729,35 +673,6 @@ def _check_post_access(db, post_id: str, identity) -> bool:
             "SELECT 1 FROM post_acl WHERE post_id = ? AND node_id = ?", (post_id, identity.node_id)
         ).fetchone() is not None
     return False
-
-
-def _require_post_access(db, post_id: str, identity, origin_server: str | None = None, origin_pub_key: str | None = None) -> None:
-    """Check that the requester can view AND comment on this post."""
-    row = db.execute(
-        "SELECT visibility, comment_access, post_type FROM posts WHERE id = ? AND deleted = 0", (post_id,)
-    ).fetchone()
-    if row is None:
-        raise HTTPException(status_code=404, detail="Post not found")
-    visibility, comment_access, post_type = row
-    if identity.is_owner:
-        return
-    if post_type == "inner_monologue":
-        raise HTTPException(status_code=404, detail="Post not found")
-
-    is_authenticated = bool(origin_server or origin_pub_key)
-    is_contact = _is_known_contact(db, origin_server or "", origin_pub_key)
-    has_explicit = _check_post_access(db, post_id, identity)
-
-    def _passes(level: str) -> bool:
-        if level == "public": return True
-        if level == "authenticated": return is_authenticated or has_explicit
-        if level == "contacts": return is_contact or has_explicit
-        return False  # private
-
-    if not _passes(visibility):
-        raise HTTPException(status_code=403, detail="Access denied")
-    if not _passes(comment_access):
-        raise HTTPException(status_code=403, detail="Comments restricted")
 
 
 def _is_known_contact(db, server_url: str, public_key: str | None = None) -> bool:
@@ -772,144 +687,6 @@ def _is_known_contact(db, server_url: str, public_key: str | None = None) -> boo
         db.execute("UPDATE users SET server_url = ? WHERE id = ?", (server_url, row[0]))
         db.commit()
     return True
-
-
-@router.get("/posts/{post_id}/comments")
-def fetch_post_comments(post_id: str, request: Request, identity: OptionalAuthDep, _sig: FederatedSigDep = None):
-    from .reactions import get_reactions
-    db = request.app.state.db
-    _require_post_access(db, post_id, identity, request.headers.get("X-Origin-Server"), request.headers.get("X-Public-Key"))
-    rows = db.execute(
-        """SELECT c.id, c.content_hash, c.post_id, c.parent_id, c.author_node_id,
-                  c.body, c.created_at, c.predecessor, c.successor, c.deleted,
-                  COALESCE(c.author_identity, c.author_node_id) AS author_node_id
-           FROM comments c
-           WHERE c.post_id = ? ORDER BY c.created_at ASC""",
-        (post_id,),
-    ).fetchall()
-    viewer = "" if identity.is_owner else (request.headers.get("X-Origin-Server", "") or "__anon__")
-    comments = []
-    for row in rows:
-        id_, ch, pid, parent_id, _anid, body, created_at, pred, succ, deleted, author_node_id = row
-        comments.append({
-            "id": id_, "content_hash": ch, "post_id": pid, "parent_id": parent_id,
-            "author_node_id": author_node_id,
-            "body": None if deleted else body, "deleted": bool(deleted),
-            "created_at": created_at, "predecessor": pred, "successor": succ,
-            "reactions": get_reactions(db, post_id, id_, viewer),
-        })
-    return {"post_id": post_id, "comments": comments}
-
-
-class _CommentBody(BaseModel):
-    body: str
-    parent_id: str | None = None
-
-
-@router.post("/posts/{post_id}/comments", status_code=201)
-async def post_comment(post_id: str, payload: _CommentBody, request: Request, identity: FederatedOrTokenDep):
-    db = request.app.state.db
-    origin_server = request.headers.get("X-Origin-Server")
-    _require_post_access(db, post_id, identity, origin_server, request.headers.get("X-Public-Key"))
-
-    if payload.parent_id:
-        if db.execute(
-            "SELECT id FROM comments WHERE id = ? AND post_id = ?", (payload.parent_id, post_id)
-        ).fetchone() is None:
-            raise HTTPException(status_code=404, detail="Parent comment not found")
-
-    comment_id = str(uuid.uuid4())
-    content_hash = hashlib.sha256(payload.body.encode()).hexdigest()
-    now = now_ns()
-    author_node_id = identity.node_id
-
-    db.execute(
-        """INSERT INTO comments
-             (id, content_hash, asset_id, post_id, parent_id, author_node_id,
-              author_identity, body, created_at, predecessor, successor, deleted)
-           VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, NULL, NULL, 0)""",
-        (comment_id, content_hash, post_id, payload.parent_id, author_node_id,
-         author_node_id, payload.body, now),
-    )
-    db.commit()
-
-    if not identity.is_owner:
-        node_address = getattr(request.app.state, "node_address", "") or ""
-        _actor = None
-        if author_node_id:
-            _row = db.execute(
-                "SELECT name FROM users WHERE node_id = ?",
-                (author_node_id,),
-            ).fetchone()
-            if _row:
-                _actor = _row[0]
-        db.execute(
-            "INSERT OR IGNORE INTO mention_notifications "
-            "(id, post_id, author_node_id, author_handle, received_at, notif_type, actor_name, emoji, post_server) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
-            (comment_id, post_id, author_node_id or '', '', now_ns(), 'comment', _actor, None, node_address)
-        )
-        db.commit()
-
-    _notify_mentions(payload.body, post_id, request.app)
-    if author_node_id:
-        _notify_thread_participants(post_id, author_node_id, request.app)
-    result = {
-        "id": comment_id, "content_hash": content_hash,
-        "post_id": post_id, "parent_id": payload.parent_id,
-        "author_node_id": author_node_id,
-        "body": payload.body, "deleted": False,
-        "created_at": now, "predecessor": None, "successor": None,
-    }
-    _push_post_update(post_id, "comment", result, request.app)
-    return result
-
-
-class _EditCommentBody(BaseModel):
-    body: str
-
-
-@router.patch("/posts/{post_id}/comments/{comment_id}")
-def edit_comment(post_id: str, comment_id: str, payload: _EditCommentBody, request: Request, identity: OptionalAuthDep):
-    db = request.app.state.db
-    row = db.execute(
-        "SELECT author_identity, deleted FROM comments WHERE id = ? AND post_id = ?",
-        (comment_id, post_id),
-    ).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Comment not found")
-    author_identity, deleted = row
-    if deleted:
-        raise HTTPException(status_code=410, detail="Comment deleted")
-    if not identity.is_owner:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if author_identity not in (None, ""):
-        raise HTTPException(status_code=403, detail="Can only edit your own comments")
-    content_hash = hashlib.sha256(payload.body.encode()).hexdigest()
-    db.execute(
-        "UPDATE comments SET body = ?, content_hash = ? WHERE id = ?",
-        (payload.body, content_hash, comment_id),
-    )
-    db.commit()
-    return {"id": comment_id, "body": payload.body, "content_hash": content_hash}
-
-
-@router.delete("/posts/{post_id}/comments/{comment_id}", status_code=204)
-def delete_comment(post_id: str, comment_id: str, request: Request, identity: OptionalAuthDep):
-    db = request.app.state.db
-    row = db.execute(
-        "SELECT author_identity FROM comments WHERE id = ? AND post_id = ? AND deleted = 0",
-        (comment_id, post_id),
-    ).fetchone()
-    if not row:
-        raise HTTPException(status_code=404, detail="Comment not found")
-    author_identity = row[0]
-    if not identity.is_owner:
-        raise HTTPException(status_code=403, detail="Not authorized")
-    if author_identity not in (None, ""):
-        raise HTTPException(status_code=403, detail="Can only delete your own comments")
-    db.execute("UPDATE comments SET deleted = 1 WHERE id = ?", (comment_id,))
-    db.commit()
 
 
 # ── post ACL ──────────────────────────────────────────────────────────────────

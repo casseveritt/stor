@@ -24,7 +24,6 @@ function _saveDraft() {
     body,
     tags: document.getElementById("compose-tags")?.value || "",
     visibility: document.getElementById("compose-visibility")?.value || "contacts",
-    comment_access: document.getElementById("compose-comment-access")?.value || "contacts",
   }));
 }
 
@@ -638,12 +637,6 @@ function _lookupKeyFromRegistry(identity) {
 }
 
 function _rerenderVisibleAuthorNames() {
-  document.querySelectorAll('.comment-author[data-identity]').forEach(el => {
-    const identity = el.dataset.identity;
-    const serverUrl = el.dataset.server || CFG.own_server;
-    const au = _commentAuthor(identity, serverUrl);
-    el.querySelector('.comment-author-name').textContent = au.name;
-  });
   if (_reactorTooltipBtn) _showReactorTooltip({ }, _reactorTooltipBtn);
 }
 
@@ -659,7 +652,7 @@ async function fetchServerHandles() {
           serverPublicKeys[d.public_key] = s.url;
           _rerenderVisibleAuthorNames();
         }
-        const activity7d = (d.posts_7d || 0) + (d.comments_7d || 0);
+        const activity7d = d.posts_7d || 0;
         _serverActivity7d[s.url] = activity7d;
         const contact = (CFG.servers || []).find(c => c.url === s.url);
         _serverPollIntervals[s.url] = _computePollInterval(activity7d, contact?.poll_weight);
@@ -1325,16 +1318,15 @@ function _reactorName(identity, postServerUrl) {
   return _resolveIdentity(identity, postServerUrl).name;
 }
 
-function reactionBarHtml(reactions, postId, serverUrl, commentId) {
-  const cid = commentId || '';
+function reactionBarHtml(reactions, postId, serverUrl) {
   const btns = (reactions || []).map(r => {
     const cls = r.reacted ? 'reaction-btn reacted' : 'reaction-btn';
     const reactorsJson = esc(JSON.stringify(r.reactors || []));
-    return `<button class="${cls}" data-reactors="${reactorsJson}" data-server="${esc(serverUrl)}" onmouseenter="_showReactorTooltip(event,this)" onmouseleave="_hideReactorTooltip()" onclick="if(_longPressActivated){_longPressActivated=false;}else{event.stopPropagation();toggleReaction('${esc(postId)}','${esc(serverUrl)}','${r.emoji}','${esc(cid)}',this)}">${r.emoji} <span>${r.count}</span></button>`;
+    return `<button class="${cls}" data-reactors="${reactorsJson}" data-server="${esc(serverUrl)}" onmouseenter="_showReactorTooltip(event,this)" onmouseleave="_hideReactorTooltip()" onclick="if(_longPressActivated){_longPressActivated=false;}else{event.stopPropagation();toggleReaction('${esc(postId)}','${esc(serverUrl)}','${r.emoji}',this)}">${r.emoji} <span>${r.count}</span></button>`;
   }).join('');
-  const add = `<button class="reaction-add" onclick="if(_longPressActivated){_longPressActivated=false;}else{event.stopPropagation();showEmojiPicker(event,'${esc(postId)}','${esc(serverUrl)}','${esc(cid)}')}" title="Add reaction • hold to see all reactions">+</button>`;
-  const reply = cid === '' ? `<button class="reaction-add" onclick="event.stopPropagation();_openReplyFromBar('${esc(postId)}')" title="Reply">↩</button>` : '';
-  return `<div class="reaction-bar" data-post-id="${esc(postId)}" data-server="${esc(serverUrl)}" data-comment-id="${esc(cid)}">${btns}${add}${reply}</div>`;
+  const add = `<button class="reaction-add" onclick="if(_longPressActivated){_longPressActivated=false;}else{event.stopPropagation();showEmojiPicker(event,'${esc(postId)}','${esc(serverUrl)}')}" title="Add reaction • hold to see all reactions">+</button>`;
+  const reply = `<button class="reaction-add" onclick="event.stopPropagation();_openReplyFromBar('${esc(postId)}')" title="Reply">↩</button>`;
+  return `<div class="reaction-bar" data-post-id="${esc(postId)}" data-server="${esc(serverUrl)}">${btns}${add}${reply}</div>`;
 }
 
 function _openReplyFromBar(postId) {
@@ -1363,7 +1355,7 @@ function _topEmoji(n = 6) {
   return Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, n).map(([e]) => e);
 }
 
-async function showEmojiPicker(event, postId, serverUrl, commentId) {
+async function showEmojiPicker(event, postId, serverUrl) {
   const bar = event.target.closest('.reaction-bar');
   if (!bar) return;
   await _loadEmojiList();
@@ -1381,7 +1373,7 @@ async function showEmojiPicker(event, postId, serverUrl, commentId) {
       b.className = 'emoji-pick-btn';
       b.textContent = emoji;
       b.title = 'Recently used';
-      b.onclick = e => { e.stopPropagation(); picker.remove(); _trackEmojiUsed(emoji); toggleReaction(postId, serverUrl, emoji, commentId, null); };
+      b.onclick = e => { e.stopPropagation(); picker.remove(); _trackEmojiUsed(emoji); toggleReaction(postId, serverUrl, emoji, null); };
       freqRow.appendChild(b);
     }
     picker.appendChild(freqRow);
@@ -1411,7 +1403,7 @@ async function showEmojiPicker(event, postId, serverUrl, commentId) {
       const b = document.createElement('button');
       b.className = 'emoji-pick-btn';
       b.textContent = emoji;
-      b.onclick = e => { e.stopPropagation(); picker.remove(); _trackEmojiUsed(emoji); toggleReaction(postId, serverUrl, emoji, commentId, null); };
+      b.onclick = e => { e.stopPropagation(); picker.remove(); _trackEmojiUsed(emoji); toggleReaction(postId, serverUrl, emoji, null); };
       grid.appendChild(b);
     }
   }
@@ -1494,12 +1486,12 @@ async function showInlineEmojiPicker(event, taId) {
   }), 0);
 }
 
-async function toggleReaction(postId, serverUrl, emoji, commentId, _btn) {
+async function toggleReaction(postId, serverUrl, emoji, _btn) {
   const params = serverUrl !== CFG.own_server ? '?server=' + encodeURIComponent(serverUrl) : '';
   const r = await apiFetch('/api/posts/' + postId + '/react' + params, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
-    body: JSON.stringify({emoji, comment_id: commentId || ''}),
+    body: JSON.stringify({emoji, comment_id: ''}),
   });
   if (!r.ok) {
     const status = document.getElementById('feed-status');
@@ -1507,10 +1499,9 @@ async function toggleReaction(postId, serverUrl, emoji, commentId, _btn) {
     return;
   }
   const data = await r.json();
-  const cid = commentId || '';
-  document.querySelectorAll(`.reaction-bar[data-post-id="${postId}"][data-comment-id="${cid}"]`).forEach(bar => {
+  document.querySelectorAll(`.reaction-bar[data-post-id="${postId}"]`).forEach(bar => {
     const tmp = document.createElement('div');
-    tmp.innerHTML = reactionBarHtml(data.reactions, postId, serverUrl, cid);
+    tmp.innerHTML = reactionBarHtml(data.reactions, postId, serverUrl);
     bar.replaceWith(tmp.firstChild);
   });
   _hideEmojiPreview();
@@ -1616,26 +1607,8 @@ function makePostCard(post, idx) {
   }
 
   const rbarWrap = document.createElement('div');
-  rbarWrap.innerHTML = reactionBarHtml(post.reactions || [], post.id, post._server_url, '');
+  rbarWrap.innerHTML = reactionBarHtml(post.reactions || [], post.id, post._server_url);
   div.appendChild(rbarWrap.firstChild);
-
-  // comments toggle
-  const count = post.comment_count || 0;
-  const toggle = document.createElement("div");
-  toggle.className = "comments-toggle";
-  toggle.dataset.postId = post.id;
-  const commentIconHtml = _levelIconHtml(post.comment_access, 'comments: ' + (post.comment_access || 'contacts'));
-  toggle.innerHTML = '<span style="display:inline-flex;align-items:center;gap:0.35rem"><span class="comments-toggle-arrow">▶</span><span class="comments-toggle-label">'
-    + count + ' comment' + (count !== 1 ? 's' : '') + '</span></span>' + commentIconHtml;
-  toggle.onclick = () => _toggleComments(post, div);
-  toggle.hidden = (count === 0);
-  div.appendChild(toggle);
-
-  const panel = document.createElement("div");
-  panel.className = "comments-panel";
-  panel.dataset.postId = post.id;
-  panel.hidden = true;
-  div.appendChild(panel);
 
   const replyCount = post.reply_count || 0;
   const repliesToggle = document.createElement('div');
@@ -1811,17 +1784,13 @@ function _handleSSEEvent(upd) {
   if (_openPanels.size === 0) return;
   const post = _openPanels.get(upd.post_id);
   if (!post) return;
-  if (upd.event === 'comment') {
-    const panel = document.querySelector(`.comments-panel[data-post-id="${upd.post_id}"]`);
-    if (panel && !panel.hidden) _loadCommentsIntoPanel(post, panel);
-  } else if (upd.event === 'reaction') {
-    const cid = upd.data?.comment_id || '';
+  if (upd.event === 'reaction') {
     const reactions = upd.data?.reactions;
     if (reactions) {
       const serverUrl = post._server_url || CFG.own_server;
-      document.querySelectorAll(`.reaction-bar[data-post-id="${upd.post_id}"][data-comment-id="${cid}"]`).forEach(bar => {
+      document.querySelectorAll(`.reaction-bar[data-post-id="${upd.post_id}"]`).forEach(bar => {
         const tmp = document.createElement('div');
-        tmp.innerHTML = reactionBarHtml(reactions, upd.post_id, serverUrl, cid);
+        tmp.innerHTML = reactionBarHtml(reactions, upd.post_id, serverUrl);
         bar.replaceWith(tmp.firstChild);
       });
     }
@@ -1866,18 +1835,15 @@ function _loadFeedCache() {
 async function _pollOpenPanels() {
   if (document.hidden) return;
   for (const [postId, post] of _openPanels) {
-    const panel = document.querySelector(`.comments-panel[data-post-id="${postId}"]`);
-    if (!panel || panel.hidden) continue;
-    _loadCommentsIntoPanel(post, panel);
     const params = post._server_url !== CFG.own_server ? '?server=' + encodeURIComponent(post._server_url) : '';
     const r = await apiFetch('/api/posts/' + postId + params);
     if (!r.ok) continue;
     const updated = await r.json();
     if (!updated.reactions) continue;
     post.reactions = updated.reactions;
-    document.querySelectorAll(`.reaction-bar[data-post-id="${postId}"][data-comment-id=""]`).forEach(bar => {
+    document.querySelectorAll(`.reaction-bar[data-post-id="${postId}"]`).forEach(bar => {
       const tmp = document.createElement('div');
-      tmp.innerHTML = reactionBarHtml(updated.reactions, postId, post._server_url, '');
+      tmp.innerHTML = reactionBarHtml(updated.reactions, postId, post._server_url);
       bar.replaceWith(tmp.firstChild);
     });
   }
@@ -1893,19 +1859,12 @@ function _applyFreshPosts(freshPosts) {
     const updated = byId.get(card.dataset.postId);
     if (!updated) return;
     const post = allPosts.find(p => p.id === updated.id);
-    if (post) { post.comment_count = updated.comment_count; post.reactions = updated.reactions; post.body = updated.body; }
-    const panel = card.querySelector('.comments-panel');
-    const toggle = card.querySelector('.comments-toggle');
-    if (toggle) {
-      const count = updated.comment_count || 0;
-      toggle.querySelector('.comments-toggle-label').textContent = count + ' comment' + (count !== 1 ? 's' : '');
-      toggle.hidden = (count === 0);
-    }
+    if (post) { post.reactions = updated.reactions; post.body = updated.body; }
     if (updated.reactions) {
       const serverUrl = post?._server_url || CFG.own_server;
-      card.querySelectorAll(`.reaction-bar[data-post-id="${updated.id}"][data-comment-id=""]`).forEach(bar => {
+      card.querySelectorAll(`.reaction-bar[data-post-id="${updated.id}"]`).forEach(bar => {
         const tmp = document.createElement('div');
-        tmp.innerHTML = reactionBarHtml(updated.reactions, updated.id, serverUrl, '');
+        tmp.innerHTML = reactionBarHtml(updated.reactions, updated.id, serverUrl);
         bar.replaceWith(tmp.firstChild);
       });
     }
@@ -1968,32 +1927,6 @@ async function _runBgFetch() {
 }
 
 
-// ── inline comments toggle ─────────────────────────────────────────────────
-function _toggleComments(post, cardEl) {
-  const panel = cardEl.querySelector('.comments-panel');
-  const toggle = cardEl.querySelector('.comments-toggle');
-  const arrow = toggle.querySelector('.comments-toggle-arrow');
-  const label = toggle.querySelector('.comments-toggle-label');
-  if (panel.hidden) {
-    panel.hidden = false;
-    arrow.textContent = '▼';
-    label.textContent = 'Loading comments…';
-    _openPanels.set(post.id, post);
-    _startDetailPoll();
-    _loadCommentsIntoPanel(post, panel);
-    // Subscribe to push updates from the remote node
-    const subParams = post._server_url && post._server_url !== CFG.own_server
-      ? '?server=' + encodeURIComponent(post._server_url) : '';
-    apiFetch('/api/posts/' + post.id + '/subscribe' + subParams, {method: 'POST'}).catch(() => {});
-  } else {
-    panel.hidden = true;
-    arrow.textContent = '▶';
-    const count = post.comment_count || 0;
-    label.textContent = count + ' comment' + (count !== 1 ? 's' : '');
-    _openPanels.delete(post.id);
-    if (_openPanels.size === 0) _stopDetailPoll();
-  }
-}
 
 async function _toggleReplies(post, cardEl) {
   const panel = cardEl.querySelector('.replies-panel');
@@ -2038,7 +1971,7 @@ async function _toggleReplies(post, cardEl) {
     const card = makePostCard(rp, -1);
     card.style.cssText = 'margin-top:0.5rem;border-left:2px solid var(--border-strong);padding-left:0.75rem;cursor:pointer';
     card.addEventListener('click', e => {
-      if (e.target.closest('button, a, input, textarea, .reply-panel, .comments-panel')) return;
+      if (e.target.closest('button, a, input, textarea, .reply-panel')) return;
       const nestedReplies = card.querySelector('.replies-panel');
       if (nestedReplies && nestedReplies.contains(e.target)) return;
       openPostOverlay(rp.id, rp._server_url);
@@ -2099,7 +2032,7 @@ function openReplyCompose(post, cardEl) {
   const cbId = 'reply-notify-' + post.id;
   panel.innerHTML =
     `<div style="margin-top:0.5rem">`
-    + `<textarea id="${esc(taId)}" class="comment-input reply-input" data-post-id="${esc(post.id)}" placeholder="Write a reply…" style="width:100%;box-sizing:border-box;display:block"></textarea>`
+    + `<textarea id="${esc(taId)}" class="reply-input" data-post-id="${esc(post.id)}" placeholder="Write a reply…" style="width:100%;box-sizing:border-box;display:block"></textarea>`
     + `<div style="display:flex;align-items:center;gap:0.35rem;margin-top:0.3rem;flex-wrap:wrap">`
     + `<button class="reaction-add" onclick="showInlineEmojiPicker(event,'${esc(taId)}')" title="Insert emoji">😊</button>`
     + `<button class="reaction-add" onclick="openPostOverlay('${esc(post.id)}','${esc(post._server_url||'')}')" title="View post">⤢</button>`
@@ -2172,103 +2105,10 @@ async function submitReply(e, parentPostId, parentServerUrl, visibility) {
   }
 }
 
-// ── comments ───────────────────────────────────────────────────────────────
-async function _loadCommentsIntoPanel(post, panel) {
-  const params = post._server_url !== CFG.own_server
-    ? "?server=" + encodeURIComponent(post._server_url) : "";
-  const r = await apiFetch("/api/posts/" + post.id + "/comments" + params);
-  if (!panel.isConnected || panel.hidden) return;
-  if (!r.ok) { panel.innerHTML = ""; return; }
-  const data = await r.json();
-  _renderCommentsInto(post, data.comments, panel);
-  // update toggle label with live count
-  const toggle = panel.previousElementSibling;
-  if (toggle?.classList.contains('comments-toggle')) {
-    const live = data.comments.filter(c => !c.deleted).length;
-    post.comment_count = live;
-    toggle.querySelector('.comments-toggle-label').textContent = live + ' comment' + (live !== 1 ? 's' : '');
-    toggle.hidden = (live === 0);
-  }
-}
-
-function _commentAuthor(identity, postServerUrl) {
-  return _resolveIdentity(identity, postServerUrl);
-}
-
-function _renderCommentsInto(post, comments, panel) {
-  const live = comments.filter(c => !c.deleted);
-  const byParent = {};
-  for (const c of live) { const k = c.parent_id || "__root__"; (byParent[k] = byParent[k] || []).push(c); }
-  function renderOne(c, depth) {
-    const replies = byParent[c.id] || [];
-    const au = _commentAuthor(c.author_node_id, post._server_url);
-    const avatar = au.photoUrl
-      ? `<img src="${esc(au.photoUrl)}" class="post-author-avatar" alt="">`
-      : `<span class="post-author-initials">${esc((au.name[0]||'?').toUpperCase())}</span>`;
-    const identityAttr = c.author_node_id ? ` data-identity="${esc(c.author_node_id)}" data-server="${esc(post._server_url || '')}"` : '';
-    const dateFmt = fmtDate(c.created_at);
-    const dateFull = fmtDateFull(c.created_at);
-    const isOwnComment = IS_OWNER && post._server_url === CFG.own_server && (!c.author_node_id || c.author_node_id === '');
-    const menuBtn = `<span style="position:relative;display:inline-flex;align-items:center"><button class="post-menu-btn" title="More options" onclick="openCommentMenu(event,'${esc(post.id)}','${esc(post._server_url)}','${esc(c.id)}',${isOwnComment})">…</button></span>`;
-    return '<div class="comment" data-comment-id="' + esc(c.id) + '">'
-      + `<div class="comment-author"${identityAttr}>`
-      + `<span style="display:inline-flex;align-items:center;gap:0.4rem">` + avatar + `<span class="comment-author-name">${esc(au.name)}</span></span>`
-      + `<span style="display:inline-flex;align-items:center;gap:0.35rem;flex-shrink:0">`
-      + (dateFmt ? `<span class="post-date" title="${esc(dateFull)}">${dateFmt}</span>` : '')
-      + menuBtn + `</span>`
-      + `</div>`
-      + '<div class="comment-body">' + renderBodyText(c.body || '') + '</div>'
-      + reactionBarHtml(c.reactions || [], post.id, post._server_url, c.id)
-      + (replies.length ? '<div class="comment-replies">' + replies.map(r => renderOne(r, depth+1)).join("") + '</div>' : '')
-      + '</div>';
-  }
-  const roots = byParent["__root__"] || [];
-  panel.innerHTML = roots.length
-    ? roots.map(c => renderOne(c, 0)).join("")
-    : '<p style="color:var(--text-5);font-size:0.82rem;margin:0.5rem 0">No comments.</p>';
-}
-
-
 // ── @mention autocomplete ──────────────────────────────────────────────────
 let _mentionState = null;
 const COMPOSE_CTX = { taId: 'compose-body', hlId: 'compose-highlight', ddId: 'compose-mention-dropdown' };
 const EDIT_CTX    = { taId: 'edit-body',    hlId: 'edit-highlight',    ddId: 'edit-mention-dropdown' };
-
-// Event delegation for comment inputs — assign a stable id and switch context on first input.
-document.addEventListener('input', e => {
-  const ta = e.target;
-  if (!ta.classList.contains('comment-input')) return;
-  if (!ta.id) ta.id = 'comment-ta-' + ta.dataset.postId;
-  _mentionCtx = { taId: ta.id, hlId: null, ddId: 'comment-mention-dropdown' };
-  onComposeInput();
-  _repositionCommentDropdown(ta);
-}, true);
-document.addEventListener('keydown', e => {
-  if (!e.target.classList.contains('comment-input')) return;
-  if (!e.target.id) return;
-  _mentionCtx = { taId: e.target.id, hlId: null, ddId: 'comment-mention-dropdown' };
-  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !_mentionState) {
-    e.preventDefault();
-    const postId = e.target.dataset.postId;
-    const post = allPosts.find(p => p.id === postId);
-    submitReply(e, postId, post?._server_url || CFG.own_server, post?.visibility || 'contacts');
-    return;
-  }
-  onComposeKeydown(e);
-}, true);
-document.addEventListener('blur', e => {
-  if (e.target.classList.contains('comment-input'))
-    setTimeout(hideMentionDropdown, 150);
-}, true);
-
-function _repositionCommentDropdown(ta) {
-  const dd = document.getElementById('comment-mention-dropdown');
-  if (!dd || dd.hidden) return;
-  const r = ta.getBoundingClientRect();
-  const left = Math.min(r.left, window.innerWidth - dd.offsetWidth - 8);
-  dd.style.top  = (r.bottom + 2) + 'px';
-  dd.style.left = Math.max(4, left) + 'px';
-}
 let _mentionCtx = COMPOSE_CTX;
 
 function _contactTag(c) {
@@ -2467,7 +2307,6 @@ function openCompose() {
   _updateHighlight();
   document.getElementById("compose-tags").value = draft?.tags || "";
   document.getElementById("compose-visibility").value = draft?.visibility || "contacts";
-  document.getElementById("compose-comment-access").value = draft?.comment_access || "contacts";
   document.getElementById("compose-progress").innerHTML = draft?.body
     ? '<div style="font-size:0.78rem;color:#888">Draft restored.</div>' : "";
   document.getElementById("compose-submit").disabled = false;
@@ -2586,7 +2425,6 @@ async function submitInlinePost() {
   fd.append("body", body);
   fd.append("tags", "[]");
   fd.append("visibility", "contacts");
-  fd.append("comment_access", "contacts");
   const r = await apiFetch("/api/posts", {method: "POST", body: fd});
   if (btn) { btn.disabled = false; btn.textContent = "Post"; }
   if (r.ok) {
@@ -2613,7 +2451,6 @@ async function submitPost() {
   fd.append("body", _expandMentions(bodyText));
   fd.append("tags", JSON.stringify(tags));
   fd.append("visibility", document.getElementById("compose-visibility").value);
-  fd.append("comment_access", document.getElementById("compose-comment-access").value);
 
   try {
     const r = await apiFetch("/api/posts", {method: "POST", body: fd});
@@ -2687,79 +2524,6 @@ async function hidePost(postId, idx) {
   loadTagSidebar();
 }
 
-// ── comment context menu ───────────────────────────────────────────────────
-function openCommentMenu(e, postId, serverUrl, commentId, isOwn) {
-  e.stopPropagation();
-  closeAllPostMenus();
-  const btn = e.currentTarget;
-  const wrap = btn.parentElement;
-  const popup = document.createElement('div');
-  popup.className = 'post-menu-popup';
-  if (isOwn) {
-    popup.innerHTML =
-      `<button onclick="closeAllPostMenus();editCommentInline('${esc(postId)}','${esc(serverUrl)}','${esc(commentId)}')">Edit</button>`
-      + `<button class="danger" onclick="closeAllPostMenus();deleteComment('${esc(postId)}','${esc(serverUrl)}','${esc(commentId)}')">Delete</button>`;
-  }
-  wrap.appendChild(popup);
-  const dismiss = ev => { if (!popup.contains(ev.target) && ev.target !== btn) { closeAllPostMenus(); document.removeEventListener('click', dismiss, true); } };
-  setTimeout(() => document.addEventListener('click', dismiss, true), 0);
-}
-
-function editCommentInline(postId, serverUrl, commentId) {
-  const commentEl = document.querySelector('.comment[data-comment-id="' + commentId + '"]');
-  if (!commentEl) return;
-  const bodyEl = commentEl.querySelector('.comment-body');
-  if (!bodyEl) return;
-  const original = bodyEl.textContent;
-  const ta = document.createElement('textarea');
-  ta.value = original;
-  ta.style.cssText = 'width:100%;background:var(--surface-input);color:var(--text-1);border:1px solid var(--accent);border-radius:4px;padding:0.4rem;font-size:0.88rem;resize:vertical;min-height:60px;outline:none;font-family:inherit;box-sizing:border-box';
-  const actions = document.createElement('div');
-  actions.style.cssText = 'display:flex;gap:0.5rem;justify-content:flex-end;margin-top:0.3rem';
-  const saveBtn = document.createElement('button');
-  saveBtn.className = 'btn btn-primary btn-sm';
-  saveBtn.textContent = 'Save';
-  const cancelBtn = document.createElement('button');
-  cancelBtn.className = 'btn btn-muted btn-sm';
-  cancelBtn.textContent = 'Cancel';
-  actions.appendChild(cancelBtn);
-  actions.appendChild(saveBtn);
-  bodyEl.replaceWith(ta);
-  ta.after(actions);
-  ta.focus();
-  cancelBtn.onclick = () => { actions.remove(); ta.replaceWith(bodyEl); };
-  saveBtn.onclick = async () => {
-    const newBody = ta.value.trim();
-    if (!newBody) return;
-    saveBtn.disabled = true;
-    const r = await apiFetch('/api/posts/' + postId + '/comments/' + commentId, {
-      method: 'PATCH', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({body: newBody}),
-    });
-    if (r.ok) {
-      bodyEl.textContent = newBody;
-      actions.remove();
-      ta.replaceWith(bodyEl);
-    } else {
-      saveBtn.disabled = false;
-    }
-  };
-}
-
-async function deleteComment(postId, serverUrl, commentId) {
-  if (!confirm('Delete this comment?')) return;
-  const r = await apiFetch('/api/posts/' + postId + '/comments/' + commentId, {method: 'DELETE'});
-  if (r.ok || r.status === 204) {
-    const commentEl = document.querySelector('.comment[data-comment-id="' + commentId + '"]');
-    if (commentEl) commentEl.remove();
-    const post = allPosts.find(p => p.id === postId);
-    if (post) {
-      post.comment_count = Math.max(0, (post.comment_count || 1) - 1);
-      const toggle = document.querySelector('.comments-toggle[data-post-id="' + postId + '"] .comments-toggle-label');
-      if (toggle) { const n = post.comment_count; toggle.textContent = n + ' comment' + (n !== 1 ? 's' : ''); }
-    }
-  }
-}
 
 // ── edit / delete ──────────────────────────────────────────────────────────
 let editingIdx = -1;
@@ -2772,7 +2536,6 @@ function openEdit(idx) {
   _updateHighlight();
   document.getElementById("edit-tags").value = (post.tags || []).join(" ");
   document.getElementById("edit-visibility").value = post.visibility || "contacts";
-  document.getElementById("edit-comment-access").value = post.comment_access || "contacts";
   document.getElementById("edit-status").innerHTML = "";
   document.getElementById("edit-submit").disabled = false;
   document.getElementById("edit-overlay").hidden = false;
@@ -2790,14 +2553,13 @@ async function submitEdit() {
   const body = _expandMentions(document.getElementById("edit-body").value);
   const tags = document.getElementById("edit-tags").value.trim().split(/\s+/).filter(Boolean);
   const visibility = document.getElementById("edit-visibility").value;
-  const comment_access = document.getElementById("edit-comment-access").value;
   document.getElementById("edit-submit").disabled = true;
   document.getElementById("edit-status").innerHTML = '<span style="color:#aaa">Saving…</span>';
 
   const r = await apiFetch("/api/posts/" + post.id, {
     method: "PATCH",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({body, tags, visibility, comment_access}),
+    body: JSON.stringify({body, tags, visibility}),
   });
   if (r.ok) {
     const updated = await r.json();
@@ -2965,11 +2727,9 @@ function _renderMentionsList() {
     const dot = m.seen ? '' : '<span style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#4285f4;flex-shrink:0;margin-top:3px"></span>';
     let text;
     if (m.notif_type === 'reaction') text = `${name} reacted ${m.emoji || ''} to your post`;
-    else if (m.notif_type === 'comment') text = `${name} commented on your post`;
-    else if (m.notif_type === 'thread') text = `${name} also commented on a post you commented on`;
+    else if (m.notif_type === 'reply') text = `${name} replied to your post`;
     else text = `${name} mentioned you`;
-    // For 'comment' notifications the post lives on own server; don't use commenter URL as fallback.
-    const _jumpServer = m.post_server || (m.notif_type !== 'comment' ? (contact?.url || (_actorId.startsWith('http') ? _actorId : '')) : '');
+    const _jumpServer = m.post_server || (contact?.url || (_actorId.startsWith('http') ? _actorId : ''));
     return `<div onclick="_jumpToMention('${esc(m.post_id)}','${esc(_jumpServer)}','${esc(m.id)}')" style="display:flex;gap:0.5rem;align-items:flex-start;padding:0.55rem 0.75rem;cursor:pointer;border-bottom:1px solid #1e1e1e" onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
       ${dot || '<span style="display:inline-block;width:7px;flex-shrink:0"></span>'}
       <div style="flex:1;min-width:0">
@@ -3026,9 +2786,6 @@ async function _jumpToMention(postId, serverUrl, notifId) {
     card.scrollIntoView({behavior: "smooth", block: "start"});
     card.style.outline = "2px solid #4285f4";
     setTimeout(() => { card.style.outline = ""; }, 2000);
-    // Open comments panel
-    const toggle = card.querySelector(".comments-toggle");
-    if (toggle && card.querySelector(".comments-panel")?.hidden !== false) toggle.click();
   }
 }
 

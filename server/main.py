@@ -24,7 +24,6 @@ from . import feed as feed_module
 from . import assets as assets_module
 from . import auth_routes as auth_routes_module
 from . import sso as sso_module
-from . import comments as comments_module
 from . import write as write_module
 from . import admin as admin_module
 from . import posts as posts_module
@@ -402,7 +401,6 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
     app.include_router(feed_module.router)
     app.include_router(assets_module.router)
     app.include_router(auth_routes_module.router)
-    app.include_router(comments_module.router)
     app.include_router(write_module.router)
     app.include_router(admin_module.router)
     app.include_router(posts_module.router)

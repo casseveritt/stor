@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>contacc</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/style.css?v=702515c-10">
+  <link rel="stylesheet" href="/style.css?v=702515c-11">
   <script>(function(){var t=localStorage.getItem('theme')||'dark';document.documentElement.setAttribute('data-theme',t)})();</script>
 </head>
 <body>
@@ -292,11 +292,6 @@
           <option value="public">Public</option>
           <option value="private">Private</option>
         </select></label>
-        <label>Comments <select id="compose-comment-access" style="background:var(--surface-input);color:var(--text-1);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
-          <option value="contacts">Contacts</option>
-          <option value="authenticated">Authenticated</option>
-          <option value="public">Public</option>
-        </select></label>
       </div>
     </div>
     <div class="upload-progress" id="compose-progress"></div>
@@ -510,11 +505,6 @@
           <option value="public">Public</option>
           <option value="private">Private</option>
         </select></label>
-        <label>Comments <select id="edit-comment-access" style="background:var(--surface-input);color:var(--text-1);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
-          <option value="contacts">Contacts</option>
-          <option value="authenticated">Authenticated</option>
-          <option value="public">Public</option>
-        </select></label>
       </div>
     </div>
     <div class="upload-progress" id="edit-status"></div>
@@ -545,10 +535,8 @@
   </div>
 </div>
 
-<div id="comment-mention-dropdown" class="mention-dropdown" hidden style="position:fixed"></div>
-
   <script src="/marked.min.js?v=2"></script>
   <script src="/purify.min.js?v=2"></script>
-  <script src="/app.js?v=702515c-10"></script>
+  <script src="/app.js?v=702515c-11"></script>
 </body>
 </html>
