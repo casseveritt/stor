@@ -574,9 +574,10 @@ async def migrate_comments(request: Request):
         return {"owner_converted": 0, "remote_sent": {}, "errors": []}
 
     owner_converted = 0
-    remote_groups: dict[str, list] = {}  # author_node_id → list of comment dicts
+    remote_groups: dict[str, list] = {}  # target_url → list of comment dicts
     errors: list[str] = []
     comment_to_post: dict[str, str] = {}  # comment_id → new post_id (for nested chains)
+    migrated_ids: list[str] = []  # comment ids successfully handled
 
     for comment_id, post_id, parent_comment_id, author_node_id, body, created_at in rows:
         if not author_node_id:
@@ -587,10 +588,20 @@ async def migrate_comments(request: Request):
                 continue
             new_post_id = _make_reply_post(db, node_id, body, created_at, parent_post_id, node_id)
             comment_to_post[comment_id] = new_post_id
+            migrated_ids.append(comment_id)
             owner_converted += 1
         else:
             parent_post_id = comment_to_post.get(parent_comment_id, post_id) if parent_comment_id else post_id
-            remote_groups.setdefault(author_node_id, []).append({
+            # author_node_id may be a UUID (look up server_url) or a legacy URL (use directly).
+            if author_node_id.startswith("http"):
+                target_url = author_node_id.rstrip("/")
+            else:
+                url_row = db.execute("SELECT server_url FROM users WHERE node_id = ?", (author_node_id,)).fetchone()
+                if not url_row:
+                    errors.append(f"no server_url for node {author_node_id}")
+                    continue
+                target_url = url_row[0].rstrip("/")
+            remote_groups.setdefault(target_url, []).append({
                 "id": comment_id,
                 "body": body,
                 "created_at": created_at,
@@ -601,34 +612,39 @@ async def migrate_comments(request: Request):
 
     db.commit()
 
-    # Forward remote-node comments to those nodes.
+    # Forward remote-node comments and only delete those confirmed ingested.
     remote_sent: dict[str, int] = {}
-    for author_node_id, comment_list in remote_groups.items():
-        url_row = db.execute("SELECT server_url FROM users WHERE node_id = ?", (author_node_id,)).fetchone()
-        if not url_row:
-            errors.append(f"no server_url for node {author_node_id}")
-            continue
-        target_url = url_row[0].rstrip("/") + "/admin/ingest-comment-migration"
+    for target_url, comment_list in remote_groups.items():
+        ingest_url = target_url + "/admin/ingest-comment-migration"
         body_bytes = json.dumps({"comments": comment_list}).encode()
         headers = {"Content-Type": "application/json"}
         if priv:
             headers.update(sign_federated_request(priv, "POST", "/admin/ingest-comment-migration", body_bytes))
             headers["X-Origin-Server"] = node_address
         try:
-            r = httpx.post(target_url, content=body_bytes, headers=headers, timeout=15)
+            r = httpx.post(ingest_url, content=body_bytes, headers=headers, timeout=15)
             if r.is_success:
-                remote_sent[url_row[0]] = len(comment_list)
+                result = r.json()
+                confirmed = set(result.get("created", {}).keys())
+                for c in comment_list:
+                    if c["id"] in confirmed:
+                        migrated_ids.append(c["id"])
+                    else:
+                        errors.append(f"comment {c['id']}: not confirmed by {target_url}")
+                remote_sent[target_url] = len(confirmed)
             else:
-                errors.append(f"{url_row[0]}: HTTP {r.status_code}")
+                errors.append(f"{target_url}: HTTP {r.status_code}")
         except Exception as exc:
-            errors.append(f"{url_row[0]}: {exc}")
+            errors.append(f"{target_url}: {exc}")
 
-    # Delete all comments now that owner ones are converted and remote ones forwarded.
-    db.execute("DELETE FROM comments")
-    db.execute("DELETE FROM comment_edit_requests")
-    db.commit()
+    # Only delete comments that were confirmed migrated.
+    if migrated_ids:
+        placeholders = ",".join("?" * len(migrated_ids))
+        db.execute(f"DELETE FROM comments WHERE id IN ({placeholders})", migrated_ids)
+        db.commit()
 
-    return {"owner_converted": owner_converted, "remote_sent": remote_sent, "errors": errors}
+    return {"owner_converted": owner_converted, "remote_sent": remote_sent,
+            "migrated": len(migrated_ids), "errors": errors}
 
 
 class _IngestCommentMigration(BaseModel):
