@@ -40,32 +40,32 @@ def sso_client(client):
 @pytest.fixture(scope="module")
 def alice(client):
     db = client.app.state.db
-    recipient_id = str(uuid.uuid4())
+    node_id = str(uuid.uuid4())
     db.execute(
-        "INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
-        (recipient_id, ALICE_IDENTITY, "Alice SSO"),
+        "INSERT OR REPLACE INTO identity_mappings (identity, node_id) VALUES (?, ?)",
+        (ALICE_IDENTITY, node_id),
     )
     db.commit()
-    return {"recipient_id": recipient_id, "identity": ALICE_IDENTITY}
+    return {"recipient_id": node_id, "identity": ALICE_IDENTITY}
 
 
 @pytest.fixture(scope="module")
 def bob_with_alias(client):
     """Bob has a primary identity plus an alias in identity_mappings."""
     db = client.app.state.db
-    recipient_id = str(uuid.uuid4())
+    node_id = str(uuid.uuid4())
     primary = "google:bob-primary@example.com"
     alias = "google:bob-alias@gmail.com"
     db.execute(
-        "INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
-        (recipient_id, primary, "Bob SSO"),
+        "INSERT OR REPLACE INTO identity_mappings (identity, node_id) VALUES (?, ?)",
+        (primary, node_id),
     )
     db.execute(
-        "INSERT INTO identity_mappings (identity, recipient_id) VALUES (?, ?)",
-        (alias, recipient_id),
+        "INSERT OR REPLACE INTO identity_mappings (identity, node_id) VALUES (?, ?)",
+        (alias, node_id),
     )
     db.commit()
-    return {"recipient_id": recipient_id, "primary": primary, "alias": alias}
+    return {"recipient_id": node_id, "primary": primary, "alias": alias}
 
 
 # ── login endpoint ────────────────────────────────────────────────────────────
@@ -167,7 +167,7 @@ class TestIdentityMapping:
             assert r.status_code == 302
             token = r.headers["location"].split("token=", 1)[1]
             db = sso_client.app.state.db
-            row = db.execute("SELECT recipient_id FROM tokens WHERE id = ?", (token,)).fetchone()
+            row = db.execute("SELECT node_id FROM tokens WHERE id = ?", (token,)).fetchone()
             assert row[0] == bob_with_alias["recipient_id"]
         finally:
             sso_client.app.state.sso_exchange_google = prev

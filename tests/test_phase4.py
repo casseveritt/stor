@@ -41,18 +41,12 @@ def _insert_asset(db, **kwargs):
     return asset_id
 
 
-def _add_recipient(db, identity="google:alice@example.com", display_name="Alice"):
-    recipient_id = str(uuid.uuid4())
-    db.execute(
-        "INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
-        (recipient_id, identity, display_name),
-    )
-    db.commit()
-    return recipient_id
+def _add_recipient(db, identity=None, display_name=None):
+    return str(uuid.uuid4())
 
 
 def _grant_acl(db, asset_id, recipient_id):
-    db.execute("INSERT OR IGNORE INTO acl (asset_id, recipient_id) VALUES (?, ?)", (asset_id, recipient_id))
+    db.execute("INSERT OR IGNORE INTO acl (asset_id, node_id) VALUES (?, ?)", (asset_id, recipient_id))
     db.commit()
 
 
@@ -200,10 +194,10 @@ class TestCheckAcl:
 
     def test_recipient_with_acl_passes(self, client, alice):
         db = client.app.state.db
-        identity = TokenIdentity(is_owner=False, recipient_id=alice["recipient_id"])
+        identity = TokenIdentity(is_owner=False, node_id=alice["recipient_id"])
         assert check_acl(db, alice["allowed_asset_id"], identity) is True
 
     def test_recipient_without_acl_fails(self, client, alice):
         db = client.app.state.db
-        identity = TokenIdentity(is_owner=False, recipient_id=alice["recipient_id"])
+        identity = TokenIdentity(is_owner=False, node_id=alice["recipient_id"])
         assert check_acl(db, alice["denied_asset_id"], identity) is False

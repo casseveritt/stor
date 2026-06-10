@@ -67,7 +67,7 @@ class TestReturnTo:
         app.state.sso_config["google_client_secret"] = "csecret"
 
         db = app.state.db
-        db.execute("INSERT INTO recipients (id, identity, display_name) VALUES ('r1','google:user@test.com','User')")
+        db.execute("INSERT OR REPLACE INTO identity_mappings (identity, node_id) VALUES ('google:user@test.com', 'r1')")
         db.commit()
         state = sso_module.generate_state(db, "google", return_to="https://client.test/")
 
@@ -93,7 +93,7 @@ class TestReturnTo:
         app.state.sso_config["google_client_secret"] = "csecret"
 
         db = app.state.db
-        db.execute("INSERT INTO recipients (id, identity, display_name) VALUES ('r2','google:other@test.com','Other')")
+        db.execute("INSERT OR REPLACE INTO identity_mappings (identity, node_id) VALUES ('google:other@test.com', 'r2')")
         db.commit()
         state = sso_module.generate_state(db, "google")
 
@@ -144,7 +144,7 @@ class TestOwnerIdentity:
         app.state.owner_identity = "google:owner@test.com"
 
         db = app.state.db
-        db.execute("INSERT INTO recipients (id, identity, display_name) VALUES ('r3','google:user@test.com','User')")
+        db.execute("INSERT OR REPLACE INTO identity_mappings (identity, node_id) VALUES ('google:user@test.com', 'r3')")
         db.commit()
         state = sso_module.generate_state(db, "google")
         app.state.sso_exchange_google = lambda *a, **k: {"email": "user@test.com"}

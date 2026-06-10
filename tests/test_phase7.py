@@ -29,18 +29,12 @@ def _insert_asset(db):
     return asset_id
 
 
-def _add_recipient(db, identity):
-    recipient_id = str(uuid.uuid4())
-    db.execute(
-        "INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
-        (recipient_id, identity, identity),
-    )
-    db.commit()
-    return recipient_id
+def _add_recipient(db, identity=None):
+    return str(uuid.uuid4())
 
 
 def _grant_acl(db, asset_id, recipient_id):
-    db.execute("INSERT OR IGNORE INTO acl (asset_id, recipient_id) VALUES (?, ?)", (asset_id, recipient_id))
+    db.execute("INSERT OR IGNORE INTO acl (asset_id, node_id) VALUES (?, ?)", (asset_id, recipient_id))
     db.commit()
 
 
@@ -89,7 +83,7 @@ class TestPostComment:
         assert r.status_code == 201
         data = r.json()
         assert data["body"] == "Owner comment"
-        assert data["author_recipient_id"] is None
+        assert data["author_node_id"] is None
 
     def test_content_hash_matches_body(self, client, owner_token, comment_world):
         body = "Hash verification comment"
@@ -108,7 +102,7 @@ class TestPostComment:
             headers=_auth(comment_world["alice_token"]),
         )
         assert r.status_code == 201
-        assert r.json()["author_recipient_id"] == comment_world["alice_id"]
+        assert r.json()["author_node_id"] == comment_world["alice_id"]
 
     def test_recipient_without_acl_denied(self, client, comment_world):
         r = client.post(
@@ -169,7 +163,7 @@ class TestFetchComments:
         if data["comments"]:
             c = data["comments"][0]
             for field in ("id", "content_hash", "asset_id", "parent_id",
-                          "author_recipient_id", "body", "deleted", "created_at"):
+                          "author_node_id", "body", "deleted", "created_at"):
                 assert field in c
 
 

@@ -103,7 +103,7 @@ def normalize_google_identity(claims: dict) -> str:
 def resolve_identity(db, identity: str) -> str | None:
     """Map provider:identifier → node_id via identity_mappings."""
     row = db.execute(
-        "SELECT recipient_id FROM identity_mappings WHERE identity = ?", (identity,)
+        "SELECT node_id FROM identity_mappings WHERE identity = ?", (identity,)
     ).fetchone()
     return row[0] if row else None
 

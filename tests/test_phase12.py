@@ -62,15 +62,10 @@ def owner_token(store):
 
 @pytest.fixture(scope="module")
 def p12_world(client, owner_token):
-    r = client.post(
-        "/recipients",
-        json={"identity": "google:p12@test.com"},
-        headers=_auth(owner_token),
-    )
-    recipient_id = r.json()["id"]
+    node_id = str(uuid.uuid4())
     db = client.app.state.db
-    token = issue_node_token(db, recipient_id, ttl_seconds=3600)
-    return {"recipient_id": recipient_id, "token": token}
+    token = issue_node_token(db, node_id, ttl_seconds=3600)
+    return {"recipient_id": node_id, "token": token}
 
 
 # ── edit request management via API ──────────────────────────────────────────
@@ -99,12 +94,10 @@ class TestEditRequestManagement:
         r = client.get("/edit-requests", headers=_auth(owner_token))
         req = next(req for req in r.json()["requests"] if req["id"] == request_id)
         for field in ("id", "comment_id", "asset_id", "original_body", "new_body",
-                      "action", "status", "created_at", "requester_recipient_id",
-                      "requester_identity"):
+                      "action", "status", "created_at", "requester_node_id"):
             assert field in req
         assert req["action"] == "edit"
         assert req["status"] == "pending"
-        assert req["requester_identity"] == "google:p12@test.com"
 
     def test_list_deletion_requests_show_action_delete(self, client, owner_token, p12_world):
         asset_id = _publish(client, owner_token)
@@ -193,17 +186,13 @@ class TestRecipientStats:
         r = client.get(f"/recipients/{p12_world['recipient_id']}/stats", headers=_auth(owner_token))
         assert r.status_code == 200
         data = r.json()
-        for field in ("recipient_id", "identity", "display_name", "acl", "tokens", "access"):
-        	assert field in data
+        for field in ("node_id", "display_name", "acl", "tokens", "access"):
+            assert field in data
         assert "asset_count" in data["acl"]
         assert "total" in data["access"]
         assert "last_accessed_at" in data["access"]
         assert "unique_assets_accessed" in data["access"]
         assert "by_endpoint" in data["access"]
-
-    def test_stats_has_correct_identity(self, client, owner_token, p12_world):
-        r = client.get(f"/recipients/{p12_world['recipient_id']}/stats", headers=_auth(owner_token))
-        assert r.json()["identity"] == "google:p12@test.com"
 
     def test_stats_acl_count_reflects_grants(self, client, owner_token, p12_world):
         r_before = client.get(f"/recipients/{p12_world['recipient_id']}/stats", headers=_auth(owner_token)).json()
@@ -229,10 +218,6 @@ class TestRecipientStats:
         by_ep = r.json()["access"]["by_endpoint"]
         assert "fetch_asset" in by_ep
         assert "fetch_meta" in by_ep
-
-    def test_stats_unknown_recipient_404(self, client, owner_token):
-        r = client.get(f"/recipients/{uuid.uuid4()}/stats", headers=_auth(owner_token))
-        assert r.status_code == 404
 
     def test_stats_non_owner_denied(self, client, owner_token, p12_world):
         r = client.get(

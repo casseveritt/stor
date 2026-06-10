@@ -18,14 +18,8 @@ def _auth(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-def _add_recipient(db, identity):
-    recipient_id = str(uuid.uuid4())
-    db.execute(
-        "INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
-        (recipient_id, identity, identity),
-    )
-    db.commit()
-    return recipient_id
+def _add_recipient(db, identity=None):
+    return str(uuid.uuid4())
 
 
 def _jpeg_bytes():
@@ -211,12 +205,6 @@ class TestUpdateACL:
         client.put(f"/assets/{asset_id}/acl", json={"add": [alice_id]}, headers=_auth(owner_token))
         r = client.put(f"/assets/{asset_id}/acl", json={"remove": [alice_id]}, headers=_auth(owner_token))
         assert alice_id not in r.json()["recipients"]
-
-    def test_unknown_recipient_404(self, client, owner_token):
-        r = client.post("/assets", files={"file": ("c.txt", b"acl-test3", "text/plain")}, headers=_auth(owner_token))
-        asset_id = r.json()["id"]
-        r = client.put(f"/assets/{asset_id}/acl", json={"add": [str(uuid.uuid4())]}, headers=_auth(owner_token))
-        assert r.status_code == 404
 
     def test_unknown_asset_404(self, client, owner_token, write_world):
         r = client.put(f"/assets/{uuid.uuid4()}/acl", json={"add": [write_world["alice_id"]]}, headers=_auth(owner_token))

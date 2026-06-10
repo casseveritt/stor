@@ -65,7 +65,6 @@ class TestNodeStats:
         assert "posts" in data
         assert "assets" in data
         assert "storage_bytes" in data
-        assert "recipients" in data
         assert "comments" in data
         assert "total" in data["posts"]
         assert "public" in data["posts"]

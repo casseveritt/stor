@@ -64,7 +64,7 @@ def delete_recipient(node_id: str, request: Request, identity: OwnerDep):
     db = request.app.state.db
     db.execute("DELETE FROM acl WHERE node_id = ?", (node_id,))
     db.execute("DELETE FROM post_acl WHERE node_id = ?", (node_id,))
-    db.execute("DELETE FROM identity_mappings WHERE recipient_id = ?", (node_id,))
+    db.execute("DELETE FROM identity_mappings WHERE node_id = ?", (node_id,))
     db.execute("UPDATE tokens SET revoked = 1 WHERE node_id = ?", (node_id,))
     db.commit()
 
@@ -80,7 +80,7 @@ def set_identity_mapping(payload: _SetMappingBody, request: Request, identity: O
                          mapped_identity: str = Query(..., alias="identity")):
     db = request.app.state.db
     db.execute(
-        "INSERT OR REPLACE INTO identity_mappings (identity, recipient_id) VALUES (?, ?)",
+        "INSERT OR REPLACE INTO identity_mappings (identity, node_id) VALUES (?, ?)",
         (mapped_identity, payload.node_id),
     )
     db.commit()

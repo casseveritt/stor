@@ -50,15 +50,10 @@ def owner_token(store):
 
 @pytest.fixture(scope="module")
 def p11_world(client, owner_token):
-    r = client.post(
-        "/recipients",
-        json={"identity": "google:p11@test.com"},
-        headers=_auth(owner_token),
-    )
-    recipient_id = r.json()["id"]
+    node_id = str(uuid.uuid4())
     db = client.app.state.db
-    token = issue_node_token(db, recipient_id, ttl_seconds=3600)
-    return {"recipient_id": recipient_id, "token": token}
+    token = issue_node_token(db, node_id, ttl_seconds=3600)
+    return {"recipient_id": node_id, "token": token}
 
 
 # ── access logging ────────────────────────────────────────────────────────────
@@ -118,8 +113,7 @@ class TestAccessLogging:
         client.get(f"/assets/{asset_id}", headers=_auth(p11_world["token"]))
         r = client.get(f"/assets/{asset_id}/access-log", headers=_auth(owner_token))
         entry = next(e for e in r.json()["entries"] if e["endpoint"] == "fetch_asset")
-        assert entry["recipient_id"] == p11_world["recipient_id"]
-        assert entry["recipient_identity"] == "google:p11@test.com"
+        assert entry["node_id"] == p11_world["recipient_id"]
         assert entry["share_identity"] is None
 
     def test_share_token_access_logged_with_share_identity(self, client, owner_token):
@@ -135,7 +129,7 @@ class TestAccessLogging:
         share_entries = [e for e in r2.json()["entries"] if e["share_identity"] is not None]
         assert len(share_entries) >= 1
         assert share_entries[0]["share_identity"] == "ext:shared-user"
-        assert share_entries[0]["recipient_id"] is None
+        assert share_entries[0]["node_id"] is None
 
     def test_global_access_log_includes_all_entries(self, client, owner_token, p11_world):
         asset_id = self._asset_with_access(client, owner_token, p11_world, b"log-global")
@@ -160,12 +154,12 @@ class TestAccessLogging:
         client.get(f"/assets/{asset_id}", headers=_auth(p11_world["token"]))
         r = client.get(
             "/access-log",
-            params={"recipient_id": p11_world["recipient_id"]},
+            params={"node_id": p11_world["recipient_id"]},
             headers=_auth(owner_token),
         )
         assert r.status_code == 200
-        recipient_ids = {e["recipient_id"] for e in r.json()["entries"]}
-        assert p11_world["recipient_id"] in recipient_ids
+        node_ids = {e["node_id"] for e in r.json()["entries"]}
+        assert p11_world["recipient_id"] in node_ids
 
     def test_access_log_pagination(self, client, owner_token, p11_world):
         asset_id = self._asset_with_access(client, owner_token, p11_world, b"log-page")
@@ -218,7 +212,6 @@ class TestStats:
         r = client.get("/stats", headers=_auth(owner_token))
         data = r.json()
         assert "assets" in data
-        assert "recipients" in data
         assert "tokens" in data
         assert "comments" in data
         assert "access_log" in data
@@ -239,16 +232,6 @@ class TestStats:
         assert r_after["assets"]["deleted"] == r_before["assets"]["deleted"] + 1
         assert r_after["assets"]["active"] == r_before["assets"]["active"] - 1
         assert r_after["assets"]["total"] == r_before["assets"]["total"]
-
-    def test_stats_counts_recipients(self, client, owner_token):
-        r_before = client.get("/stats", headers=_auth(owner_token)).json()
-        client.post(
-            "/recipients",
-            json={"identity": f"google:stats-r-{uuid.uuid4()}@test.com"},
-            headers=_auth(owner_token),
-        )
-        r_after = client.get("/stats", headers=_auth(owner_token)).json()
-        assert r_after["recipients"]["total"] == r_before["recipients"]["total"] + 1
 
     def test_stats_total_size_reflects_content(self, client, owner_token):
         r_before = client.get("/stats", headers=_auth(owner_token)).json()

@@ -46,15 +46,10 @@ def owner_token(store):
 @pytest.fixture(scope="module")
 def p10_world(client, owner_token):
     """A recipient used across Phase 10 tests."""
-    r = client.post(
-        "/recipients",
-        json={"identity": "google:p10@test.com"},
-        headers=_auth(owner_token),
-    )
-    recipient_id = r.json()["id"]
+    node_id = str(uuid.uuid4())
     db = client.app.state.db
-    token = issue_node_token(db, recipient_id, ttl_seconds=3600)
-    return {"recipient_id": recipient_id, "token": token}
+    token = issue_node_token(db, node_id, ttl_seconds=3600)
+    return {"recipient_id": node_id, "token": token}
 
 
 # ── asset deletion ────────────────────────────────────────────────────────────
@@ -119,27 +114,15 @@ class TestGetACL:
         )
         r = client.get(f"/assets/{asset_id}/acl", headers=_auth(owner_token))
         assert r.status_code == 200
-        ids = [rec["id"] for rec in r.json()["recipients"]]
+        ids = [rec["node_id"] for rec in r.json()["recipients"]]
         assert p10_world["recipient_id"] in ids
-
-    def test_acl_recipient_has_identity(self, client, owner_token, p10_world):
-        asset_id = _publish(client, owner_token)
-        client.put(
-            f"/assets/{asset_id}/acl",
-            json={"add": [p10_world["recipient_id"]]},
-            headers=_auth(owner_token),
-        )
-        r = client.get(f"/assets/{asset_id}/acl", headers=_auth(owner_token))
-        recs = {rec["id"]: rec for rec in r.json()["recipients"]}
-        assert p10_world["recipient_id"] in recs
-        assert recs[p10_world["recipient_id"]]["identity"] == "google:p10@test.com"
 
     def test_acl_excludes_removed_recipients(self, client, owner_token, p10_world):
         asset_id = _publish(client, owner_token)
         client.put(f"/assets/{asset_id}/acl", json={"add": [p10_world["recipient_id"]]}, headers=_auth(owner_token))
         client.put(f"/assets/{asset_id}/acl", json={"remove": [p10_world["recipient_id"]]}, headers=_auth(owner_token))
         r = client.get(f"/assets/{asset_id}/acl", headers=_auth(owner_token))
-        ids = [rec["id"] for rec in r.json()["recipients"]]
+        ids = [rec["node_id"] for rec in r.json()["recipients"]]
         assert p10_world["recipient_id"] not in ids
 
     def test_get_acl_unknown_asset_404(self, client, owner_token):
@@ -226,7 +209,7 @@ class TestCommentAuthorIdentity:
             headers=_auth(owner_token),
         )
         assert r.status_code == 201
-        assert r.json()["author_identity"] is None
+        assert r.json()["author_node_id"] is None
 
     def test_recipient_comment_has_author_identity(self, client, owner_token, p10_world):
         asset_id = _publish(client, owner_token)
@@ -241,7 +224,7 @@ class TestCommentAuthorIdentity:
             headers=_auth(p10_world["token"]),
         )
         assert r.status_code == 201
-        assert r.json()["author_identity"] == "google:p10@test.com"
+        assert r.json()["author_node_id"] == p10_world["recipient_id"]
 
     def test_fetch_comments_includes_author_identity(self, client, owner_token, p10_world):
         asset_id = _publish(client, owner_token)
@@ -257,9 +240,8 @@ class TestCommentAuthorIdentity:
         )
         r = client.get(f"/assets/{asset_id}/comments", headers=_auth(owner_token))
         comments = r.json()["comments"]
-        recipient_comments = [c for c in comments if c["author_recipient_id"] == p10_world["recipient_id"]]
+        recipient_comments = [c for c in comments if c["author_node_id"] == p10_world["recipient_id"]]
         assert len(recipient_comments) >= 1
-        assert recipient_comments[0]["author_identity"] == "google:p10@test.com"
 
     def test_response_shape_includes_author_identity_field(self, client, owner_token):
         asset_id = _publish(client, owner_token)
@@ -270,4 +252,4 @@ class TestCommentAuthorIdentity:
         )
         r = client.get(f"/assets/{asset_id}/comments", headers=_auth(owner_token))
         c = r.json()["comments"][0]
-        assert "author_identity" in c
+        assert "author_node_id" in c

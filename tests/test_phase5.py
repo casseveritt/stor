@@ -67,11 +67,6 @@ def recipient_with_image(store, client, watermarked_client):
     db = client.app.state.db
     recipient_id = str(uuid.uuid4())
     identity = "google:wm-test@example.com"
-    db.execute(
-        "INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
-        (recipient_id, identity, "WM Test"),
-    )
-    db.commit()
 
     content = _make_jpeg(200, 150, color=(30, 80, 160))
     content_hash = "wm000001" + "aa" * 28
@@ -84,7 +79,7 @@ def recipient_with_image(store, client, watermarked_client):
         media_type="image/jpeg",
         size=len(content),
     )
-    db.execute("INSERT OR IGNORE INTO acl (asset_id, recipient_id) VALUES (?, ?)", (asset_id, recipient_id))
+    db.execute("INSERT OR IGNORE INTO acl (asset_id, node_id) VALUES (?, ?)", (asset_id, recipient_id))
     db.commit()
 
     token = issue_node_token(db, recipient_id, ttl_seconds=3600)
@@ -108,11 +103,7 @@ def text_asset_for_wm(store, client):
     db = client.app.state.db
     asset_id = _insert_asset(db, content_hash=content_hash, media_type="text/plain", size=len(content))
     recipient_id = str(uuid.uuid4())
-    db.execute(
-        "INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
-        (recipient_id, "google:text-wm@example.com", "Text WM"),
-    )
-    db.execute("INSERT OR IGNORE INTO acl (asset_id, recipient_id) VALUES (?, ?)", (asset_id, recipient_id))
+    db.execute("INSERT OR IGNORE INTO acl (asset_id, node_id) VALUES (?, ?)", (asset_id, recipient_id))
     db.commit()
     token = issue_node_token(db, recipient_id, ttl_seconds=3600)
     return {"token": token, "asset_id": asset_id, "content": content}
@@ -211,11 +202,6 @@ class TestWatermarkFailure:
         not the raw un-watermarkable bytes."""
         db = watermarked_client.app.state.db
         recipient_id = str(uuid.uuid4())
-        db.execute(
-            "INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
-            (recipient_id, "google:badimg@test.com", "Bad Image"),
-        )
-        db.commit()
 
         bad_content = b"not a jpeg at all"
         content_hash = "badadd00" * 8
@@ -225,7 +211,7 @@ class TestWatermarkFailure:
         asset_id = _insert_asset(
             db, content_hash=content_hash, media_type="image/jpeg", size=len(bad_content)
         )
-        db.execute("INSERT OR IGNORE INTO acl (asset_id, recipient_id) VALUES (?, ?)", (asset_id, recipient_id))
+        db.execute("INSERT OR IGNORE INTO acl (asset_id, node_id) VALUES (?, ?)", (asset_id, recipient_id))
         db.commit()
         token = issue_node_token(db, recipient_id, ttl_seconds=3600)
 

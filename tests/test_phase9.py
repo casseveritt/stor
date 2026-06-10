@@ -1,4 +1,4 @@
-"""Phase 9: Recipient/token management, comment_count, initial ACL on publish."""
+"""Phase 9: Token management, comment_count, initial ACL on publish."""
 import base64
 import time
 import uuid
@@ -39,174 +39,43 @@ def owner_token(store):
     return issue_token(ttl_seconds=3600)
 
 
-# ── recipient management ──────────────────────────────────────────────────────
-
-class TestRecipients:
-    def test_create_recipient(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:new@test.com", "display_name": "New User"},
-            headers=_auth(owner_token),
-        )
-        assert r.status_code == 201
-        data = r.json()
-        assert data["identity"] == "google:new@test.com"
-        assert data["display_name"] == "New User"
-        assert "id" in data
-
-    def test_create_recipient_defaults_display_name(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:noname@test.com"},
-            headers=_auth(owner_token),
-        )
-        assert r.status_code == 201
-        assert r.json()["display_name"] == "google:noname@test.com"
-
-    def test_list_recipients_includes_created(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:list-test@test.com"},
-            headers=_auth(owner_token),
-        )
-        created_id = r.json()["id"]
-        r2 = client.get("/recipients", headers=_auth(owner_token))
-        assert r2.status_code == 200
-        ids = [rec["id"] for rec in r2.json()["recipients"]]
-        assert created_id in ids
-
-    def test_get_recipient(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:get-test@test.com"},
-            headers=_auth(owner_token),
-        )
-        recipient_id = r.json()["id"]
-        r2 = client.get(f"/recipients/{recipient_id}", headers=_auth(owner_token))
-        assert r2.status_code == 200
-        assert r2.json()["id"] == recipient_id
-
-    def test_duplicate_identity_rejected(self, client, owner_token):
-        identity = f"google:dup-{uuid.uuid4()}@test.com"
-        client.post("/recipients", json={"identity": identity}, headers=_auth(owner_token))
-        r = client.post("/recipients", json={"identity": identity}, headers=_auth(owner_token))
-        assert r.status_code == 409
-
-    def test_delete_recipient(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:todelete@test.com"},
-            headers=_auth(owner_token),
-        )
-        recipient_id = r.json()["id"]
-        r2 = client.delete(f"/recipients/{recipient_id}", headers=_auth(owner_token))
-        assert r2.status_code == 204
-        r3 = client.get(f"/recipients/{recipient_id}", headers=_auth(owner_token))
-        assert r3.status_code == 404
-
-    def test_delete_cascades_acl(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:cascade@test.com"},
-            headers=_auth(owner_token),
-        )
-        recipient_id = r.json()["id"]
-        asset_id = _publish(client, owner_token)
-        client.put(
-            f"/assets/{asset_id}/acl",
-            json={"add": [recipient_id]},
-            headers=_auth(owner_token),
-        )
-        client.delete(f"/recipients/{recipient_id}", headers=_auth(owner_token))
-        r2 = client.get(f"/assets/{asset_id}/acl", headers=_auth(owner_token))
-        # ACL endpoint doesn't exist, check via token that access is gone
-        db = client.app.state.db
-        row = db.execute(
-            "SELECT 1 FROM acl WHERE asset_id = ? AND recipient_id = ?",
-            (asset_id, recipient_id),
-        ).fetchone()
-        assert row is None
-
-    def test_delete_cascades_tokens(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:tokencascade@test.com"},
-            headers=_auth(owner_token),
-        )
-        recipient_id = r.json()["id"]
-        db = client.app.state.db
-        token = issue_node_token(db, recipient_id, ttl_seconds=3600)
-        client.delete(f"/recipients/{recipient_id}", headers=_auth(owner_token))
-        # Token should now be revoked
-        r2 = client.get("/feed", headers=_auth(token))
-        assert r2.status_code == 401
-
-    def test_unknown_recipient_404(self, client, owner_token):
-        r = client.get(f"/recipients/{uuid.uuid4()}", headers=_auth(owner_token))
-        assert r.status_code == 404
-
-    def test_non_owner_denied(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:steal@test.com"},
-            headers=_auth(owner_token),
-        )
-        recipient_id = r.json()["id"]
-        db = client.app.state.db
-        token = issue_node_token(db, recipient_id, ttl_seconds=3600)
-        r2 = client.get("/recipients", headers=_auth(token))
-        assert r2.status_code == 403
-
-
 # ── identity mappings ─────────────────────────────────────────────────────────
 
 class TestIdentityMappings:
     def test_add_mapping(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:primary@test.com"},
-            headers=_auth(owner_token),
-        )
-        recipient_id = r.json()["id"]
+        node_id = str(uuid.uuid4())
+        db = client.app.state.db
+        # first insert a token so node_id appears in list_recipients
+        issue_node_token(db, node_id, ttl_seconds=3600)
         r2 = client.post(
             "/identity-mappings",
             params={"identity": "github:primary"},
-            json={"recipient_id": recipient_id},
+            json={"node_id": node_id},
             headers=_auth(owner_token),
         )
         assert r2.status_code == 201
         assert r2.json()["identity"] == "github:primary"
-        assert r2.json()["recipient_id"] == recipient_id
+        assert r2.json()["node_id"] == node_id
 
     def test_mapping_resolves_for_sso(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:mapped@test.com"},
-            headers=_auth(owner_token),
-        )
-        recipient_id = r.json()["id"]
+        node_id = str(uuid.uuid4())
         client.post(
             "/identity-mappings",
             params={"identity": "github:mapped"},
-            json={"recipient_id": recipient_id},
+            json={"node_id": node_id},
             headers=_auth(owner_token),
         )
         from server.sso import resolve_identity
         db = client.app.state.db
         resolved = resolve_identity(db, "github:mapped")
-        assert resolved == recipient_id
+        assert resolved == node_id
 
     def test_delete_mapping(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:delmapping@test.com"},
-            headers=_auth(owner_token),
-        )
-        recipient_id = r.json()["id"]
+        node_id = str(uuid.uuid4())
         client.post(
             "/identity-mappings",
             params={"identity": "github:delmapping"},
-            json={"recipient_id": recipient_id},
+            json={"node_id": node_id},
             headers=_auth(owner_token),
         )
         r2 = client.delete(
@@ -229,57 +98,33 @@ class TestIdentityMappings:
         )
         assert r.status_code == 404
 
-    def test_unknown_recipient_in_mapping_404(self, client, owner_token):
-        r = client.post(
-            "/identity-mappings",
-            params={"identity": "github:nobody"},
-            json={"recipient_id": str(uuid.uuid4())},
-            headers=_auth(owner_token),
-        )
-        assert r.status_code == 404
-
 
 # ── token management ──────────────────────────────────────────────────────────
 
 class TestTokenManagement:
     def test_list_tokens_shows_active(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:tokenlist@test.com"},
-            headers=_auth(owner_token),
-        )
-        recipient_id = r.json()["id"]
+        node_id = str(uuid.uuid4())
         db = client.app.state.db
-        issue_node_token(db, recipient_id, ttl_seconds=3600)
+        issue_node_token(db, node_id, ttl_seconds=3600)
         r2 = client.get("/tokens", headers=_auth(owner_token))
         assert r2.status_code == 200
         assert isinstance(r2.json()["tokens"], list)
-        recipient_ids = [t["recipient_id"] for t in r2.json()["tokens"]]
-        assert recipient_id in recipient_ids
+        node_ids = [t["node_id"] for t in r2.json()["tokens"]]
+        assert node_id in node_ids
 
     def test_revoke_token_via_api(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:revoke-api@test.com"},
-            headers=_auth(owner_token),
-        )
-        recipient_id = r.json()["id"]
+        node_id = str(uuid.uuid4())
         db = client.app.state.db
-        token = issue_node_token(db, recipient_id, ttl_seconds=3600)
+        token = issue_node_token(db, node_id, ttl_seconds=3600)
 
         r2 = client.post(f"/tokens/{token}/revoke", headers=_auth(owner_token))
         assert r2.status_code == 200
         assert r2.json()["status"] == "revoked"
 
     def test_revoked_token_rejected(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:revokecheck@test.com"},
-            headers=_auth(owner_token),
-        )
-        recipient_id = r.json()["id"]
+        node_id = str(uuid.uuid4())
         db = client.app.state.db
-        token = issue_node_token(db, recipient_id, ttl_seconds=3600)
+        token = issue_node_token(db, node_id, ttl_seconds=3600)
 
         client.post(f"/tokens/{token}/revoke", headers=_auth(owner_token))
         r2 = client.get("/feed", headers=_auth(token))
@@ -290,19 +135,21 @@ class TestTokenManagement:
         assert r.status_code == 404
 
     def test_list_excludes_revoked(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:excluderevoked@test.com"},
-            headers=_auth(owner_token),
-        )
-        recipient_id = r.json()["id"]
+        node_id = str(uuid.uuid4())
         db = client.app.state.db
-        token = issue_node_token(db, recipient_id, ttl_seconds=3600)
+        token = issue_node_token(db, node_id, ttl_seconds=3600)
         client.post(f"/tokens/{token}/revoke", headers=_auth(owner_token))
 
         r2 = client.get("/tokens", headers=_auth(owner_token))
         token_ids = [t["id"] for t in r2.json()["tokens"]]
         assert token not in token_ids
+
+    def test_non_owner_denied(self, client, owner_token):
+        node_id = str(uuid.uuid4())
+        db = client.app.state.db
+        token = issue_node_token(db, node_id, ttl_seconds=3600)
+        r = client.get("/tokens", headers=_auth(token))
+        assert r.status_code == 403
 
 
 # ── comment_count ─────────────────────────────────────────────────────────────
@@ -360,7 +207,6 @@ class TestCommentCount:
             headers=_auth(owner_token),
         )
         comment_id = r.json()["id"]
-        # Request deletion (owner is author here)
         r2 = client.post(
             f"/assets/{asset_id}/comments/{comment_id}/edit_request",
             json={},
@@ -377,20 +223,15 @@ class TestCommentCount:
 
 class TestPublishWithInitialACL:
     def test_initial_acl_grants_access(self, client, owner_token):
-        r = client.post(
-            "/recipients",
-            json={"identity": "google:init-acl@test.com"},
-            headers=_auth(owner_token),
-        )
-        recipient_id = r.json()["id"]
+        node_id = str(uuid.uuid4())
         db = client.app.state.db
-        token = issue_node_token(db, recipient_id, ttl_seconds=3600)
+        token = issue_node_token(db, node_id, ttl_seconds=3600)
 
         import json as _json
         r2 = client.post(
             "/assets",
             files={"file": ("a.txt", b"secret", "text/plain")},
-            data={"acl": _json.dumps([recipient_id])},
+            data={"acl": _json.dumps([node_id])},
             headers=_auth(owner_token),
         )
         asset_id = r2.json()["id"]
@@ -398,16 +239,6 @@ class TestPublishWithInitialACL:
         r3 = client.get(f"/assets/{asset_id}", headers=_auth(token))
         assert r3.status_code == 200
         assert r3.content == b"secret"
-
-    def test_publish_initial_acl_unknown_recipient_404(self, client, owner_token):
-        import json as _json
-        r = client.post(
-            "/assets",
-            files={"file": ("b.txt", b"x", "text/plain")},
-            data={"acl": _json.dumps([str(uuid.uuid4())])},
-            headers=_auth(owner_token),
-        )
-        assert r.status_code == 404
 
     def test_publish_response_includes_comment_count(self, client, owner_token):
         r = client.post(

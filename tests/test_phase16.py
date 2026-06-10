@@ -37,9 +37,6 @@ def owner_token(store):
 def recipient(client):
     db = client.app.state.db
     rid = str(uuid.uuid4())
-    db.execute("INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
-               (rid, "google:commenter@example.com", "Commenter"))
-    db.commit()
     return {"id": rid, "token": issue_node_token(db, rid)}
 
 
@@ -77,7 +74,7 @@ class TestCommentFetchShape:
         _json_post(owner_token, f"/assets/{asset['id']}/comments", {"body": "field check"}, client)
         r = client.get(f"/assets/{asset['id']}/comments", headers=_auth(owner_token))
         c = next(x for x in r.json()["comments"] if x["body"] == "field check")
-        for field in ("id", "body", "created_at", "parent_id", "deleted", "author_identity"):
+        for field in ("id", "body", "created_at", "parent_id", "deleted", "author_node_id"):
             assert field in c, f"missing field: {field}"
 
     def test_comments_ordered_by_created_at(self, client, owner_token, asset):
@@ -96,9 +93,9 @@ class TestPostComment:
         assert r.status_code == 201
         assert r.json()["body"] == "owner comment"
 
-    def test_owner_comment_has_null_author_identity(self, client, owner_token, asset):
+    def test_owner_comment_has_null_author_node_id(self, client, owner_token, asset):
         r = _json_post(owner_token, f"/assets/{asset['id']}/comments", {"body": "anon"}, client)
-        assert r.json()["author_identity"] is None
+        assert r.json()["author_node_id"] is None
 
     def test_recipient_can_post(self, client, recipient, asset_with_acl):
         r = _json_post(recipient["token"], f"/assets/{asset_with_acl['id']}/comments",
@@ -108,7 +105,7 @@ class TestPostComment:
     def test_recipient_comment_shows_identity(self, client, recipient, asset_with_acl):
         r = _json_post(recipient["token"], f"/assets/{asset_with_acl['id']}/comments",
                        {"body": "identity check"}, client)
-        assert r.json()["author_identity"] == "google:commenter@example.com"
+        assert r.json()["author_node_id"] == recipient["id"]
 
     def test_unauthenticated_cannot_post(self, client, asset):
         r = client.post(f"/assets/{asset['id']}/comments",

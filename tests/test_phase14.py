@@ -61,13 +61,13 @@ def sso_client(client):
 @pytest.fixture(scope="module")
 def ui_user(client):
     db = client.app.state.db
-    recipient_id = str(uuid.uuid4())
+    node_id = str(uuid.uuid4())
     db.execute(
-        "INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
-        (recipient_id, TEST_IDENTITY, "UI User"),
+        "INSERT OR REPLACE INTO identity_mappings (identity, node_id) VALUES (?, ?)",
+        (TEST_IDENTITY, node_id),
     )
     db.commit()
-    return {"recipient_id": recipient_id, "identity": TEST_IDENTITY}
+    return {"recipient_id": node_id, "identity": TEST_IDENTITY}
 
 
 @pytest.fixture(scope="module")

@@ -1,5 +1,6 @@
 """Phase 28: Post ACL — grant specific recipients access to private posts."""
 import json
+import uuid
 import pytest
 
 from server.auth import issue_node_token
@@ -20,22 +21,18 @@ def owner_headers(owner_token):
 
 @pytest.fixture(scope="module")
 def recipient_a(client, owner_headers):
-    r = client.post("/recipients", json={"identity": "p28-recip-a@example.com"}, headers=owner_headers)
-    assert r.status_code == 201
-    rid = r.json()["id"]
+    node_id = str(uuid.uuid4())
     db = client.app.state.db
-    token = issue_node_token(db, rid)
-    return {"id": rid, "token": token, "headers": {"Authorization": f"Bearer {token}"}}
+    token = issue_node_token(db, node_id)
+    return {"id": node_id, "token": token, "headers": {"Authorization": f"Bearer {token}"}}
 
 
 @pytest.fixture(scope="module")
 def recipient_b(client, owner_headers):
-    r = client.post("/recipients", json={"identity": "p28-recip-b@example.com"}, headers=owner_headers)
-    assert r.status_code == 201
-    rid = r.json()["id"]
+    node_id = str(uuid.uuid4())
     db = client.app.state.db
-    token = issue_node_token(db, rid)
-    return {"id": rid, "token": token, "headers": {"Authorization": f"Bearer {token}"}}
+    token = issue_node_token(db, node_id)
+    return {"id": node_id, "token": token, "headers": {"Authorization": f"Bearer {token}"}}
 
 
 @pytest.fixture(scope="module")
@@ -85,21 +82,13 @@ class TestAclManagement:
             headers=owner_headers,
         )
         assert r.status_code == 200
-        ids = [rec["id"] for rec in r.json()["recipients"]]
+        ids = [rec["node_id"] for rec in r.json()["recipients"]]
         assert recipient_a["id"] in ids
 
     def test_get_acl_reflects_change(self, client, owner_headers, recipient_a, private_post):
         r = client.get(f"/posts/{private_post['id']}/acl", headers=owner_headers)
-        ids = [rec["id"] for rec in r.json()["recipients"]]
+        ids = [rec["node_id"] for rec in r.json()["recipients"]]
         assert recipient_a["id"] in ids
-
-    def test_add_nonexistent_recipient_404(self, client, owner_headers, private_post):
-        r = client.patch(
-            f"/posts/{private_post['id']}/acl",
-            json={"add": ["00000000-0000-0000-0000-000000000000"]},
-            headers=owner_headers,
-        )
-        assert r.status_code == 404
 
     def test_non_owner_cannot_manage_acl(self, client, recipient_a, private_post):
         r = client.patch(

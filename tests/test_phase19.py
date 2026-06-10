@@ -1,6 +1,7 @@
 """Phase 19: UI polish — /auth/me endpoint, tags sidebar, keyboard nav, identity badge."""
 import base64
 import json
+import uuid
 from pathlib import Path
 import sys
 
@@ -28,15 +29,9 @@ def owner_token(store):
 
 @pytest.fixture(scope="module")
 def recipient_token(client, owner_token):
-    r = client.post(
-        "/recipients",
-        json={"identity": "phase19@example.com", "display_name": "Phase 19 User"},
-        headers={"Authorization": f"Bearer {owner_token}"},
-    )
-    assert r.status_code == 201
-    recipient_id = r.json()["id"]
+    node_id = str(uuid.uuid4())
     db = client.app.state.db
-    return issue_node_token(db, recipient_id, ttl_seconds=3600)
+    return issue_node_token(db, node_id, ttl_seconds=3600)
 
 
 @pytest.fixture(scope="module")
@@ -77,8 +72,7 @@ class TestAuthMe:
         assert r.status_code == 200
         data = r.json()
         assert data["role"] == "recipient"
-        assert data["identity"] == "phase19@example.com"
-        assert data["display_name"] == "Phase 19 User"
+        assert "node_id" in data
 
     def test_share_returns_share_role(self, client, share_token):
         r = client.get("/auth/me", headers={"Authorization": f"Bearer {share_token}"})

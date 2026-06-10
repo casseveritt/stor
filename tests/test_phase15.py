@@ -39,9 +39,6 @@ def owner_token(store):
 def recipient(client):
     db = client.app.state.db
     rid = str(uuid.uuid4())
-    db.execute("INSERT INTO recipients (id, identity, display_name) VALUES (?, ?, ?)",
-               (rid, "google:upload-test@example.com", "Upload Tester"))
-    db.commit()
     return {"id": rid, "token": issue_node_token(db, rid)}
 
 

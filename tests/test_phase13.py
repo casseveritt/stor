@@ -45,15 +45,10 @@ def owner_token(store):
 
 @pytest.fixture(scope="module")
 def p13_world(client, owner_token):
-    r = client.post(
-        "/recipients",
-        json={"identity": "google:p13@test.com"},
-        headers=_auth(owner_token),
-    )
-    recipient_id = r.json()["id"]
+    node_id = str(uuid.uuid4())
     db = client.app.state.db
-    token = issue_node_token(db, recipient_id, ttl_seconds=3600)
-    return {"recipient_id": recipient_id, "token": token}
+    token = issue_node_token(db, node_id, ttl_seconds=3600)
+    return {"recipient_id": node_id, "token": token}
 
 
 # ── title search ──────────────────────────────────────────────────────────────
@@ -313,8 +308,7 @@ class TestRecipientFeed:
         r = client.get(f"/recipients/{p13_world['recipient_id']}/feed",
                        headers=_auth(owner_token))
         data = r.json()
-        assert data["recipient_id"] == p13_world["recipient_id"]
-        assert data["recipient_identity"] == "google:p13@test.com"
+        assert data["node_id"] == p13_world["recipient_id"]
         assert "assets" in data
         assert "until" in data
 
@@ -333,10 +327,6 @@ class TestRecipientFeed:
         ids = [a["id"] for a in r.json()["assets"]]
         assert v1_id not in ids  # superseded, excluded by default
         assert v2_id in ids
-
-    def test_recipient_feed_unknown_recipient_404(self, client, owner_token):
-        r = client.get(f"/recipients/{uuid.uuid4()}/feed", headers=_auth(owner_token))
-        assert r.status_code == 404
 
     def test_recipient_feed_non_owner_denied(self, client, p13_world):
         r = client.get(f"/recipients/{p13_world['recipient_id']}/feed",
