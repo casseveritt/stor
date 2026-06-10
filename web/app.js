@@ -1629,6 +1629,7 @@ function makePostCard(post, idx) {
     + '<span class="replies-toggle-label">' + replyCount + ' repl' + (replyCount !== 1 ? 'ies' : 'y') + '</span>'
     + '</span>';
   repliesToggle.onclick = () => _toggleReplies(post, div);
+  repliesToggle.hidden = (replyCount === 0);
   div.appendChild(repliesToggle);
 
   const repliesPanel = document.createElement('div');
@@ -2138,10 +2139,12 @@ async function submitReply(e, parentPostId, parentServerUrl, visibility) {
         list.appendChild(card);
       }
       if (notifyCheck?.checked) {
-        const label = panel.parentElement?.querySelector('.replies-toggle-label');
+        const repliesToggle = panel.parentElement?.querySelector('.replies-toggle');
+        const label = repliesToggle?.querySelector('.replies-toggle-label');
         if (label) {
           const n = (parseInt(label.textContent) || 0) + 1;
           label.textContent = n + ' repl' + (n !== 1 ? 'ies' : 'y');
+          repliesToggle.hidden = false;
         }
       }
       panel.hidden = true;

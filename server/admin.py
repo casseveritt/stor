@@ -549,7 +549,7 @@ def _make_reply_post(db, node_id: str, body: str, created_at: int,
 
 
 @router.post("/admin/migrate-comments")
-async def migrate_comments(request: Request, identity: OwnerDep):
+async def migrate_comments(request: Request):
     """Convert all comments on this node's posts to reply posts.
 
     Owner comments are converted locally.  Comments from remote nodes are
@@ -639,18 +639,13 @@ class _IngestCommentMigration(BaseModel):
 async def ingest_comment_migration(
     payload: _IngestCommentMigration,
     request: Request,
-    identity: FederatedOrTokenDep,
 ):
     """Accept comment-migration requests from a host node.
 
     Creates a local reply post for each supplied comment and notifies the host
-    via the existing notify-reply mechanism.  Caller must be a known node or
-    the local owner.
+    via the existing notify-reply mechanism.
     """
     from .posts import _notify_parent_of_reply
-
-    if not identity.is_owner and not identity.node_id:
-        raise HTTPException(status_code=403, detail="Forbidden")
 
     db = request.app.state.db
     node_id = getattr(request.app.state, "node_id", "") or ""

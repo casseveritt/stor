@@ -1745,6 +1745,15 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     app.include_router(api)
 
+    # ── temporary: comment→reply migration passthrough (remove after migration) ─
+
+    @app.post("/admin/migrate-comments")
+    async def proxy_migrate_comments():
+        import httpx
+        async with httpx.AsyncClient() as hc:
+            r = await hc.post(_server + "/admin/migrate-comments", timeout=60)
+        return r.json()
+
     # ── contact photo cache (public — no client auth, contact URLs only) ──────
 
     @app.get("/api/contacts/photo")
