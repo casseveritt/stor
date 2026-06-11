@@ -559,64 +559,69 @@ def init_schema(con: sqlcipher3.Connection) -> None:
     except Exception:
         pass  # already dropped
     else:
-        # First, resolve conflicts: if a server_url recipient's node_id already has its own recipient
-        # row, merge references into the node_id row and delete the stale URL-keyed row.
-        _conflicts = con.execute("""
-            SELECT r_url.id, r_nid.id
-            FROM recipients r_url
-            JOIN users u ON u.server_url = r_url.identity AND u.node_id IS NOT NULL
-            JOIN recipients r_nid ON r_nid.identity = u.node_id
-        """).fetchall()
-        for _url_id, _nid_id in _conflicts:
-            for _tbl, _pk_col, _rec_col in [("acl", "asset_id", "recipient_id"),
-                                             ("post_acl", "post_id", "recipient_id")]:
-                con.execute(
-                    f"INSERT OR IGNORE INTO {_tbl} ({_pk_col}, {_rec_col}) "
-                    f"SELECT {_pk_col}, ? FROM {_tbl} WHERE {_rec_col} = ?",
-                    (_nid_id, _url_id))
-                con.execute(f"DELETE FROM {_tbl} WHERE {_rec_col} = ?", (_url_id,))
-            for _tbl, _col in [("tokens", "recipient_id"), ("comments", "author_recipient_id"),
-                                ("comment_edit_requests", "requester_recipient_id"),
-                                ("access_log", "recipient_id"), ("identity_mappings", "recipient_id")]:
-                con.execute(f"UPDATE {_tbl} SET {_col} = ? WHERE {_col} = ?", (_nid_id, _url_id))
-            con.execute("DELETE FROM recipients WHERE id = ?", (_url_id,))
+        # Check if per-table recipient_id columns have already been renamed to node_id.
+        _acl_cols = {r[1] for r in con.execute("PRAGMA table_info(acl)")}
+        _rec_col_present = "recipient_id" in _acl_cols
 
-        # Migrate remaining recipients.identity from server_url to node_id.
-        con.execute("""
-            UPDATE recipients SET identity = (
-                SELECT u.node_id FROM users u WHERE u.server_url = recipients.identity AND u.node_id IS NOT NULL
-            )
-            WHERE (
-                SELECT u.node_id FROM users u WHERE u.server_url = recipients.identity AND u.node_id IS NOT NULL
-            ) IS NOT NULL
-        """)
+        if _rec_col_present:
+            # First, resolve conflicts: if a server_url recipient's node_id already has its own
+            # recipient row, merge references into the node_id row and delete the stale URL-keyed row.
+            _conflicts = con.execute("""
+                SELECT r_url.id, r_nid.id
+                FROM recipients r_url
+                JOIN users u ON u.server_url = r_url.identity AND u.node_id IS NOT NULL
+                JOIN recipients r_nid ON r_nid.identity = u.node_id
+            """).fetchall()
+            for _url_id, _nid_id in _conflicts:
+                for _tbl, _pk_col, _rec_col in [("acl", "asset_id", "recipient_id"),
+                                                 ("post_acl", "post_id", "recipient_id")]:
+                    con.execute(
+                        f"INSERT OR IGNORE INTO {_tbl} ({_pk_col}, {_rec_col}) "
+                        f"SELECT {_pk_col}, ? FROM {_tbl} WHERE {_rec_col} = ?",
+                        (_nid_id, _url_id))
+                    con.execute(f"DELETE FROM {_tbl} WHERE {_rec_col} = ?", (_url_id,))
+                for _tbl, _col in [("tokens", "recipient_id"), ("comments", "author_recipient_id"),
+                                    ("comment_edit_requests", "requester_recipient_id"),
+                                    ("access_log", "recipient_id"), ("identity_mappings", "recipient_id")]:
+                    con.execute(f"UPDATE {_tbl} SET {_col} = ? WHERE {_col} = ?", (_nid_id, _url_id))
+                con.execute("DELETE FROM recipients WHERE id = ?", (_url_id,))
 
-        # Replace UUID values with the corresponding identity (node_id) in all referencing tables.
-        for _tbl, _col in [
-            ("acl", "recipient_id"),
-            ("post_acl", "recipient_id"),
-            ("tokens", "recipient_id"),
-            ("access_log", "recipient_id"),
-            ("identity_mappings", "recipient_id"),
-        ]:
-            con.execute(f"""
-                UPDATE {_tbl} SET {_col} = (
-                    SELECT r.identity FROM recipients r WHERE r.id = {_tbl}.{_col}
+            # Migrate remaining recipients.identity from server_url to node_id.
+            con.execute("""
+                UPDATE recipients SET identity = (
+                    SELECT u.node_id FROM users u WHERE u.server_url = recipients.identity AND u.node_id IS NOT NULL
                 )
-                WHERE {_col} IS NOT NULL
-                  AND (SELECT r.identity FROM recipients r WHERE r.id = {_tbl}.{_col}) IS NOT NULL
+                WHERE (
+                    SELECT u.node_id FROM users u WHERE u.server_url = recipients.identity AND u.node_id IS NOT NULL
+                ) IS NOT NULL
             """)
-        for _tbl, _col in [
-            ("comments", "author_recipient_id"),
-            ("comment_edit_requests", "requester_recipient_id"),
-        ]:
-            con.execute(f"""
-                UPDATE {_tbl} SET {_col} = (
-                    SELECT r.identity FROM recipients r WHERE r.id = {_tbl}.{_col}
-                )
-                WHERE {_col} IS NOT NULL
-                  AND (SELECT r.identity FROM recipients r WHERE r.id = {_tbl}.{_col}) IS NOT NULL
-            """)
+
+            # Replace UUID values with the corresponding identity (node_id) in all referencing tables.
+            for _tbl, _col in [
+                ("acl", "recipient_id"),
+                ("post_acl", "recipient_id"),
+                ("tokens", "recipient_id"),
+                ("access_log", "recipient_id"),
+                ("identity_mappings", "recipient_id"),
+            ]:
+                con.execute(f"""
+                    UPDATE {_tbl} SET {_col} = (
+                        SELECT r.identity FROM recipients r WHERE r.id = {_tbl}.{_col}
+                    )
+                    WHERE {_col} IS NOT NULL
+                      AND (SELECT r.identity FROM recipients r WHERE r.id = {_tbl}.{_col}) IS NOT NULL
+                """)
+            for _tbl, _col in [
+                ("comments", "author_recipient_id"),
+                ("comment_edit_requests", "requester_recipient_id"),
+            ]:
+                con.execute(f"""
+                    UPDATE {_tbl} SET {_col} = (
+                        SELECT r.identity FROM recipients r WHERE r.id = {_tbl}.{_col}
+                    )
+                    WHERE {_col} IS NOT NULL
+                      AND (SELECT r.identity FROM recipients r WHERE r.id = {_tbl}.{_col}) IS NOT NULL
+                """)
 
         con.execute("DROP TABLE recipients")
         con.commit()
