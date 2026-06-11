@@ -439,7 +439,7 @@ def download_backup(request: Request, identity: OwnerDep):
     row = db.execute("SELECT display_name FROM profile WHERE id = 1").fetchone()
     display_name = (row[0] or "") if row else ""
     slug = display_name.replace(" ", "") or "contacc"
-    filename = f"{slug}-backup.zip"
+    filename = f"contacc-{slug}-backup.zip"
     return StreamingResponse(
         iter([buf.getvalue()]),
         media_type="application/zip",
