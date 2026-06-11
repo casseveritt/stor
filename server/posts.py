@@ -620,9 +620,10 @@ def notify_reply(post_id: str, payload: _ReplyNotification, request: Request,
         actor_name = actor_row[0] if actor_row else None
         nid = _hl.sha256(f"reply:{post_id}:{payload.reply_post_id}".encode()).hexdigest()[:36]
         db.execute(
-            "INSERT OR IGNORE INTO mention_notifications "
+            "INSERT INTO mention_notifications "
             "(id, post_id, post_node_id, author_node_id, author_handle, received_at, notif_type, actor_name, emoji) "
-            "VALUES (?,?,?,?,?,?,?,?,?)",
+            "VALUES (?,?,?,?,?,?,?,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET post_id=excluded.post_id, post_node_id=excluded.post_node_id, actor_name=excluded.actor_name",
             (nid, payload.reply_post_id, replier_node_id, replier_node_id, '', now_ns(), 'reply', actor_name, None),
         )
     db.commit()

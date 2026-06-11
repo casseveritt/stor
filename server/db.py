@@ -386,6 +386,28 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         con.commit()
     except Exception:
         pass
+    # Fix old reply notifications that stored parent_post_id instead of reply_post_id.
+    # Reverse the hash by checking reply_refs for the parent.
+    import hashlib as _hl
+    _broken = con.execute(
+        "SELECT id, post_id FROM mention_notifications WHERE notif_type='reply' AND (post_node_id IS NULL OR post_node_id='')"
+    ).fetchall()
+    _fixed = False
+    for _nid, _parent_id in _broken:
+        _refs = con.execute(
+            "SELECT reply_post_id, reply_node_id FROM reply_refs WHERE parent_post_id=?", (_parent_id,)
+        ).fetchall()
+        for _reply_post_id, _reply_node_id in _refs:
+            _expected = _hl.sha256(f"reply:{_parent_id}:{_reply_post_id}".encode()).hexdigest()[:36]
+            if _expected == _nid and _reply_node_id:
+                con.execute(
+                    "UPDATE mention_notifications SET post_id=?, post_node_id=? WHERE id=?",
+                    (_reply_post_id, _reply_node_id, _nid)
+                )
+                _fixed = True
+                break
+    if _fixed:
+        con.commit()
     con.execute("""
         CREATE TABLE IF NOT EXISTS dm_threads (
             thread_id    TEXT PRIMARY KEY,
