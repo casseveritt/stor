@@ -525,9 +525,13 @@ def create_app(db_path: str) -> FastAPI:
             ).fetchone()
             if not row2:
                 raise HTTPException(404, "Node not found")
+            if not row2[0]:
+                raise HTTPException(410, "Node has been retired")
             rec = {"node_id": row2[5], "owner_id": row2[4], "user_id": row2[4],
                    "server_url": row2[0], "web_url": row2[1], "handle": row2[2], "display_name": row2[3]}
             return _sign_record(rec)
+        if not row[0]:
+            raise HTTPException(410, "Node has been retired")
         rec = {"node_id": node_id, "owner_id": row[4], "user_id": row[4],
                "server_url": row[0], "web_url": row[1], "handle": row[2], "display_name": row[3]}
         return _sign_record(rec)
@@ -1521,6 +1525,8 @@ blockquote p { color: #888; font-style: italic; }
         if not row:
             raise HTTPException(status_code=404, detail="Username not found")
         server_url, web_url, public_key, ttl, updated_at, display_name, node_id, owner_id, identity_public_key = row
+        if not server_url:
+            raise HTTPException(status_code=410, detail="Node has been retired")
         result = {
             "username": username,
             "server_url": server_url,
@@ -1554,6 +1560,8 @@ blockquote p { color: #888; font-style: italic; }
             ).fetchone()
         if not row:
             raise HTTPException(404, "ID not found")
+        if not row[0]:
+            raise HTTPException(410, "Node has been retired")
         return RedirectResponse(row[1] or row[0], status_code=302)
 
     class RegisterBody(BaseModel):
