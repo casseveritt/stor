@@ -1280,6 +1280,23 @@ def create_app(config_path: str | Path) -> FastAPI:
             config.save(config_path)
         return data
 
+    @api.post("/setup/release", status_code=204)
+    async def api_release_node(request: Request):
+        payload = await request.json()
+        async with httpx.AsyncClient() as hc:
+            r = await hc.post(_server + "/setup/release", json=payload,
+                              headers=_internal_headers(), timeout=30)
+        if not r.is_success:
+            detail = r.json().get("detail", r.text) if r.content else "Release failed"
+            raise HTTPException(status_code=r.status_code, detail=detail)
+        # Server is now uninitialized — clear stored credentials
+        config.node_key = None
+        config.internal_token = None
+        config.own_node_id = None
+        config.contacts = []
+        config.save(config_path)
+        return Response(status_code=204)
+
     @api.put("/profile")
     async def api_update_profile(request: Request):
         if not _token(config.own_server):
