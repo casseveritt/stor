@@ -899,13 +899,34 @@ async function confirmAddContact() {
 
 // ── tag sidebar ────────────────────────────────────────────────────────────
 async function loadTagSidebar() {
+  const freq = {};
+
+  // Count tags from contact-server posts already loaded in memory
+  for (const post of allPosts) {
+    if ((post._server_url || CFG.own_server) === CFG.own_server) continue;
+    for (const tag of (post.tags || [])) freq[tag] = (freq[tag] || 0) + 1;
+  }
+
+  // Add complete own-server tag counts from API (not limited to loaded posts)
   const r = await apiFetch("/api/tags");
-  if (!r.ok) return;
-  const data = await r.json();
+  if (r.ok) {
+    for (const {tag, count} of (await r.json()).tags || []) {
+      freq[tag] = (freq[tag] || 0) + count;
+    }
+  }
+
+  const sorted = Object.entries(freq).sort(([a, ca], [b, cb]) => {
+    const aActive = activeTags.has(a) ? 1 : 0;
+    const bActive = activeTags.has(b) ? 1 : 0;
+    if (aActive !== bActive) return bActive - aActive;
+    if (cb !== ca) return cb - ca;
+    return a.localeCompare(b);
+  });
+
   const list = document.getElementById("tag-list");
-  list.innerHTML = (data.tags || []).map(({tag, count}) =>
-    '<button class="tag-btn' + (activeTags.has(tag) ? " active" : "") + '" onclick="toggleTag(\'' + esc(tag) + '\')">'
-    + '<span>' + esc(tag) + '</span><span class="tc">' + count + '</span></button>'
+  list.innerHTML = sorted.map(([tag, count]) =>
+    `<button class="tag-btn${activeTags.has(tag) ? " active" : ""}" onclick="toggleTag('${esc(tag)}')">`
+    + `<span>${esc(tag)}</span><span class="tc">${count}</span></button>`
   ).join("");
 }
 
@@ -1373,7 +1394,7 @@ async function showEmojiPicker(event, postId, serverUrl) {
       b.className = 'emoji-pick-btn';
       b.textContent = emoji;
       b.title = 'Recently used';
-      b.onclick = e => { e.stopPropagation(); picker.remove(); _trackEmojiUsed(emoji); toggleReaction(postId, serverUrl, emoji, null); };
+      b.onclick = e => { e.stopPropagation(); picker.remove(); _hideEmojiPreview(); _trackEmojiUsed(emoji); toggleReaction(postId, serverUrl, emoji, null); };
       freqRow.appendChild(b);
     }
     picker.appendChild(freqRow);
@@ -1403,7 +1424,7 @@ async function showEmojiPicker(event, postId, serverUrl) {
       const b = document.createElement('button');
       b.className = 'emoji-pick-btn';
       b.textContent = emoji;
-      b.onclick = e => { e.stopPropagation(); picker.remove(); _trackEmojiUsed(emoji); toggleReaction(postId, serverUrl, emoji, null); };
+      b.onclick = e => { e.stopPropagation(); picker.remove(); _hideEmojiPreview(); _trackEmojiUsed(emoji); toggleReaction(postId, serverUrl, emoji, null); };
       grid.appendChild(b);
     }
   }
@@ -1415,7 +1436,7 @@ async function showEmojiPicker(event, postId, serverUrl) {
   bar.insertAdjacentElement('afterend', picker);
   setTimeout(() => search.focus(), 0);
   setTimeout(() => document.addEventListener('click', function close(e) {
-    if (!picker.contains(e.target)) { picker.remove(); document.removeEventListener('click', close); }
+    if (!picker.contains(e.target)) { picker.remove(); _hideEmojiPreview(); document.removeEventListener('click', close); }
   }), 0);
 }
 
@@ -1429,7 +1450,7 @@ async function showInlineEmojiPicker(event, taId) {
   picker.className = 'emoji-picker';
   picker.style.cssText = 'position:fixed;z-index:1000';
 
-  const insert = emoji => { picker.remove(); _trackEmojiUsed(emoji); _insertAtCursor(ta, emoji); ta.focus(); };
+  const insert = emoji => { picker.remove(); _hideEmojiPreview(); _trackEmojiUsed(emoji); _insertAtCursor(ta, emoji); ta.focus(); };
 
   const topEmoji = _topEmoji();
   if (topEmoji.length) {
@@ -1482,7 +1503,7 @@ async function showInlineEmojiPicker(event, taId) {
 
   setTimeout(() => search.focus(), 0);
   setTimeout(() => document.addEventListener('click', function close(e) {
-    if (!picker.contains(e.target)) { picker.remove(); document.removeEventListener('click', close); }
+    if (!picker.contains(e.target)) { picker.remove(); _hideEmojiPreview(); document.removeEventListener('click', close); }
   }), 0);
 }
 
@@ -1504,7 +1525,6 @@ async function toggleReaction(postId, serverUrl, emoji, _btn) {
     tmp.innerHTML = reactionBarHtml(data.reactions, postId, serverUrl);
     bar.replaceWith(tmp.firstChild);
   });
-  _hideEmojiPreview();
 }
 
 // ── visibility / access icons ──────────────────────────────────────────────
@@ -2035,6 +2055,7 @@ function openReplyCompose(post, cardEl) {
     + `<textarea id="${esc(taId)}" class="reply-input" data-post-id="${esc(post.id)}" placeholder="Write a reply…" style="width:100%;box-sizing:border-box;display:block"></textarea>`
     + `<div style="display:flex;align-items:center;gap:0.35rem;margin-top:0.3rem;flex-wrap:wrap">`
     + `<button class="reaction-add" onclick="showInlineEmojiPicker(event,'${esc(taId)}')" title="Insert emoji">😊</button>`
+    + `<button class="reaction-add" onclick="openComposeAsReply('${esc(post.id)}','${esc(post._server_url||'')}',document.getElementById('${esc(taId)}'))" title="Full compose panel">⊞</button>`
     + `<button class="reaction-add" onclick="openPostOverlay('${esc(post.id)}','${esc(post._server_url||'')}')" title="View post">⤢</button>`
     + `<label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.82rem;color:#aaa;cursor:pointer">`
     + `<input type="checkbox" id="${esc(cbId)}" checked> List in parent's replies</label>`
@@ -2071,6 +2092,7 @@ async function submitReply(e, parentPostId, parentServerUrl, visibility) {
   fd.append('visibility', visibility);
   fd.append('parent_id', parentPostId);
   if (parentNodeId) fd.append('parent_node_id', parentNodeId);
+  if (parentServerUrl && parentServerUrl !== CFG?.own_server) fd.append('parent_server_url', parentServerUrl);
 
   const postUrl = '/api/posts' + (notifyCheck?.checked ? '?notify_parent=1' : '');
   try {
@@ -2311,12 +2333,29 @@ function openCompose() {
     ? '<div style="font-size:0.78rem;color:#888">Draft restored.</div>' : "";
   document.getElementById("compose-submit").disabled = false;
   document.getElementById("file-list").innerHTML = "";
+  document.getElementById("compose-parent-id").value = "";
+  document.getElementById("compose-parent-server").value = "";
+  document.getElementById("compose-reply-banner").hidden = true;
   composeShowTab('write');
   document.getElementById("compose-overlay").hidden = false;
   const ta = document.getElementById("compose-body");
   ta.addEventListener('paste', _composePasteHandler);
   ta.addEventListener('keydown', _composeKeydownHandler);
   ta.focus();
+}
+
+function openComposeAsReply(postId, serverUrl, taEl) {
+  openCompose();
+  document.getElementById("compose-parent-id").value = postId;
+  document.getElementById("compose-parent-server").value = serverUrl || '';
+  const draft = taEl?.value?.trim() || '';
+  if (draft) {
+    document.getElementById("compose-body").value = draft;
+    _updateHighlight();
+  }
+  const banner = document.getElementById("compose-reply-banner");
+  banner.textContent = 'Replying to a post…';
+  banner.hidden = false;
 }
 function closeCompose() {
   hideMentionDropdown();
@@ -2325,6 +2364,9 @@ function closeCompose() {
   ta.removeEventListener('paste', _composePasteHandler);
   ta.removeEventListener('keydown', _composeKeydownHandler);
   document.getElementById("compose-overlay").hidden = true;
+  document.getElementById("compose-parent-id").value = "";
+  document.getElementById("compose-parent-server").value = "";
+  document.getElementById("compose-reply-banner").hidden = true;
 }
 function _renderFileList() {
   document.getElementById("file-list").innerHTML = _uploadedAssets.map((a, i) => {
@@ -2451,9 +2493,18 @@ async function submitPost() {
   fd.append("body", _expandMentions(bodyText));
   fd.append("tags", JSON.stringify(tags));
   fd.append("visibility", document.getElementById("compose-visibility").value);
+  const parentId = document.getElementById("compose-parent-id").value;
+  const parentServer = document.getElementById("compose-parent-server").value;
+  if (parentId) {
+    fd.append("parent_id", parentId);
+    const parentNodeId = _nodeIdForServer(parentServer);
+    if (parentNodeId) fd.append("parent_node_id", parentNodeId);
+    if (parentServer && parentServer !== CFG?.own_server) fd.append("parent_server_url", parentServer);
+  }
 
+  const postUrl = parentId ? "/api/posts?notify_parent=1" : "/api/posts";
   try {
-    const r = await apiFetch("/api/posts", {method: "POST", body: fd});
+    const r = await apiFetch(postUrl, {method: "POST", body: fd});
     if (r.ok) {
       const post = await r.json();
       prependPost(post);
@@ -2729,8 +2780,7 @@ function _renderMentionsList() {
     if (m.notif_type === 'reaction') text = `${name} reacted ${m.emoji || ''} to your post`;
     else if (m.notif_type === 'reply') text = `${name} replied to your post`;
     else text = `${name} mentioned you`;
-    const _jumpServer = m.post_server || (contact?.url || (_actorId.startsWith('http') ? _actorId : ''));
-    return `<div onclick="_jumpToMention('${esc(m.post_id)}','${esc(_jumpServer)}','${esc(m.id)}')" style="display:flex;gap:0.5rem;align-items:flex-start;padding:0.55rem 0.75rem;cursor:pointer;border-bottom:1px solid #1e1e1e" onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
+    return `<div onclick="_jumpToMention('${esc(m.post_id)}','${esc(m.post_node_id||'')}','${esc(m.id)}')" style="display:flex;gap:0.5rem;align-items:flex-start;padding:0.55rem 0.75rem;cursor:pointer;border-bottom:1px solid #1e1e1e" onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
       ${dot || '<span style="display:inline-block;width:7px;flex-shrink:0"></span>'}
       <div style="flex:1;min-width:0">
         <div style="font-size:0.85rem;color:#ccc;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(text)}</div>
@@ -2748,7 +2798,7 @@ async function _markMentionsSeen() {
   _renderMentionsList();
 }
 
-async function _jumpToMention(postId, serverUrl, notifId) {
+async function _jumpToMention(postId, postNodeId, notifId) {
   document.getElementById("mentions-panel").hidden = true;
   if (notifId) {
     apiFetch("/api/notifications/mentions/" + encodeURIComponent(notifId) + "/seen", {method: "POST"}).catch(() => {});
@@ -2760,33 +2810,8 @@ async function _jumpToMention(postId, serverUrl, notifId) {
       if (badge) { badge.hidden = unread === 0; badge.textContent = unread > 9 ? "9+" : String(unread || ''); }
     }
   }
-  // Fetch the post and open it in the detail overlay
-  const params = serverUrl && serverUrl !== CFG.own_server
-    ? "?server=" + encodeURIComponent(serverUrl) : "";
-  const r = await apiFetch("/api/posts/" + postId + params);
-  if (!r.ok) {
-    alert("Post not accessible.");
-    return;
-  }
-  const post = await r.json();
-  post._server_url = post._server_url || serverUrl || CFG.own_server;
-  // Find or create an entry in allPosts, then open comments panel
-  let idx = allPosts.findIndex(p => p.id === postId);
-  if (idx === -1) {
-    allPosts.unshift(post);
-    idx = 0;
-  }
-  // Scroll to and highlight the post card if visible, otherwise prepend temporarily
-  let card = document.querySelector(`.post-card[data-post-id="${postId}"]`);
-  if (!card) {
-    prependPost(post);
-    card = document.querySelector(`.post-card[data-post-id="${postId}"]`);
-  }
-  if (card) {
-    card.scrollIntoView({behavior: "smooth", block: "start"});
-    card.style.outline = "2px solid #4285f4";
-    setTimeout(() => { card.style.outline = ""; }, 2000);
-  }
+  const serverUrl = postNodeId ? await _fetchServerForNodeId(postNodeId) : '';
+  openPostOverlay(postId, serverUrl);
 }
 
 // ── DMs ───────────────────────────────────────────────────────────────────────

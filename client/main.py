@@ -849,12 +849,16 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     # ── posts ─────────────────────────────────────────────────────────────
 
-    async def _send_reply_notification(parent_post_id: str, parent_node_id: str, reply_post_id: str):
-        if not parent_node_id or parent_node_id == config.own_node_id:
-            return  # local replies are already queryable; no need to notify own node
+    async def _send_reply_notification(parent_post_id: str, parent_node_id: str, reply_post_id: str, parent_server_url: str = ""):
+        if not parent_node_id and not parent_server_url:
+            return
+        if parent_node_id == config.own_node_id and not parent_server_url:
+            return  # local reply, no notification needed
         try:
-            record = await registry.lookup(parent_node_id)
-            parent_server = record.get("server_url") or record.get("web_url")
+            parent_server = parent_server_url
+            if not parent_server and parent_node_id:
+                record = await registry.lookup(parent_node_id)
+                parent_server = record.get("server_url") or record.get("web_url")
             if not parent_server:
                 return
             body_bytes = json.dumps({
@@ -908,9 +912,14 @@ def create_app(config_path: str | Path) -> FastAPI:
         post["_server_name"] = "me"
         own_poll_id = config.own_node_id or hashlib.sha256(config.own_server.encode()).hexdigest()[:16]
         asyncio.create_task(_background_fetch_one(config.own_server, own_poll_id))
-        if notify_parent and post.get("parent_id") and post.get("parent_node_id"):
+        # Use form values for notification — the server auto-fills parent_node_id with own node_id
+        # when it's missing from the form, so the response value is unreliable for remote parents.
+        req_parent_id = fields.get("parent_id", "")
+        req_parent_node_id = fields.get("parent_node_id", "")
+        req_parent_server_url = fields.get("parent_server_url", "")
+        if notify_parent and req_parent_id and (req_parent_node_id or req_parent_server_url):
             asyncio.create_task(
-                _send_reply_notification(post["parent_id"], post["parent_node_id"], post["id"])
+                _send_reply_notification(req_parent_id, req_parent_node_id, post["id"], req_parent_server_url)
             )
         return post
 

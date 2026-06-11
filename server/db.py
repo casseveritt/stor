@@ -364,7 +364,7 @@ def init_schema(con: sqlcipher3.Connection) -> None:
         except Exception:
             pass
     for _col in ["notif_type TEXT DEFAULT 'mention'", "actor_name TEXT", "emoji TEXT",
-                  "post_server TEXT DEFAULT ''"]:
+                  "post_server TEXT DEFAULT ''", "post_node_id TEXT DEFAULT ''"]:
         try:
             con.execute(f"ALTER TABLE mention_notifications ADD COLUMN {_col}")
             con.commit()

@@ -118,6 +118,7 @@ def _notify_mentions(body: str, post_id: str, app) -> None:
                     "author_node_id": own_node_id,
                     "author_handle": handle,
                     "timestamp": int(_t.time()),
+                    "post_node_id": own_node_id,
                 }
                 headers = {"Content-Type": "application/json"}
                 if priv:
@@ -460,8 +461,10 @@ def get_posts(
         if q_lower in handle.lower() or (display_name and q_lower in display_name.lower()):
             pass  # query matches this node's identity — return all posts unfiltered
         else:
-            conditions.append("p.body LIKE ?")
-            params.append(f"%{q}%")
+            conditions.append(
+                "(p.body LIKE ? OR EXISTS (SELECT 1 FROM post_tags WHERE post_id = p.id AND tag LIKE ?))"
+            )
+            params.extend([f"%{q}%", f"%{q}%"])
 
     if cursor:
         conditions.append("p.created_at < ?")
@@ -618,9 +621,9 @@ def notify_reply(post_id: str, payload: _ReplyNotification, request: Request,
         nid = _hl.sha256(f"reply:{post_id}:{payload.reply_post_id}".encode()).hexdigest()[:36]
         db.execute(
             "INSERT OR IGNORE INTO mention_notifications "
-            "(id, post_id, author_node_id, author_handle, received_at, notif_type, actor_name, emoji) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (nid, post_id, replier_node_id, '', now_ns(), 'reply', actor_name, None),
+            "(id, post_id, post_node_id, author_node_id, author_handle, received_at, notif_type, actor_name, emoji) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (nid, payload.reply_post_id, replier_node_id, replier_node_id, '', now_ns(), 'reply', actor_name, None),
         )
     db.commit()
 

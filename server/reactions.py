@@ -80,7 +80,7 @@ async def toggle_reaction(post_id: str, payload: _ReactBody, request: Request, i
     if db.execute("SELECT id FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Post not found")
 
-reactor = await _reactor(identity, request)
+    reactor = await _reactor(identity, request)
     if reactor is None:
         raise HTTPException(status_code=401, detail="Reactions require an authenticated identity")
     existing = db.execute(
@@ -110,11 +110,12 @@ reactor = await _reactor(identity, request)
             _actor = _row[0] if _row else None
         import hashlib as _hl
         _nid = _hl.sha256(f"reaction:{post_id}:{reactor}:{payload.emoji}".encode()).hexdigest()[:36]
+        _own_node_id = getattr(request.app.state, 'node_id', '') or ''
         db.execute(
             "INSERT OR IGNORE INTO mention_notifications "
-            "(id, post_id, author_node_id, author_handle, received_at, notif_type, actor_name, emoji) "
-            "VALUES (?,?,?,?,?,?,?,?)",
-            (_nid, post_id, reactor, '', now_ns(), 'reaction', _actor, payload.emoji)
+            "(id, post_id, post_node_id, author_node_id, author_handle, received_at, notif_type, actor_name, emoji) "
+            "VALUES (?,?,?,?,?,?,?,?,?)",
+            (_nid, post_id, _own_node_id, reactor, '', now_ns(), 'reaction', _actor, payload.emoji)
         )
         db.commit()
 
