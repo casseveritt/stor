@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>contacc</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/style.css?v=702515c-26">
+  <link rel="stylesheet" href="/style.css?v=702515c-27">
   <script>(function(){var t=localStorage.getItem('theme')||'dark';document.documentElement.setAttribute('data-theme',t)})();</script>
 </head>
 <body>
@@ -435,6 +435,19 @@
         <button class="btn btn-muted btn-sm" onclick="uploadEscrowFromSettings()">Upload escrow</button>
         <div id="eu-status" style="font-size:0.8rem;min-height:1em"></div>
       </div>
+      <hr style="border:none;border-top:1px solid var(--surface-3);margin:0.5rem 0">
+      <div id="release-node-wrap" style="display:flex;flex-direction:column;gap:0.4rem">
+        <div style="font-size:0.72rem;color:var(--error);text-transform:uppercase;letter-spacing:0.08em">Release node</div>
+        <div style="font-size:0.78rem;color:var(--text-5)">Permanently erases all posts, contacts, and settings, returning this node to its uninitialized state. Download a backup first — this cannot be undone.</div>
+        <button class="btn btn-muted btn-sm" style="width:100%" onclick="downloadBackup()">Download backup</button>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;color:var(--text-3);cursor:pointer;margin-top:0.2rem">
+          <input type="checkbox" id="release-confirmed" onchange="_onReleaseCheckbox(this)">
+          I have downloaded and verified my backup
+        </label>
+        <input type="password" id="release-passphrase" placeholder="Passphrase to confirm" disabled style="opacity:0.5" onkeydown="if(event.key==='Enter'&&!this.disabled)releaseNode()">
+        <button class="btn btn-sm" id="release-btn" onclick="releaseNode()" disabled style="background:var(--error);color:#fff;opacity:0.4;width:100%">Release node</button>
+        <div id="release-status" style="font-size:0.8rem;min-height:1em"></div>
+      </div>
     </div>
   </div>
 </div>
@@ -540,6 +553,6 @@
 
   <script src="/marked.min.js?v=2"></script>
   <script src="/purify.min.js?v=2"></script>
-  <script src="/app.js?v=702515c-26"></script>
+  <script src="/app.js?v=702515c-27"></script>
 </body>
 </html>

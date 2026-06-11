@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import zipfile
 from pathlib import Path
 
@@ -12,6 +13,7 @@ from cryptography.exceptions import InvalidTag
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
+from .auth import OwnerDep
 from .config import NodeConfig
 from .crypto import (
     decrypt_bytes, derive_master_key, derive_subkeys, encrypt_bytes,
@@ -989,3 +991,64 @@ def change_owner_passphrase(body: ChangeOwnerPassphraseBody, request: Request):
         "status": "ok",
         "identity_private_key": identity_key_to_hex(identity_private_key),
     }
+
+
+class ReleaseBody(BaseModel):
+    passphrase: str
+
+
+@router.post("/release", status_code=204)
+def release_node(body: ReleaseBody, request: Request, _identity: OwnerDep):
+    """Erase all node data and return to uninitialized state.
+    The caller must have already downloaded a backup; this is irreversible."""
+    app = request.app
+    if not app.state.initialized:
+        raise HTTPException(400, "Node is not initialized")
+
+    # Verify passphrase before destroying anything
+    config_path = Path(app.state.config_path)
+    try:
+        config_data = json.loads(config_path.read_text())
+        salt = bytes.fromhex(config_data["argon2_salt"])
+        master_key = derive_master_key(
+            body.passphrase, salt,
+            config_data.get("argon2_time_cost", ARGON2_TIME_COST),
+            config_data.get("argon2_memory_cost", ARGON2_MEMORY_COST),
+            config_data.get("argon2_parallelism", ARGON2_PARALLELISM),
+        )
+        decrypt_bytes(base64.b64decode(config_data["encrypted_private_key"]), master_key)
+    except (InvalidTag, KeyError, ValueError):
+        raise HTTPException(403, "Wrong passphrase")
+
+    store_path = Path(app.state.store_path)
+
+    # Reset in-memory state first so in-flight requests fail fast
+    app.state.initialized = False
+    app.state.private_key = None
+    app.state.file_key = None
+    app.state.node_id = ""
+    app.state.user_id = ""
+    app.state.internal_token = None
+    app.state.dh_private_key = None
+    app.state.dh_public_key = None
+
+    # Close the database connection
+    try:
+        db = app.state.db
+        app.state.db = None
+        if db is not None:
+            db.close()
+    except Exception:
+        pass
+
+    # Delete database files, asset files, and config
+    for name in ["db", "db-wal", "db-shm"]:
+        (store_path / name).unlink(missing_ok=True)
+    files_dir = store_path / "files"
+    if files_dir.exists():
+        shutil.rmtree(files_dir)
+    config_path.unlink(missing_ok=True)
+
+    # Generate a fresh setup token so the owner can re-initialize
+    ensure_setup_token(app)
+    log.info("Node released — all data erased, setup token generated")

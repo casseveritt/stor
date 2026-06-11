@@ -1586,7 +1586,7 @@ function makePostCard(post, idx) {
     parentRef.onclick = async (e) => {
       e.stopPropagation();
       const srv = _parentCache?._server_url || await _fetchServerForNodeId(post.parent_node_id);
-      openPostOverlay(post.parent_id, srv);
+      openPostOverlay(post.parent_id, srv, true);
     };
     div.appendChild(parentRef);
   }
@@ -1991,7 +1991,7 @@ async function _toggleReplies(post, cardEl) {
     const card = makePostCard(rp, -1);
     card.style.cssText = 'margin-top:0.5rem;border-left:2px solid var(--border-strong);padding-left:0.75rem;cursor:pointer';
     card.addEventListener('click', e => {
-      if (e.target.closest('button, a, input, textarea, .reply-panel')) return;
+      if (e.target.closest('button, a, input, textarea, .reply-panel, .replies-toggle')) return;
       const nestedReplies = card.querySelector('.replies-panel');
       if (nestedReplies && nestedReplies.contains(e.target)) return;
       openPostOverlay(rp.id, rp._server_url);
@@ -2025,7 +2025,7 @@ async function _fetchServerForNodeId(nodeId) {
   return '';
 }
 
-async function openPostOverlay(postId, serverUrl) {
+async function openPostOverlay(postId, serverUrl, expandReplies = false) {
   const params = serverUrl && serverUrl !== CFG.own_server ? '?server=' + encodeURIComponent(serverUrl) : '';
   const r = await apiFetch('/api/posts/' + postId + params);
   if (!r.ok) return;
@@ -2033,10 +2033,12 @@ async function openPostOverlay(postId, serverUrl) {
   post._server_url = post._server_url || serverUrl || CFG.own_server;
   const body = document.getElementById('detail-body');
   body.innerHTML = '';
-  body.appendChild(makePostCard(post, -1));
+  const card = makePostCard(post, -1);
+  body.appendChild(card);
   document.getElementById('nav-prev').hidden = true;
   document.getElementById('nav-next').hidden = true;
   document.getElementById('detail-overlay').hidden = false;
+  if (expandReplies) _toggleReplies(post, card);
 }
 
 function closeDetail() {
@@ -2687,6 +2689,42 @@ function closeProfile() { document.getElementById("profile-overlay").hidden = tr
 function downloadBackup() {
   window.location.href = "/api/backup" + clientTokenParam(false);
 }
+
+function _onReleaseCheckbox(cb) {
+  const passEl = document.getElementById('release-passphrase');
+  const btnEl = document.getElementById('release-btn');
+  const enabled = cb.checked;
+  passEl.disabled = !enabled;
+  passEl.style.opacity = enabled ? '1' : '0.5';
+  btnEl.disabled = !enabled;
+  btnEl.style.opacity = enabled ? '1' : '0.4';
+  if (!enabled) passEl.value = '';
+}
+
+async function releaseNode() {
+  const passphrase = (document.getElementById('release-passphrase')?.value || '').trim();
+  const statusEl = document.getElementById('release-status');
+  if (!passphrase) { statusEl.style.color = 'var(--error)'; statusEl.textContent = 'Enter your passphrase to confirm.'; return; }
+  if (!confirm('This will permanently erase ALL node data — posts, contacts, settings, and files. This cannot be undone.\n\nContinue?')) return;
+  statusEl.style.color = 'var(--text-4)'; statusEl.textContent = 'Releasing…';
+  try {
+    const r = await apiFetch('/api/setup/release', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({passphrase}),
+    });
+    if (r.ok || r.status === 204) {
+      statusEl.style.color = 'var(--ok)'; statusEl.textContent = 'Node released. Reloading…';
+      setTimeout(() => window.location.reload(), 1200);
+    } else {
+      const err = await r.json().catch(() => ({}));
+      statusEl.style.color = 'var(--error)'; statusEl.textContent = err.detail || 'Release failed.';
+    }
+  } catch (e) {
+    statusEl.style.color = 'var(--error)'; statusEl.textContent = 'Error: ' + e.message;
+  }
+}
+
 async function downloadPrivateKey() {
   const passphrase = document.getElementById("privkey-passphrase").value;
   const status = document.getElementById("privkey-status");
