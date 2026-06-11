@@ -258,6 +258,27 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
     db_con = open_db(str(store_path / "db"), db_key)
     init_schema(db_con)
 
+    # Migrate reply notification nids to new scheme: sha256(reply:{reply_post_id}:{own_node_id})
+    # Old scheme was sha256(reply:{parent_post_id}:{reply_post_id}), which produced a different
+    # nid for each ancestor post on the same node, causing duplicate notifications.
+    import hashlib as _hl_nr
+    _own_nid_nr = config.node_id or ""
+    if _own_nid_nr:
+        _reply_rows = db_con.execute(
+            "SELECT id, post_id FROM mention_notifications WHERE notif_type='reply' AND post_id != '' AND post_id IS NOT NULL"
+        ).fetchall()
+        _nr_changed = False
+        for _old_nid, _reply_post_id in _reply_rows:
+            _new_nid = _hl_nr.sha256(f"reply:{_reply_post_id}:{_own_nid_nr}".encode()).hexdigest()[:36]
+            if _old_nid != _new_nid:
+                if db_con.execute("SELECT 1 FROM mention_notifications WHERE id = ?", (_new_nid,)).fetchone():
+                    db_con.execute("DELETE FROM mention_notifications WHERE id = ?", (_old_nid,))
+                else:
+                    db_con.execute("UPDATE mention_notifications SET id = ? WHERE id = ?", (_new_nid, _old_nid))
+                _nr_changed = True
+        if _nr_changed:
+            db_con.commit()
+
     node_address = os.environ.get("CONTACC_NODE_ADDRESS") or config.node_address
 
     app.state.db = db_con
