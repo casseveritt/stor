@@ -374,12 +374,23 @@ async def setup_restore(request: Request, bundle: UploadFile = File(...), passph
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_bytes(zf.read(name))
 
-    # Ensure internal_token exists (may be absent in older backups)
+    # Patch the extracted config to match this node's address and store path,
+    # and ensure internal_token exists (may be absent in older backups).
     store_path = Path(app.state.config_path).parent
     config_path = store_path / "node_config.json"
     config_data = json.loads(config_path.read_text())
+    _patched = False
+    current_node_address = app.state.node_address or os.environ.get("CONTACC_NODE_ADDRESS", "")
+    if current_node_address and config_data.get("node_address") != current_node_address:
+        config_data["node_address"] = current_node_address
+        _patched = True
+    if config_data.get("store_path") != str(store_path):
+        config_data["store_path"] = str(store_path)
+        _patched = True
     if "internal_token" not in config_data:
         config_data["internal_token"] = secrets.token_urlsafe(32)
+        _patched = True
+    if _patched:
         config_path.write_text(json.dumps(config_data, indent=2))
 
     try:
