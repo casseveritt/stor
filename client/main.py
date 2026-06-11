@@ -1521,10 +1521,11 @@ def create_app(config_path: str | Path) -> FastAPI:
         buf = io.BytesIO(r.content)
         with zipfile.ZipFile(buf, "a", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("client_config.json", config_path.read_text())
+        cd = r.headers.get("content-disposition", "attachment; filename=contacc-backup.zip")
         return _Resp(
             content=buf.getvalue(),
             media_type="application/zip",
-            headers={"Content-Disposition": "attachment; filename=contacc-backup.zip"},
+            headers={"Content-Disposition": cd},
         )
 
     @api.delete("/contacts")
