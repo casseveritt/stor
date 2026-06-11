@@ -591,6 +591,14 @@ def create_app(config_path: str | Path) -> FastAPI:
         return _ASSET_CACHE_DIR / asset_id[:2] / f"{asset_id}{suffix}"
 
     def _cache_posts(contact_key: str, posts: list[dict]) -> None:
+        # Remove cache files not in the new fetch so deleted/filtered posts don't linger
+        bucket = hashlib.sha256(contact_key.encode()).hexdigest()[:16]
+        d = _POST_CACHE_DIR / bucket
+        if d.exists():
+            new_ids = {post["id"] for post in posts}
+            for f in d.glob("*.enc"):
+                if f.stem not in new_ids:
+                    f.unlink(missing_ok=True)
         for post in posts:
             _cache_write(_post_cache_path(contact_key, post["id"]), json.dumps(post).encode())
 
