@@ -398,6 +398,15 @@ async def setup_restore(request: Request, bundle: UploadFile = File(...), passph
     except WrongPassphraseError:
         raise HTTPException(500, "Failed to initialize after restore")
 
+    # Re-register with the registry synchronously before returning so the node is
+    # immediately reachable at its (possibly new) address.
+    trigger = getattr(app.state, "trigger_heartbeat", None)
+    if trigger:
+        try:
+            trigger()
+        except Exception as _he:
+            log.warning("Registry heartbeat after restore failed: %s", _he)
+
     _consume_token(app)
     return {
         "status": "ok",
@@ -1032,6 +1041,23 @@ def release_node(body: ReleaseBody, request: Request, _identity: OwnerDep):
         raise HTTPException(403, "Wrong passphrase")
 
     store_path = Path(app.state.store_path)
+
+    # Notify registry that this node's URL is no longer valid — do this before wiping state
+    # so we still have the private key to sign the request.
+    try:
+        import httpx as _hx_r, time as _t_r
+        _config_r = NodeConfig.load(config_path)
+        _registry_url_r = (_config_r.registry_url or _config_r.identity_proxy_url or "").rstrip("/")
+        _node_id_r = _config_r.node_id or ""
+        if _registry_url_r and _node_id_r and app.state.private_key:
+            _ts_r = int(_t_r.time())
+            _msg_r = f"contacc:retire:{_node_id_r}:{_ts_r}"
+            _sig_r = base64.b64encode(app.state.private_key.sign(_msg_r.encode())).decode()
+            _hx_r.post(f"{_registry_url_r}/retire/{_node_id_r}",
+                       json={"timestamp": _ts_r, "signature": _sig_r}, timeout=5.0)
+            log.info("Notified registry of retirement for node %s", _node_id_r)
+    except Exception as _re:
+        log.warning("Could not notify registry of node retirement: %s", _re)
 
     # Reset in-memory state first so in-flight requests fail fast
     app.state.initialized = False

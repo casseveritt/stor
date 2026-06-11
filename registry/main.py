@@ -1648,6 +1648,28 @@ blockquote p { color: #888; font-style: italic; }
         con.commit()
         return {"username": username, "ttl": ttl}
 
+    class RetireBody(BaseModel):
+        timestamp: int
+        signature: str  # node signs f"contacc:retire:{node_id}:{timestamp}"
+
+    @app.post("/retire/{node_id}", status_code=204)
+    def retire(node_id: str, body: RetireBody):
+        """Node-initiated retirement: clears server_url so lookups show the node is offline.
+        The node record is preserved and can be re-activated by a normal heartbeat update."""
+        _check_timestamp(body.timestamp)
+        row = con.execute(
+            "SELECT public_key FROM nodes WHERE node_id = ? AND superseded_at IS NULL", (node_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Node not found")
+        if not _verify_sig(row[0], f"contacc:retire:{node_id}:{body.timestamp}", body.signature):
+            raise HTTPException(401, "Invalid signature")
+        con.execute(
+            "UPDATE nodes SET server_url = '', updated_at = ? WHERE node_id = ?",
+            (time.time_ns(), node_id),
+        )
+        con.commit()
+
     class UpdateBody(BaseModel):
         server_url: str
         ttl: int = DEFAULT_TTL
