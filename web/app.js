@@ -1668,15 +1668,29 @@ document.addEventListener("keydown", e => {
   if (!document.getElementById("contact-edit-overlay").hidden && e.key === "Escape") closeContactEdit();
 });
 
-// Configure marked once: GFM + line breaks
+// Configure marked once: GFM + line breaks + Discord-style -# small text
 marked.use({ gfm: true, breaks: true });
+marked.use({
+  extensions: [{
+    name: 'small',
+    level: 'block',
+    start(src) { return src.indexOf('-# '); },
+    tokenizer(src) {
+      const match = src.match(/^-# ([^\n]*)/);
+      if (match) return { type: 'small', raw: match[0], text: match[1].trim() };
+    },
+    renderer(token) {
+      return `<small>${marked.parseInline(token.text)}</small>`;
+    },
+  }],
+});
 
 function mdRender(text) {
   return DOMPurify.sanitize(marked.parse(text), {
     ALLOWED_TAGS: ['p','br','strong','em','del','code','pre','blockquote',
                    'h1','h2','h3','h4','h5','h6','ul','ol','li','hr',
                    'a','img','table','thead','tbody','tr','th','td',
-                   'span','div'],
+                   'span','div','small'],
     ALLOWED_ATTR: ['href','src','alt','title','class','target',
                    'data-mention-id','onmouseenter','onmouseleave'],
     ALLOW_DATA_ATTR: false,
