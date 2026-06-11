@@ -13,7 +13,7 @@ from cryptography.exceptions import InvalidTag
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-from .auth import OwnerDep
+from .auth import OwnerDep, InternalOrOwnerDep
 from .config import NodeConfig
 from .crypto import (
     decrypt_bytes, derive_master_key, derive_subkeys, encrypt_bytes,
@@ -1018,7 +1018,7 @@ class ReleaseBody(BaseModel):
 
 
 @router.post("/release", status_code=204)
-def release_node(body: ReleaseBody, request: Request, _identity: OwnerDep):
+def release_node(body: ReleaseBody, request: Request, _identity: InternalOrOwnerDep):
     """Erase all node data and return to uninitialized state.
     The caller must have already downloaded a backup; this is irreversible."""
     app = request.app
