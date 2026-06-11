@@ -526,12 +526,12 @@ def create_app(db_path: str) -> FastAPI:
             if not row2:
                 raise HTTPException(404, "Node not found")
             if not row2[0]:
-                raise HTTPException(410, "Node has been retired")
+                raise HTTPException(410, "Node is suspended")
             rec = {"node_id": row2[5], "owner_id": row2[4], "user_id": row2[4],
                    "server_url": row2[0], "web_url": row2[1], "handle": row2[2], "display_name": row2[3]}
             return _sign_record(rec)
         if not row[0]:
-            raise HTTPException(410, "Node has been retired")
+            raise HTTPException(410, "Node is suspended")
         rec = {"node_id": node_id, "owner_id": row[4], "user_id": row[4],
                "server_url": row[0], "web_url": row[1], "handle": row[2], "display_name": row[3]}
         return _sign_record(rec)
@@ -1526,7 +1526,7 @@ blockquote p { color: #888; font-style: italic; }
             raise HTTPException(status_code=404, detail="Username not found")
         server_url, web_url, public_key, ttl, updated_at, display_name, node_id, owner_id, identity_public_key = row
         if not server_url:
-            raise HTTPException(status_code=410, detail="Node has been retired")
+            raise HTTPException(status_code=410, detail="Node is suspended")
         result = {
             "username": username,
             "server_url": server_url,
@@ -1561,7 +1561,7 @@ blockquote p { color: #888; font-style: italic; }
         if not row:
             raise HTTPException(404, "ID not found")
         if not row[0]:
-            raise HTTPException(410, "Node has been retired")
+            raise HTTPException(410, "Node is suspended")
         return RedirectResponse(row[1] or row[0], status_code=302)
 
     class RegisterBody(BaseModel):
@@ -1656,13 +1656,13 @@ blockquote p { color: #888; font-style: italic; }
         con.commit()
         return {"username": username, "ttl": ttl}
 
-    class RetireBody(BaseModel):
+    class SuspendBody(BaseModel):
         timestamp: int
-        signature: str  # node signs f"contacc:retire:{node_id}:{timestamp}"
+        signature: str  # node signs f"contacc:suspend:{node_id}:{timestamp}"
 
-    @app.post("/retire/{node_id}", status_code=204)
-    def retire(node_id: str, body: RetireBody):
-        """Node-initiated retirement: clears server_url so lookups show the node is offline.
+    @app.post("/suspend/{node_id}", status_code=204)
+    def suspend(node_id: str, body: SuspendBody):
+        """Node-initiated suspension: clears server_url so lookups show the node is offline.
         The node record is preserved and can be re-activated by a normal heartbeat update."""
         _check_timestamp(body.timestamp)
         row = con.execute(
@@ -1670,7 +1670,7 @@ blockquote p { color: #888; font-style: italic; }
         ).fetchone()
         if not row:
             raise HTTPException(404, "Node not found")
-        if not _verify_sig(row[0], f"contacc:retire:{node_id}:{body.timestamp}", body.signature):
+        if not _verify_sig(row[0], f"contacc:suspend:{node_id}:{body.timestamp}", body.signature):
             raise HTTPException(401, "Invalid signature")
         con.execute(
             "UPDATE nodes SET server_url = '', updated_at = ? WHERE node_id = ?",

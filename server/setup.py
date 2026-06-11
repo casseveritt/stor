@@ -1051,13 +1051,13 @@ def release_node(body: ReleaseBody, request: Request, _identity: OwnerDep):
         _node_id_r = _config_r.node_id or ""
         if _registry_url_r and _node_id_r and app.state.private_key:
             _ts_r = int(_t_r.time())
-            _msg_r = f"contacc:retire:{_node_id_r}:{_ts_r}"
+            _msg_r = f"contacc:suspend:{_node_id_r}:{_ts_r}"
             _sig_r = base64.b64encode(app.state.private_key.sign(_msg_r.encode())).decode()
-            _hx_r.post(f"{_registry_url_r}/retire/{_node_id_r}",
+            _hx_r.post(f"{_registry_url_r}/suspend/{_node_id_r}",
                        json={"timestamp": _ts_r, "signature": _sig_r}, timeout=5.0)
-            log.info("Notified registry of retirement for node %s", _node_id_r)
+            log.info("Notified registry of suspension for node %s", _node_id_r)
     except Exception as _re:
-        log.warning("Could not notify registry of node retirement: %s", _re)
+        log.warning("Could not notify registry of node suspension: %s", _re)
 
     # Reset in-memory state first so in-flight requests fail fast
     app.state.initialized = False
