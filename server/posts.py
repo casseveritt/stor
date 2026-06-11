@@ -618,22 +618,26 @@ def notify_reply(post_id: str, payload: _ReplyNotification, request: Request,
     if not identity.is_owner:
         import hashlib as _hl
         replier_node_id = payload.reply_node_id or (identity.node_id or '')
-        actor_row = db.execute("SELECT name FROM users WHERE node_id = ?", (replier_node_id,)).fetchone()
-        actor_name = actor_row[0] if actor_row else None
-        # nid is unique per (reply, recipient-node) so each node sees at most one notification per reply
-        nid = _hl.sha256(f"reply:{payload.reply_post_id}:{own_node_id}".encode()).hexdigest()[:36]
-        is_new = db.execute("SELECT 1 FROM mention_notifications WHERE id = ?", (nid,)).fetchone() is None
-        db.execute(
-            "INSERT INTO mention_notifications "
-            "(id, post_id, post_node_id, author_node_id, author_handle, received_at, notif_type, actor_name, emoji) "
-            "VALUES (?,?,?,?,?,?,?,?,?) "
-            "ON CONFLICT(id) DO UPDATE SET post_id=excluded.post_id, post_node_id=excluded.post_node_id, actor_name=excluded.actor_name",
-            (nid, payload.reply_post_id, replier_node_id, replier_node_id, '', now_ns(), 'reply', actor_name, None),
-        )
-        db.commit()
-        if is_new:
-            # Propagate up the ancestor chain — each remote node gets notified once
-            _propagate_reply_up(post_id, payload.reply_post_id, replier_node_id, own_node_id, db, app)
+        if own_node_id and own_node_id == replier_node_id:
+            # Don't notify the replier's node about its own reply
+            db.commit()
+        else:
+            actor_row = db.execute("SELECT name FROM users WHERE node_id = ?", (replier_node_id,)).fetchone()
+            actor_name = actor_row[0] if actor_row else None
+            # nid is unique per (reply, recipient-node) so each node sees at most one notification per reply
+            nid = _hl.sha256(f"reply:{payload.reply_post_id}:{own_node_id}".encode()).hexdigest()[:36]
+            is_new = db.execute("SELECT 1 FROM mention_notifications WHERE id = ?", (nid,)).fetchone() is None
+            db.execute(
+                "INSERT INTO mention_notifications "
+                "(id, post_id, post_node_id, author_node_id, author_handle, received_at, notif_type, actor_name, emoji) "
+                "VALUES (?,?,?,?,?,?,?,?,?) "
+                "ON CONFLICT(id) DO UPDATE SET post_id=excluded.post_id, post_node_id=excluded.post_node_id, actor_name=excluded.actor_name",
+                (nid, payload.reply_post_id, replier_node_id, replier_node_id, '', now_ns(), 'reply', actor_name, None),
+            )
+            db.commit()
+            if is_new:
+                # Propagate up the ancestor chain — each remote node gets notified once
+                _propagate_reply_up(post_id, payload.reply_post_id, replier_node_id, own_node_id, db, app)
     else:
         db.commit()
 
@@ -655,6 +659,9 @@ def _propagate_reply_up(start_post_id: str, reply_post_id: str, reply_node_id: s
             # Local ancestor — same nid already covers it, keep walking to find remote ancestors
             current_post_id = parent_post_id
             continue
+        if parent_node_id == reply_node_id:
+            # Don't notify the replier's node about its own reply; stop propagation
+            break
         # Remote ancestor — send notification; that node will propagate further
         _notify_parent_of_reply(parent_node_id, parent_post_id, reply_node_id, reply_post_id, app)
         break
