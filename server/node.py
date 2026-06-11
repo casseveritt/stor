@@ -123,8 +123,8 @@ def node_metadata(request: Request, identity: OptionalAuthDep):
         result["owner_id"] = _owner_id
     if _node_id:
         result["node_id"] = _node_id
-    if _user_id:
-        result["user_id"] = _user_id  # legacy alias
+    if _user_id and not (_owner_id and _node_id):
+        result["user_id"] = _user_id  # legacy alias — only for pre-migration nodes
     if profile_row and profile_row[0]:
         result["display_name"] = profile_row[0]
     if profile_row and profile_row[1]:

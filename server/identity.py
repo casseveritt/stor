@@ -24,7 +24,7 @@ def make_delegation_cert(identity_private_key: Ed25519PrivateKey,
     sig = identity_private_key.sign(canonical.encode())
     cert = {
         "owner_id": owner_id,
-        "user_id": owner_id,           # legacy alias — kept for registry compat during transition
+        "user_id": owner_id,           # mirrors owner_id — registry reads this as a fallback
         "node_public_key": node_pub_b64,
         "identity_public_key": base64.b64encode(id_pub_bytes).decode(),
         "expires_at": expires_at,

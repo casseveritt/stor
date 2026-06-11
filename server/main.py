@@ -229,6 +229,31 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
         except Exception as _e:
             log.error("Failed to migrate identity key: %s", _e)
 
+    # Migration: fix stale user_id in delegation cert and remove duplicate top-level user_id.
+    # The cert's user_id must equal owner_id (it can diverge after multi-step migrations).
+    # The top-level user_id is a legacy alias for owner_id — remove it to reduce confusion.
+    import json as _json_clean
+    _raw_clean = _json_clean.loads(config_path.read_text())
+    _changed_clean = False
+    if config.identity_delegation:
+        try:
+            _cert_clean = _json_clean.loads(config.identity_delegation)
+            _cert_owner = _cert_clean.get("owner_id") or ""
+            if _cert_owner and _cert_clean.get("user_id") != _cert_owner:
+                _cert_clean["user_id"] = _cert_owner
+                _raw_clean["identity_delegation"] = _json_clean.dumps(_cert_clean)
+                _changed_clean = True
+                log.info("Fixed stale user_id in delegation cert (was %s, now matches owner_id %s)",
+                         _cert_clean.get("user_id"), _cert_owner)
+        except Exception as _ce:
+            log.warning("Could not fix delegation cert user_id: %s", _ce)
+    if "user_id" in _raw_clean and _raw_clean.get("user_id") == _raw_clean.get("owner_id"):
+        del _raw_clean["user_id"]
+        _changed_clean = True
+    if _changed_clean:
+        config_path.write_text(_json_clean.dumps(_raw_clean, indent=2))
+        config = NodeConfig.load(config_path)
+
     store_path = Path(config.store_path)
     db_con = open_db(str(store_path / "db"), db_key)
     init_schema(db_con)
