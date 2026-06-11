@@ -435,9 +435,14 @@ def download_backup(request: Request, identity: OwnerDep):
                 if f.is_file():
                     zf.write(f, str(f.relative_to(store_path)))
     buf.seek(0)
+    db = request.app.state.db
+    row = db.execute("SELECT display_name FROM profile WHERE id = 1").fetchone()
+    display_name = (row[0] or "") if row else ""
+    slug = display_name.replace(" ", "") or "contacc"
+    filename = f"{slug}-backup.zip"
     return StreamingResponse(
         iter([buf.getvalue()]),
         media_type="application/zip",
-        headers={"Content-Disposition": "attachment; filename=contacc-backup.zip"},
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
     )
 
