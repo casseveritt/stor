@@ -1818,10 +1818,14 @@ def create_app(config_path: str | Path) -> FastAPI:
             config.own_node_id = data.get("node_id")
             config.save(config_path)
             tokens.pop(config.own_server, None)
+            if owner_token := data.get("owner_token"):
+                tokens[config.own_server] = owner_token
             save_tokens(config_path, tokens)
             _sessions.clear()
-            return JSONResponse({"status": data.get("status"), "node_address": data.get("node_address")},
-                                status_code=r.status_code)
+            session_token = secrets.token_urlsafe(32)
+            _sessions[session_token] = time.time_ns() + SESSION_TTL * 1_000_000_000
+            return JSONResponse({"status": data.get("status"), "node_address": data.get("node_address"),
+                                 "client_session": session_token}, status_code=r.status_code)
         return JSONResponse(content=data, status_code=r.status_code)
 
     @app.post("/setup/new-for-owner")
@@ -1839,9 +1843,14 @@ def create_app(config_path: str | Path) -> FastAPI:
             config.own_node_id = data.get("node_id")
             config.save(config_path)
             tokens.pop(config.own_server, None)
+            if owner_token := data.get("owner_token"):
+                tokens[config.own_server] = owner_token
             save_tokens(config_path, tokens)
             _sessions.clear()
-            return JSONResponse({"status": data.get("status")}, status_code=r.status_code)
+            session_token = secrets.token_urlsafe(32)
+            _sessions[session_token] = time.time_ns() + SESSION_TTL * 1_000_000_000
+            return JSONResponse({"status": data.get("status"), "client_session": session_token},
+                                status_code=r.status_code)
         return JSONResponse(content=data, status_code=r.status_code)
 
     # ── setup restore proxy (client extracts client_config.json from bundle) ──

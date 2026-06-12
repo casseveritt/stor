@@ -15,7 +15,7 @@ from cryptography.exceptions import InvalidTag
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-from .auth import OwnerDep, InternalOrOwnerDep
+from .auth import OwnerDep, InternalOrOwnerDep, issue_token
 from .config import NodeConfig
 from .crypto import (
     decrypt_bytes, derive_master_key, derive_subkeys, encrypt_bytes,
@@ -226,6 +226,7 @@ def setup_new(body: NewBody, request: Request):
             "encrypted_private_key": key_material["encrypted_private_key"],
         },
         "internal_token": key_material["internal_token"],
+        "owner_token": issue_token(),
     }
 
 
@@ -366,6 +367,7 @@ def setup_new_for_owner(body: NewForOwnerBody, request: Request):
             "encrypted_private_key": base64.b64encode(encrypted_privkey).decode(),
         },
         "internal_token": internal_token,
+        "owner_token": issue_token(),
     }
 
 
