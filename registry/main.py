@@ -22,7 +22,7 @@ import time
 import uuid
 NS = 1_000_000_000
 from pathlib import Path
-from urllib.parse import urlencode
+from urllib.parse import urlencode, quote
 
 import httpx
 import uvicorn
