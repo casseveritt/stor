@@ -268,8 +268,11 @@ def setup_new_for_owner(body: NewForOwnerBody, request: Request):
     store_path = config_path.parent
     store_path.mkdir(parents=True, exist_ok=True)
     import shutil as _sh
-    if (store_path / "db").exists():
-        _sh.rmtree(store_path / "db")
+    _db_path = store_path / "db"
+    if _db_path.is_dir():
+        _sh.rmtree(_db_path)
+    elif _db_path.exists():
+        _db_path.unlink()
     (store_path / "files").mkdir(exist_ok=True)
 
     db_con = open_db(str(store_path / "db"), db_key)
@@ -765,8 +768,10 @@ def _create_node_config(
     # Remove any partial state from a previous failed setup attempt
     import shutil as _shutil
     db_path = store_path / "db"
-    if db_path.exists():
+    if db_path.is_dir():
         _shutil.rmtree(db_path)
+    elif db_path.exists():
+        db_path.unlink()
     (store_path / "files").mkdir(exist_ok=True)
 
     salt = _os.urandom(16)
