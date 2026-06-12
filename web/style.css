@@ -64,6 +64,13 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text-1); min-height: 100vh; }
 
+  /* scrollbars */
+  ::-webkit-scrollbar { width: 7px; height: 7px; }
+  ::-webkit-scrollbar-track { background: var(--surface-1); }
+  ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border); }
+  * { scrollbar-width: thin; scrollbar-color: var(--surface-3) var(--surface-1); }
+
   /* ── login screens ── */
   #login-server { font-size: 0.82rem; color: var(--text-dim); }
 #login-view { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 1.25rem; }
