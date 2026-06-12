@@ -1061,8 +1061,20 @@ def refresh_delegation(body: RefreshDelegationBody, request: Request, _identity:
     ).decode()
     delegation_cert = make_delegation_cert(identity_private_key, owner_id, node_pub_b64)
     import json as _json
+    from cryptography.hazmat.primitives.serialization import PrivateFormat, NoEncryption
     config_data = _json.loads(config_path.read_text())
     config_data["identity_delegation"] = _json.dumps(delegation_cert)
+    # Re-store the identity key encrypted with the node's master key so future bundle
+    # restores can self-heal without user intervention.
+    try:
+        _mk = getattr(app.state, "master_key", None)
+        if _mk:
+            _id_priv_raw = identity_private_key.private_bytes(Encoding.Raw, PrivateFormat.Raw, NoEncryption())
+            config_data["encrypted_identity_private_key"] = base64.b64encode(
+                encrypt_bytes(_id_priv_raw, _mk)
+            ).decode()
+    except Exception:
+        pass
     config_path.write_text(_json.dumps(config_data, indent=2))
     trigger = getattr(app.state, "trigger_heartbeat", None)
     if trigger:

@@ -180,10 +180,25 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
         config = NodeConfig.load(config_path)
         log.info("Migrated identity: owner_id=%s node_id=%s (was user_id, fresh node_id generated)", config.user_id, new_node_id)
 
-    # Migration: if legacy encrypted_identity_private_key exists, convert to delegation cert
+    # Ensure delegation cert is valid; re-create from encrypted_identity_private_key if needed.
+    # encrypted_identity_private_key is kept in the config permanently so bundle restores
+    # can always self-heal without user intervention.
     import json as _json2
     _raw_config = _json2.loads(config_path.read_text())
-    if "encrypted_identity_private_key" in _raw_config:
+    _has_id_key = "encrypted_identity_private_key" in _raw_config
+    _cert_valid = False
+    if _has_id_key or not _raw_config.get("identity_delegation"):
+        pass  # need to (re-)create cert
+    else:
+        try:
+            from .identity import verify_delegation_cert as _vdc2
+            _node_pub_b64_chk = base64.b64encode(
+                private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+            ).decode()
+            _cert_valid = _vdc2(_json2.loads(_raw_config["identity_delegation"]), _node_pub_b64_chk)
+        except Exception:
+            pass
+    if _has_id_key or not _cert_valid:
         try:
             from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _EK2
             from cryptography.hazmat.primitives.serialization import (
@@ -198,37 +213,40 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
             ).decode()
             delegation_cert = _mkdel2(id_key, config.owner_id or config.user_id, node_pub_b64)
             _raw_config["identity_delegation"] = _json2.dumps(delegation_cert)
-            del _raw_config["encrypted_identity_private_key"]
+            # Keep encrypted_identity_private_key — bundle restores need it to self-heal.
             config_path.write_text(_json2.dumps(_raw_config, indent=2))
             config = NodeConfig.load(config_path)
-            # Auto-upload escrow to registry using "foobar" so recovery is available immediately.
-            # User should change this passphrase in settings.
-            try:
-                from .identity import identity_key_to_hex as _id2hex
-                from .crypto import (derive_master_key as _dmk2, encrypt_bytes as _enc2,
-                                     ARGON2_TIME_COST as _TC, ARGON2_MEMORY_COST as _MC, ARGON2_PARALLELISM as _PA)
-                _reg_url = (_raw_config.get("registry_url") or _raw_config.get("identity_proxy_url") or "").rstrip("/")
-                if _reg_url and (config.owner_id or config.user_id):
-                    _rec_salt = os.urandom(16)
-                    _rec_key = _dmk2("foobar", _rec_salt)
-                    _enc_id = _enc2(id_priv, _rec_key)
-                    _ts = int(time.time())
-                    _escrow_sig = base64.b64encode(id_key.sign(
-                        f"contacc:escrow:{config.owner_id or config.user_id}:{_ts}".encode()
-                    )).decode()
-                    _escrow_body = {
-                        "encrypted_identity_key": base64.b64encode(_enc_id).decode(),
-                        "argon2_salt": _rec_salt.hex(),
-                        "argon2_time_cost": _TC, "argon2_memory_cost": _MC, "argon2_parallelism": _PA,
-                        "signature": _escrow_sig, "timestamp": _ts,
-                    }
-                    httpx.put(f"{_reg_url}/identity-key/{config.owner_id or config.user_id}", json=_escrow_body, timeout=10)
-                    log.warning("Identity key migrated. Recovery passphrase is currently 'foobar'. "
-                                "Change it in settings → Identity Security.")
-            except Exception as _e2:
-                log.warning("Could not auto-upload identity escrow: %s", _e2)
+            if _has_id_key and not _cert_valid:
+                log.info("Delegation cert was invalid; re-created from stored identity key.")
+            elif _has_id_key:
+                # First-time creation — auto-upload escrow with default passphrase so recovery works.
+                try:
+                    from .identity import identity_key_to_hex as _id2hex
+                    from .crypto import (derive_master_key as _dmk2, encrypt_bytes as _enc2,
+                                         ARGON2_TIME_COST as _TC, ARGON2_MEMORY_COST as _MC, ARGON2_PARALLELISM as _PA)
+                    _reg_url = (_raw_config.get("registry_url") or _raw_config.get("identity_proxy_url") or "").rstrip("/")
+                    if _reg_url and (config.owner_id or config.user_id):
+                        _rec_salt = os.urandom(16)
+                        _rec_key = _dmk2("foobar", _rec_salt)
+                        _enc_id = _enc2(id_priv, _rec_key)
+                        _ts = int(time.time())
+                        _escrow_sig = base64.b64encode(id_key.sign(
+                            f"contacc:escrow:{config.owner_id or config.user_id}:{_ts}".encode()
+                        )).decode()
+                        _escrow_body = {
+                            "encrypted_identity_key": base64.b64encode(_enc_id).decode(),
+                            "argon2_salt": _rec_salt.hex(),
+                            "argon2_time_cost": _TC, "argon2_memory_cost": _MC, "argon2_parallelism": _PA,
+                            "signature": _escrow_sig, "timestamp": _ts,
+                        }
+                        httpx.put(f"{_reg_url}/identity-key/{config.owner_id or config.user_id}", json=_escrow_body, timeout=10)
+                        log.warning("Identity key migrated. Recovery passphrase is currently 'foobar'. "
+                                    "Change it in settings → Identity Security.")
+                except Exception as _e2:
+                    log.warning("Could not auto-upload identity escrow: %s", _e2)
         except Exception as _e:
-            log.error("Failed to migrate identity key: %s", _e)
+            if not _cert_valid:
+                log.error("Delegation cert is invalid and could not be re-created: %s", _e)
 
     # Migration: fix stale user_id in delegation cert and remove duplicate top-level user_id.
     # The cert's user_id must equal owner_id (it can diverge after multi-step migrations).
@@ -334,6 +352,7 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
     app.state.dh_public_key = _dh_pub_b64(dh_priv)
     node_module.set_dh_public_key(app.state.dh_public_key)
 
+    app.state.master_key = master_key
     app.state.initialized = True
     log.info("Node %s ready.", node_address)
 
