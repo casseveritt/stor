@@ -2991,7 +2991,7 @@ function _renderDmThreads() {
   const list = document.getElementById("dm-threads-list");
   if (!list) return;
   if (!_dmThreads.length) {
-    list.innerHTML = '<div style="padding:0.75rem;font-size:0.82rem;color:#555">No messages yet.</div>';
+    list.innerHTML = '<div style="padding:0.75rem;font-size:0.82rem;color:var(--text-4)">No messages yet.</div>';
     return;
   }
   list.innerHTML = _dmThreads.map(t => {
@@ -3009,19 +3009,19 @@ function _renderDmThreads() {
            <span class="post-author-initials" style="width:28px;height:28px;font-size:0.7rem" hidden>${initial}</span>`
         : `<span class="post-author-initials" style="width:28px;height:28px;font-size:0.7rem">${initial}</span>`);
     const contactBadge = (!isGroup && t.is_contact)
-      ? `<span style="font-size:0.65rem;color:#555;border:1px solid #2a2a2a;border-radius:3px;padding:0.05rem 0.3rem;white-space:nowrap">contact</span>`
+      ? `<span style="font-size:0.65rem;color:var(--text-4);border:1px solid var(--border);border-radius:3px;padding:0.05rem 0.3rem;white-space:nowrap">contact</span>`
       : (isGroup
-        ? `<span style="font-size:0.65rem;color:#555;border:1px solid #2a2a2a;border-radius:3px;padding:0.05rem 0.3rem;white-space:nowrap">${(t.members||[]).length} members</span>`
+        ? `<span style="font-size:0.65rem;color:var(--text-4);border:1px solid var(--border);border-radius:3px;padding:0.05rem 0.3rem;white-space:nowrap">${(t.members||[]).length} members</span>`
         : '');
     const unreadBadge = unread
       ? `<span style="background:#4285f4;color:#fff;border-radius:10px;padding:0.1rem 0.4rem;font-size:0.7rem;font-weight:600">${unread}</span>`
       : '';
     return `<div data-tid="${esc(t.thread_id)}" data-pname="${esc(displayName)}"
       onclick="_dmOpenThread(this.dataset.tid,this.dataset.pname)"
-      style="padding:0.4rem 0.75rem;cursor:pointer;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid #1a1a1a"
-      onmouseover="this.style.background='#252525'" onmouseout="this.style.background=''">
+      style="padding:0.4rem 0.75rem;cursor:pointer;display:flex;align-items:center;gap:0.5rem;border-bottom:1px solid var(--border)"
+      onmouseover="this.style.background='var(--surface-3)'" onmouseout="this.style.background=''">
       ${avatarHtml}
-      <span style="flex:1;font-size:0.88rem;color:#ddd;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</span>
+      <span style="flex:1;font-size:0.88rem;color:var(--text-1);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${name}</span>
       ${contactBadge}${unreadBadge}
     </div>`;
   }).join('');
@@ -3066,12 +3066,12 @@ function _renderDmMessages() {
     // see the wire-format note's chat_message section); 1:1 threads need none,
     // direction alone disambiguates there.
     const attribution = (isGroup && !out)
-      ? `<span style="font-size:0.7rem;color:#888;margin-bottom:0.1rem">${esc(_dmMemberName(thread, m.sender_node_id))}</span>`
+      ? `<span style="font-size:0.7rem;color:var(--text-4);margin-bottom:0.1rem">${esc(_dmMemberName(thread, m.sender_node_id))}</span>`
       : '';
     return `<div style="display:flex;flex-direction:column;align-items:${out?'flex-end':'flex-start'}"${delivered}>
       ${attribution}
       <div class="dm-bubble" style="max-width:80%;background:${out?'#1a3360':'#252525'};border-radius:8px;padding:0.4rem 0.65rem;font-size:0.88rem;color:#e0e0e0;word-break:break-word">${renderBodyText(m.body)}</div>
-      <span style="font-size:0.65rem;color:#555;margin-top:0.15rem">${esc(time)}${out&&!m.delivered_at?' ·':''}</span>
+      <span style="font-size:0.65rem;color:var(--text-4);margin-top:0.15rem">${esc(time)}${out&&!m.delivered_at?' ·':''}</span>
     </div>`;
   }).join('');
   list.scrollTop = list.scrollHeight;
