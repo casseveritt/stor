@@ -99,7 +99,8 @@ def create_app(db_path: str) -> FastAPI:
             return "<option value=''>— none available, enter manually —</option>"
         opts = "<option value=''>— enter manually —</option>"
         for node_id, node_url in rows:
-            opts += f"<option value='{node_id}'>{node_url} ({node_id[:8]}…)</option>"
+            label = node_url if node_id == node_url else f"{node_url} ({node_id[:8]}…)"
+            opts += f"<option value='{node_id}'>{label}</option>"
         return opts
 
     _CSS = """
@@ -144,8 +145,13 @@ def create_app(db_path: str) -> FastAPI:
         timestamp: int
         signature: str
 
+    class NodeStartupBody(BaseModel):
+        node_url: str
+        setup_token: str
+
     class NodeRegisteredBody(BaseModel):
         node_id: str
+        node_url: str
         public_key: str
         timestamp: int
         signature: str
@@ -162,13 +168,26 @@ def create_app(db_path: str) -> FastAPI:
         )
         con.commit()
 
+    @app.post("/nodes/startup", status_code=204)
+    def node_startup(body: NodeStartupBody):
+        """Uninitialized node announces availability; node_url is used as synthetic node_id."""
+        node_url = body.node_url.rstrip("/")
+        con.execute(
+            "INSERT OR REPLACE INTO available_nodes VALUES (?, ?, ?, ?)",
+            (node_url, node_url, body.setup_token, time.time_ns())
+        )
+        con.commit()
+
     @app.post("/nodes/registered", status_code=204)
     def node_registered(body: NodeRegisteredBody):
         _check_timestamp(body.timestamp)
         msg = f"contacc:provider-registered:{body.node_id}:{body.timestamp}"
         if not _verify_node_sig(body.public_key, msg, body.signature):
             raise HTTPException(401, "Invalid signature")
-        con.execute("DELETE FROM available_nodes WHERE node_id = ?", (body.node_id,))
+        # Remove both: the real node_id entry (from release-based registration)
+        # and the synthetic startup entry (where node_id == node_url)
+        con.execute("DELETE FROM available_nodes WHERE node_id = ? OR node_id = ?",
+                    (body.node_id, body.node_url.rstrip("/")))
         con.commit()
 
     # ── admin: create invitation ───────────────────────────────────────────────

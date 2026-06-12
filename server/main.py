@@ -653,6 +653,35 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
 
         log.warning("Tang auto-unlock gave up after 30 minutes")
 
+    @app.on_event("startup")
+    async def _announce_to_provider():
+        """If uninitialized, announce this node as available to the provider."""
+        if app.state.initialized:
+            return
+        provider_url_env = os.environ.get("CONTACC_PROVIDER_URL", "").rstrip("/")
+        node_address = (os.environ.get("CONTACC_WEB_ADDRESS") or os.environ.get("CONTACC_NODE_ADDRESS") or "").rstrip("/")
+        if not provider_url_env or not node_address:
+            return
+        token_path = Path(app.state.config_path).parent / ".setup_token"
+        if not token_path.exists():
+            return
+        setup_token = token_path.read_text().strip()
+        if not setup_token:
+            return
+        import asyncio as _aio
+        import httpx as _hx
+        await _aio.sleep(3)
+        if app.state.initialized:
+            return
+        try:
+            async with _hx.AsyncClient() as _c:
+                await _c.post(f"{provider_url_env}/nodes/startup",
+                              json={"node_url": node_address, "setup_token": setup_token},
+                              timeout=10)
+            log.info("Announced availability to provider: %s", node_address)
+        except Exception as e:
+            log.warning("Could not announce to provider: %s", e)
+
     @app.middleware("http")
     async def init_guard(request: Request, call_next):
         path = request.url.path

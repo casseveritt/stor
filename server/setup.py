@@ -41,11 +41,13 @@ def _notify_provider_registered(app) -> None:
         pub_b64 = base64.b64encode(
             private_key.public_key().public_bytes(Encoding.Raw, PF.Raw)
         ).decode()
+        node_url = getattr(app.state, "web_address", "") or getattr(app.state, "node_address", "")
         ts = int(time.time())
         msg = f"contacc:provider-registered:{node_id}:{ts}"
         sig = base64.b64encode(private_key.sign(msg.encode())).decode()
         httpx.post(f"{provider_url}/nodes/registered",
-                   json={"node_id": node_id, "public_key": pub_b64, "timestamp": ts, "signature": sig},
+                   json={"node_id": node_id, "node_url": node_url,
+                         "public_key": pub_b64, "timestamp": ts, "signature": sig},
                    timeout=5.0)
         log.info("Notified provider of registration for node %s", node_id)
     except Exception as e:
@@ -1338,7 +1340,7 @@ def release_node(body: ReleaseBody, request: Request, _identity: InternalOrOwner
     # Capture identity before wiping — needed for provider notification below
     _prov_private_key = app.state.private_key
     _prov_node_id = getattr(app.state, "node_id", "")
-    _prov_node_address = getattr(app.state, "node_address", "")
+    _prov_node_address = getattr(app.state, "web_address", "") or getattr(app.state, "node_address", "")
     _prov_pub_b64 = ""
     if _prov_private_key:
         from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
