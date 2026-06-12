@@ -460,6 +460,10 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
     @app.post("/notifications/mention", status_code=204)
     async def receive_mention(request: Request):
         """Receive a mention notification from another node."""
+        from .auth import verify_federated_signature
+        await verify_federated_signature(request)
+        if not getattr(request.state, 'sig_verified', False):
+            return JSONResponse({"detail": "Valid signature required"}, status_code=401)
         try:
             body = await request.json()
             post_id = body.get("post_id", "")

@@ -98,7 +98,8 @@ def _notify_mentions(body: str, post_id: str, app) -> None:
             pass
 
     def _send():
-        import httpx as _hx, time as _t, base64 as _b64
+        import httpx as _hx, time as _t, base64 as _b64, hashlib as _hl, json as _json
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
         priv = getattr(app.state, "private_key", None)
         for user_id, _label in mentions:
             try:
@@ -113,19 +114,25 @@ def _notify_mentions(body: str, post_id: str, app) -> None:
                 if not target_url:
                     continue
 
+                ts = str(int(_t.time()))
                 payload = {
                     "post_id": post_id,
                     "author_node_id": own_node_id,
                     "author_handle": handle,
-                    "timestamp": int(_t.time()),
+                    "timestamp": int(ts),
                     "post_node_id": own_node_id,
                 }
                 headers = {"Content-Type": "application/json"}
                 if priv:
-                    ts = str(payload["timestamp"])
-                    sig = _b64.b64encode(priv.sign(f"contacc:mention:{post_id}:{ts}".encode())).decode()
-                    headers["X-Timestamp"] = ts
-                    headers["X-Mention-Sig"] = sig
+                    body_bytes = _json.dumps(payload).encode()
+                    body_hash = _hl.sha256(body_bytes).hexdigest()
+                    canonical = f"POST\n/notifications/mention\n{ts}\n{body_hash}"
+                    sig = _b64.b64encode(priv.sign(canonical.encode())).decode()
+                    pub_b64 = _b64.b64encode(
+                        priv.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+                    ).decode()
+                    headers.update({"X-Public-Key": pub_b64, "X-Timestamp": ts,
+                                    "X-Signature": sig, "X-Origin-Server": node_address})
                 _hx.post(f"{target_url.rstrip('/')}/notifications/mention",
                          json=payload, headers=headers, timeout=5)
             except Exception:
