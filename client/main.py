@@ -136,7 +136,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         asyncio.create_task(_background_poller())
         # Warm the post cache immediately so the "all" feed has data on first load.
         own_poll_id = config.own_node_id or hashlib.sha256(config.own_server.encode()).hexdigest()[:16]
-        asyncio.create_task(_background_fetch_one(config.own_server, own_poll_id))
+        asyncio.create_task(_background_fetch_one(own_poll_id))
         for c in config.contacts:
             if c.node_id:
                 asyncio.create_task(_background_fetch_one(c.node_id))
@@ -498,7 +498,7 @@ def create_app(config_path: str | Path) -> FastAPI:
             last_update, last_check = get_contact_poll(_client_db, own_poll_id)
             elapsed_s = (now_ns - last_check) / 1e9
             if elapsed_s >= _poll_interval_s(last_update):
-                asyncio.create_task(_background_fetch_one(config.own_server, own_poll_id))
+                asyncio.create_task(_background_fetch_one(own_poll_id))
             for c in config.contacts:
                 if not c.node_id:
                     continue
@@ -913,7 +913,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         post["_server_url"] = config.own_server
         post["_server_name"] = "me"
         own_poll_id = config.own_node_id or hashlib.sha256(config.own_server.encode()).hexdigest()[:16]
-        asyncio.create_task(_background_fetch_one(config.own_server, own_poll_id))
+        asyncio.create_task(_background_fetch_one(own_poll_id))
         # Use form values for notification — the server auto-fills parent_node_id with own node_id
         # when it's missing from the form, so the response value is unreliable for remote parents.
         req_parent_id = fields.get("parent_id", "")
