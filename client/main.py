@@ -1318,11 +1318,17 @@ def create_app(config_path: str | Path) -> FastAPI:
             detail = r.json().get("detail", r.text) if r.content else "Release failed"
             raise HTTPException(status_code=r.status_code, detail=detail)
         # Server is now uninitialized — clear stored credentials
+        own = config.own_server
         config.node_key = None
         config.internal_token = None
         config.own_node_id = None
         config.contacts = []
         config.save(config_path)
+        # Drop stale server token and all client sessions so the next page load
+        # goes through the proper login flow rather than appearing authenticated
+        tokens.pop(own, None)
+        save_tokens(config_path, tokens)
+        _sessions.clear()
         return Response(status_code=204)
 
     @api.put("/profile")
@@ -1811,6 +1817,9 @@ def create_app(config_path: str | Path) -> FastAPI:
             config.internal_token = data.get("internal_token")
             config.own_node_id = data.get("node_id")
             config.save(config_path)
+            tokens.pop(config.own_server, None)
+            save_tokens(config_path, tokens)
+            _sessions.clear()
             return JSONResponse({"status": data.get("status"), "node_address": data.get("node_address")},
                                 status_code=r.status_code)
         return JSONResponse(content=data, status_code=r.status_code)
@@ -1829,6 +1838,9 @@ def create_app(config_path: str | Path) -> FastAPI:
             config.internal_token = data.get("internal_token")
             config.own_node_id = data.get("node_id")
             config.save(config_path)
+            tokens.pop(config.own_server, None)
+            save_tokens(config_path, tokens)
+            _sessions.clear()
             return JSONResponse({"status": data.get("status")}, status_code=r.status_code)
         return JSONResponse(content=data, status_code=r.status_code)
 
