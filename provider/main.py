@@ -3,6 +3,7 @@ import os
 import secrets
 import sqlite3
 import time
+from pathlib import Path
 from urllib.parse import quote
 
 import httpx
