@@ -1260,6 +1260,16 @@ def create_app(config_path: str | Path) -> FastAPI:
             raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", r.text))
         return r.json()
 
+    @api.post("/setup/refresh-delegation")
+    async def api_refresh_delegation(request: Request):
+        payload = await request.json()
+        async with httpx.AsyncClient() as hc:
+            r = await hc.post(_server + "/setup/refresh-delegation", json=payload,
+                              headers=_internal_headers(), timeout=30)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", r.text))
+        return r.json()
+
     @api.post("/settings/change-passphrase")
     async def api_change_passphrase(request: Request):
         payload = await request.json()
