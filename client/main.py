@@ -664,13 +664,18 @@ def create_app(config_path: str | Path) -> FastAPI:
             return (cache_dir / node_id).exists()
         own_display_name = None
         own_handle = None
+        own_identity = None
         try:
             async with httpx.AsyncClient() as hc:
-                r = await hc.get(_server + "/profile", headers=_internal_headers(), timeout=2)
-                if r.is_success:
-                    p = r.json()
+                profile_task = hc.get(_server + "/profile", headers=_internal_headers(), timeout=2)
+                me_task = hc.get(_server + "/auth/me", headers=_internal_headers(), timeout=2)
+                rp, rm = await asyncio.gather(profile_task, me_task, return_exceptions=True)
+                if not isinstance(rp, Exception) and rp.is_success:
+                    p = rp.json()
                     own_display_name = p.get("display_name")
                     own_handle = p.get("handle")
+                if not isinstance(rm, Exception) and rm.is_success:
+                    own_identity = rm.json().get("identity")
         except Exception:
             pass
         tags = get_all_tags(_client_db)
@@ -718,7 +723,9 @@ def create_app(config_path: str | Path) -> FastAPI:
             "own_node_id": config.own_node_id,
             "own_display_name": own_display_name,
             "own_handle": own_handle,
+            "own_identity": own_identity,
             "identity_proxy_url": os.environ.get("CONTACC_IDENTITY_PROXY_URL", ""),
+            "provider_url": os.environ.get("CONTACC_PROVIDER_URL", "").rstrip("/") or None,
             "servers": servers_list,
             "contacts": [_contact_dict(c) for c in config.contacts],
             "cached_photos": [c.node_id for c in config.contacts if c.node_id and _has_cached_photo(c.node_id)],

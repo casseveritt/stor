@@ -1,5 +1,6 @@
 """contacc provider — node provisioning and invitation service."""
 import base64
+import logging
 import os
 import secrets
 import sqlite3
@@ -7,33 +8,37 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
-import logging
 import httpx
-
-log = logging.getLogger("contacc.provider")
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
+log = logging.getLogger("contacc.provider")
+
 NS = 1_000_000_000
-ADMIN_SESSION_TTL = 1800    # 30 minutes
+SESSION_TTL = 1800          # 30 minutes
 TIMESTAMP_TOLERANCE = 120   # seconds
-PENDING_TIMEOUT = 10 * 60  # 10 minutes before a stalled setup is recovered
+PENDING_TIMEOUT = 10 * 60   # 10 minutes before a stalled setup is recovered
+USER_INVITE_LIMIT = 5       # max outstanding invites a node owner can have
 
 
 def create_app(db_path: str) -> FastAPI:
     con = sqlite3.connect(db_path, check_same_thread=False)
 
-    # Add any missing columns to invitations (safe, never drops)
-    existing_cols = {row[1] for row in con.execute("PRAGMA table_info(invitations)").fetchall()}
+    # ── schema ────────────────────────────────────────────────────────────────
+
+    # Migrate invitations: add any missing columns (never drops)
+    existing_inv = {row[1] for row in con.execute("PRAGMA table_info(invitations)").fetchall()}
     for col, typedef in [
         ("pending_at", "INTEGER"),
         ("pending_node_url", "TEXT"),
         ("pending_setup_token", "TEXT"),
+        ("created_by", "TEXT"),   # google_identity of sponsor; NULL = admin
     ]:
-        if col not in existing_cols:
+        if col not in existing_inv:
             try:
                 con.execute(f"ALTER TABLE invitations ADD COLUMN {col} {typedef}")
             except Exception:
@@ -46,7 +51,8 @@ def create_app(db_path: str) -> FastAPI:
             pending_at           INTEGER,
             pending_node_url     TEXT,
             pending_setup_token  TEXT,
-            used_at              INTEGER
+            used_at              INTEGER,
+            created_by           TEXT
         )
     """)
     con.execute("""
@@ -58,8 +64,27 @@ def create_app(db_path: str) -> FastAPI:
         )
     """)
     con.execute("""
+        CREATE TABLE IF NOT EXISTS claimed_nodes (
+            node_url        TEXT PRIMARY KEY,
+            google_identity TEXT NOT NULL,
+            claimed_at      INTEGER NOT NULL
+        )
+    """)
+    try:
+        con.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_claimed_identity"
+                    " ON claimed_nodes(google_identity)")
+    except Exception:
+        pass
+    con.execute("""
         CREATE TABLE IF NOT EXISTS admin_sessions (
             token      TEXT PRIMARY KEY,
+            created_at INTEGER NOT NULL
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS user_sessions (
+            token      TEXT PRIMARY KEY,
+            identity   TEXT NOT NULL,
             created_at INTEGER NOT NULL
         )
     """)
@@ -70,6 +95,12 @@ def create_app(db_path: str) -> FastAPI:
     admin_identity = os.environ.get("CONTACC_ADMIN_IDENTITY", "")
 
     app = FastAPI(title="contacc provider", docs_url=None, redoc_url=None)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["GET"],
+        allow_headers=[],
+    )
 
     # ── helpers ───────────────────────────────────────────────────────────────
 
@@ -96,7 +127,7 @@ def create_app(db_path: str) -> FastAPI:
 
     def _new_admin_session() -> str:
         now = time.time_ns()
-        con.execute("DELETE FROM admin_sessions WHERE created_at < ?", (now - ADMIN_SESSION_TTL * NS,))
+        con.execute("DELETE FROM admin_sessions WHERE created_at < ?", (now - SESSION_TTL * NS,))
         token = secrets.token_urlsafe(24)
         con.execute("INSERT INTO admin_sessions VALUES (?, ?)", (token, now))
         con.commit()
@@ -106,10 +137,34 @@ def create_app(db_path: str) -> FastAPI:
         row = con.execute(
             "SELECT created_at FROM admin_sessions WHERE token = ?", (token,)
         ).fetchone()
-        return bool(row and time.time_ns() - row[0] <= ADMIN_SESSION_TTL * NS)
+        return bool(row and time.time_ns() - row[0] <= SESSION_TTL * NS)
+
+    def _new_user_session(identity: str) -> str:
+        now = time.time_ns()
+        con.execute("DELETE FROM user_sessions WHERE created_at < ?", (now - SESSION_TTL * NS,))
+        token = secrets.token_urlsafe(24)
+        con.execute("INSERT INTO user_sessions VALUES (?, ?, ?)", (token, identity, now))
+        con.commit()
+        return token
+
+    def _check_user_session(token: str) -> str | None:
+        """Returns identity if session valid, None otherwise."""
+        row = con.execute(
+            "SELECT identity, created_at FROM user_sessions WHERE token = ?", (token,)
+        ).fetchone()
+        if row and time.time_ns() - row[1] <= SESSION_TTL * NS:
+            return row[0]
+        return None
+
+    def _claimed_node(identity: str) -> str | None:
+        """Return the node_url owned by this identity, or None."""
+        row = con.execute(
+            "SELECT node_url FROM claimed_nodes WHERE google_identity = ?", (identity,)
+        ).fetchone()
+        return row[0] if row else None
 
     def _check_pending_timeouts() -> None:
-        """Re-add stalled pending nodes back to the pool if they're still uninitialized."""
+        """Re-add stalled pending nodes back to the pool if still uninitialized."""
         cutoff = time.time_ns() - PENDING_TIMEOUT * NS
         rows = con.execute(
             "SELECT google_identity, pending_node_url, pending_setup_token"
@@ -125,10 +180,9 @@ def create_app(db_path: str) -> FastAPI:
                     continue
                 state = r.json().get("state", "")
             except Exception:
-                continue  # node unreachable — try again next time
+                continue
 
             if state == "uninitialized":
-                # Setup never started — get a fresh token and return node to pool
                 try:
                     tr = httpx.post(f"{node_url}/setup/refresh-token",
                                     params={"setup_token": setup_token}, timeout=5)
@@ -144,13 +198,32 @@ def create_app(db_path: str) -> FastAPI:
                     " SET pending_at=NULL, pending_node_url=NULL, pending_setup_token=NULL"
                     " WHERE google_identity = ?", (identity,)
                 )
+                log.info("Recovered stalled node back to pool: %s (invitee: %s)", node_url, identity)
             elif state in ("locked", "running"):
-                # Setup completed (possibly without provider notification) — close out invitation
                 con.execute(
                     "UPDATE invitations SET used_at = ? WHERE google_identity = ?",
                     (time.time_ns(), identity)
                 )
         con.commit()
+
+    # ── node invite-status (public, no auth, CORS-open) ───────────────────────
+
+    @app.get("/nodes/invite-status")
+    def nodes_invite_status(identity: str = ""):
+        if not identity:
+            raise HTTPException(400, "identity required")
+        if not identity.startswith("google:"):
+            identity = "google:" + identity
+        claimed = con.execute(
+            "SELECT node_url FROM claimed_nodes WHERE google_identity = ?", (identity,)
+        ).fetchone()
+        if not claimed:
+            return {"eligible": False, "reason": "no claimed node"}
+        pending = con.execute(
+            "SELECT count(*) FROM invitations WHERE created_by = ? AND used_at IS NULL",
+            (identity,)
+        ).fetchone()[0]
+        return {"eligible": pending < USER_INVITE_LIMIT, "pending": pending, "limit": USER_INVITE_LIMIT}
 
     _CSS = """
       *{box-sizing:border-box}
@@ -175,11 +248,6 @@ def create_app(db_path: str) -> FastAPI:
       .del-btn{background:none;border:none;color:#f87;font-size:1rem;
                cursor:pointer;padding:.1rem .3rem;border-radius:3px;line-height:1;flex-shrink:0}
       .del-btn:hover{background:#3a2020}
-      .empty{color:#555;font-size:.85rem;padding:.35rem 0}
-      .meta{font-size:.78rem;color:#666;margin:.4rem 0 0}
-      .err{color:#f87;font-size:.85rem}
-      a{color:#4f8ef7;text-decoration:none}
-      .section{margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid #333}
       .pending-row{display:flex;flex-direction:column;gap:.15rem;padding:.55rem 0;
                    border-bottom:1px solid #2a2a2a}
       .pending-row:last-child{border-bottom:none}
@@ -187,6 +255,14 @@ def create_app(db_path: str) -> FastAPI:
       .pending-node{font-size:.78rem;color:#7af}
       .pending-age{font-size:.75rem;color:#666;margin-top:.1rem}
       .pending-age.warn{color:#ca7}
+      .empty{color:#555;font-size:.85rem;padding:.35rem 0}
+      .meta{font-size:.78rem;color:#666;margin:.4rem 0 0}
+      .node-url{font-size:.8rem;color:#7af;margin:.25rem 0 .75rem}
+      .err{color:#f87;font-size:.85rem}
+      .ok{color:#7c7;font-size:.85rem}
+      a{color:#4f8ef7;text-decoration:none}
+      .section{margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid #333}
+      .sponsor{font-size:.72rem;color:#555}
     """
 
     # ── node pool registration ─────────────────────────────────────────────────
@@ -226,7 +302,6 @@ def create_app(db_path: str) -> FastAPI:
     def node_startup(body: NodeStartupBody):
         """Uninitialized node announces availability; node_url used as synthetic node_id."""
         node_url = body.node_url.rstrip("/")
-        # Don't re-add if this node is currently pending (mid-setup)
         pending = con.execute(
             "SELECT 1 FROM invitations WHERE pending_node_url = ? AND used_at IS NULL",
             (node_url,)
@@ -246,17 +321,21 @@ def create_app(db_path: str) -> FastAPI:
         if not _verify_node_sig(body.public_key, msg, body.signature):
             raise HTTPException(401, "Invalid signature")
         node_url = body.node_url.rstrip("/")
-        # Remove from pool (both real node_id and synthetic startup entries)
         con.execute("DELETE FROM available_nodes WHERE node_id = ? OR node_id = ?",
                     (body.node_id, node_url))
-        # Close out any pending invitation for this node
-        cur = con.execute(
-            "UPDATE invitations SET used_at = ?"
-            " WHERE pending_node_url = ? AND used_at IS NULL",
-            (time.time_ns(), node_url)
-        )
-        if cur.rowcount:
-            log.info("Registration complete for node: %s (node_id=%s)", node_url, body.node_id)
+        # Close out pending invitation and record ownership
+        inv = con.execute(
+            "SELECT google_identity FROM invitations"
+            " WHERE pending_node_url = ? AND used_at IS NULL", (node_url,)
+        ).fetchone()
+        if inv:
+            google_identity = inv[0]
+            con.execute("UPDATE invitations SET used_at = ? WHERE google_identity = ?",
+                        (time.time_ns(), google_identity))
+            con.execute("INSERT OR REPLACE INTO claimed_nodes VALUES (?, ?, ?)",
+                        (node_url, google_identity, time.time_ns()))
+            log.info("Registration complete: %s → %s (node_id=%s)",
+                     google_identity, node_url, body.node_id)
         con.commit()
 
     # ── admin UI ──────────────────────────────────────────────────────────────
@@ -264,29 +343,23 @@ def create_app(db_path: str) -> FastAPI:
     def _admin_page(s: str) -> str:
         _check_pending_timeouts()
 
-        # Available nodes
         avail_rows = con.execute(
             "SELECT node_url FROM available_nodes ORDER BY added_at"
         ).fetchall()
-        avail_html = ""
-        for (node_url,) in avail_rows:
-            avail_html += f'<div class=row><span class=main>{node_url}</span></div>'
-        if not avail_html:
-            avail_html = '<p class=empty>No nodes available.</p>'
+        avail_html = "".join(
+            f'<div class=row><span class=main>{r[0]}</span></div>' for r in avail_rows
+        ) or '<p class=empty>No nodes available.</p>'
 
-        # Pending invitations (node assigned, setup not yet complete)
         pending_rows = con.execute(
             "SELECT google_identity, pending_at, pending_node_url FROM invitations"
             " WHERE pending_at IS NOT NULL AND used_at IS NULL ORDER BY pending_at"
         ).fetchall()
-        pending_html = ""
         now_ns = time.time_ns()
+        pending_html = ""
         for identity, pending_at, node_url in pending_rows:
             email = identity.removeprefix("google:")
             elapsed = int((now_ns - pending_at) / NS)
-            mins = elapsed // 60
-            secs = elapsed % 60
-            age = f"{mins}m {secs}s" if mins else f"{secs}s"
+            age = f"{elapsed//60}m {elapsed%60}s" if elapsed >= 60 else f"{elapsed}s"
             age_class = "pending-age warn" if elapsed > 5 * 60 else "pending-age"
             pending_html += (
                 f'<div class=pending-row>'
@@ -298,18 +371,20 @@ def create_app(db_path: str) -> FastAPI:
         if not pending_html:
             pending_html = '<p class=empty>No pending setups.</p>'
 
-        # Outstanding invitations (no node assigned yet)
         inv_rows = con.execute(
-            "SELECT google_identity, created_at FROM invitations"
+            "SELECT google_identity, created_at, created_by FROM invitations"
             " WHERE pending_at IS NULL AND used_at IS NULL ORDER BY created_at DESC"
         ).fetchall()
         inv_html = ""
-        for identity, created_at in inv_rows:
+        for identity, created_at, created_by in inv_rows:
             email = identity.removeprefix("google:")
             ts = time.strftime("%Y-%m-%d", time.gmtime(created_at / NS))
+            sponsor = ""
+            if created_by:
+                sponsor = f'<span class=sponsor>invited by {created_by.removeprefix("google:")}</span>'
             inv_html += (
                 f'<div class=row>'
-                f'<span class=main>{email}</span>'
+                f'<span class=main>{email}{" " + sponsor if sponsor else ""}</span>'
                 f'<span class=sub>{ts}</span>'
                 f'<form method=post action=/invite/delete style="margin:0">'
                 f'<input type=hidden name=s value="{s}">'
@@ -320,6 +395,8 @@ def create_app(db_path: str) -> FastAPI:
             )
         if not inv_html:
             inv_html = '<p class=empty>No outstanding invitations.</p>'
+
+        claimed_count = con.execute("SELECT count(*) FROM claimed_nodes").fetchone()[0]
 
         return f"""<!doctype html><html><head><meta charset=utf-8>
 <title>Invitations — contacc</title><style>{_CSS}</style></head><body>
@@ -345,6 +422,8 @@ def create_app(db_path: str) -> FastAPI:
     <h2>Outstanding Invitations ({len(inv_rows)})</h2>
     <div class=list>{inv_html}</div>
   </div>
+
+  <p class=meta style="margin-top:1.5rem">{claimed_count} claimed node{'s' if claimed_count != 1 else ''} total</p>
 </div></body></html>"""
 
     @app.get("/", response_class=HTMLResponse)
@@ -389,11 +468,12 @@ def create_app(db_path: str) -> FastAPI:
             if not google_identity.startswith("google:"):
                 google_identity = "google:" + google_identity
             con.execute(
-                "INSERT OR REPLACE INTO invitations(google_identity, created_at)"
-                " VALUES (?, ?)",
+                "INSERT OR REPLACE INTO invitations(google_identity, created_at, created_by)"
+                " VALUES (?, ?, NULL)",
                 (google_identity, time.time_ns())
             )
             con.commit()
+            log.info("Admin created invitation for %s", google_identity)
         return RedirectResponse(f"/invite/admin?s={s}", 302)
 
     @app.post("/invite/delete")
@@ -406,7 +486,151 @@ def create_app(db_path: str) -> FastAPI:
         if google_identity:
             con.execute("DELETE FROM invitations WHERE google_identity = ?", (google_identity,))
             con.commit()
+            log.info("Admin deleted invitation for %s", google_identity)
         return RedirectResponse(f"/invite/admin?s={s}", 302)
+
+    # ── user invite UI ────────────────────────────────────────────────────────
+
+    def _user_invite_page(s: str, identity: str) -> str:
+        node_url = _claimed_node(identity)
+        email = identity.removeprefix("google:")
+
+        inv_rows = con.execute(
+            "SELECT google_identity, created_at, used_at FROM invitations"
+            " WHERE created_by = ? ORDER BY created_at DESC",
+            (identity,)
+        ).fetchall()
+
+        pending_count = sum(1 for r in inv_rows if not r[2])
+        can_invite = pending_count < USER_INVITE_LIMIT
+
+        inv_html = ""
+        for inv_identity, created_at, used_at in inv_rows:
+            inv_email = inv_identity.removeprefix("google:")
+            ts = time.strftime("%Y-%m-%d", time.gmtime(created_at / NS))
+            if used_at:
+                status = '<span class=ok>✓ accepted</span>'
+                del_btn = ""
+            else:
+                status = '<span style="color:#888">pending</span>'
+                del_btn = (
+                    f'<form method=post action=/invite/friend/delete style="margin:0">'
+                    f'<input type=hidden name=s value="{s}">'
+                    f'<input type=hidden name=google_identity value="{inv_identity}">'
+                    f'<button type=submit class=del-btn title="Delete">🗑</button>'
+                    f'</form>'
+                )
+            inv_html += (
+                f'<div class=row>'
+                f'<span class=main>{inv_email} {status}</span>'
+                f'<span class=sub>{ts}</span>'
+                f'{del_btn}'
+                f'</div>'
+            )
+        if not inv_html:
+            inv_html = '<p class=empty>You haven\'t invited anyone yet.</p>'
+
+        invite_form = ""
+        if can_invite:
+            invite_form = f"""
+  <form method=post action="/invite/friend/add?s={s}">
+    <label>Friend's Google email</label>
+    <input name=google_identity placeholder="friend@example.com" required autocomplete=off>
+    <button type=submit class=btn>Invite Friend</button>
+  </form>
+  <p class=meta>{USER_INVITE_LIMIT - pending_count} invite slot{'s' if USER_INVITE_LIMIT - pending_count != 1 else ''} remaining</p>"""
+        else:
+            invite_form = f'<p class=err>You have reached the limit of {USER_INVITE_LIMIT} pending invitations.</p>'
+
+        return f"""<!doctype html><html><head><meta charset=utf-8>
+<title>Invite a Friend — contacc</title><style>{_CSS}</style></head><body>
+<div class=card>
+  <h2>Invite a Friend</h2>
+  <p class=meta>Signed in as {email}</p>
+  <p class=node-url>{node_url}</p>
+  {invite_form}
+  <div class=section>
+    <h2>Your Invitations</h2>
+    <div class=list>{inv_html}</div>
+  </div>
+</div></body></html>"""
+
+    @app.get("/invite/friend", response_class=HTMLResponse)
+    def invite_friend(s: str = ""):
+        identity = _check_user_session(s) if s else None
+        if not identity:
+            return_to = provider_url + "/invite/friend/verify"
+            return RedirectResponse(
+                f"{registry_url}/auth/start?return_to={quote(return_to, safe='')}", 302
+            )
+        return HTMLResponse(_user_invite_page(s, identity))
+
+    @app.get("/invite/friend/verify")
+    def invite_friend_verify(proxy_token: str = ""):
+        if not proxy_token:
+            return RedirectResponse("/invite/friend", 302)
+        data = _verify_proxy_token(proxy_token)
+        identity = data.get("identity", "")
+        node_url = _claimed_node(identity)
+        if not node_url:
+            return HTMLResponse(
+                f"<style>{_CSS}</style><div class=card>"
+                "<h2>No node found</h2>"
+                f"<p>No node registered for <b>{identity.removeprefix('google:')}</b>.</p>"
+                "<p>You need to set up your node before you can invite friends.</p></div>", 403
+            )
+        log.info("User invite page accessed: %s", identity)
+        session = _new_user_session(identity)
+        return RedirectResponse(f"/invite/friend?s={session}", 302)
+
+    @app.post("/invite/friend/add")
+    async def invite_friend_add(request: Request, s: str = ""):
+        identity = _check_user_session(s)
+        if not identity:
+            return RedirectResponse("/invite/friend", 302)
+        if not _claimed_node(identity):
+            return RedirectResponse("/invite/friend", 302)
+
+        # Enforce invite limit
+        pending_count = con.execute(
+            "SELECT count(*) FROM invitations WHERE created_by = ? AND used_at IS NULL",
+            (identity,)
+        ).fetchone()[0]
+        if pending_count >= USER_INVITE_LIMIT:
+            return RedirectResponse(f"/invite/friend?s={s}", 302)
+
+        form = await request.form()
+        invitee = form.get("google_identity", "").strip()
+        if invitee:
+            if not invitee.startswith("google:"):
+                invitee = "google:" + invitee
+            con.execute(
+                "INSERT OR REPLACE INTO invitations(google_identity, created_at, created_by)"
+                " VALUES (?, ?, ?)",
+                (invitee, time.time_ns(), identity)
+            )
+            con.commit()
+            log.info("User %s created invitation for %s", identity, invitee)
+        return RedirectResponse(f"/invite/friend?s={s}", 302)
+
+    @app.post("/invite/friend/delete")
+    async def invite_friend_delete(request: Request):
+        form = await request.form()
+        s = form.get("s", "")
+        identity = _check_user_session(s)
+        if not identity:
+            return RedirectResponse("/invite/friend", 302)
+        invitee = form.get("google_identity", "")
+        if invitee:
+            # Only delete invitations this user created and that are still pending
+            con.execute(
+                "DELETE FROM invitations WHERE google_identity = ?"
+                " AND created_by = ? AND used_at IS NULL",
+                (invitee, identity)
+            )
+            con.commit()
+            log.info("User %s deleted invitation for %s", identity, invitee)
+        return RedirectResponse(f"/invite/friend?s={s}", 302)
 
     # ── invitee: accept invitation ─────────────────────────────────────────────
 
@@ -424,6 +648,18 @@ def create_app(db_path: str) -> FastAPI:
         data = _verify_proxy_token(proxy_token)
         identity = data.get("identity", "")
 
+        # Block if already has a node
+        existing = _claimed_node(identity)
+        if existing:
+            log.info("Duplicate node attempt blocked: %s (already has %s)", identity, existing)
+            return HTMLResponse(
+                f"<style>{_CSS}</style><div class=card>"
+                "<h2>Already registered</h2>"
+                f"<p><b>{identity.removeprefix('google:')}</b> already has a node at "
+                f"<a href='{existing}'>{existing}</a>.</p>"
+                "<p>Each Google account may only have one node.</p></div>", 409
+            )
+
         inv = con.execute(
             "SELECT pending_at, pending_node_url, pending_setup_token, used_at"
             " FROM invitations WHERE google_identity = ?",
@@ -436,13 +672,15 @@ def create_app(db_path: str) -> FastAPI:
                 f"<style>{_CSS}</style><div class=card>"
                 "<h2>No invitation found</h2>"
                 f"<p>No invitation for <b>{identity.removeprefix('google:')}</b>.</p>"
-                "<p>Please ask the admin for an invite.</p></div>", 403
+                "<p>Please ask for an invite link at "
+                f"<a href='{provider_url}/accept_invitation'>{provider_url}/accept_invitation</a>.</p>"
+                "</div>", 403
             )
 
         pending_at, pending_node_url, pending_setup_token, used_at = inv
 
         if used_at:
-            log.info("Invitation already used, access denied: %s", identity)
+            log.info("Invitation already used: %s", identity)
             return HTMLResponse(
                 f"<style>{_CSS}</style><div class=card>"
                 "<h2>Already registered</h2>"
@@ -454,7 +692,6 @@ def create_app(db_path: str) -> FastAPI:
             sep = "&" if "?" in pending_node_url else "?"
             return RedirectResponse(f"{pending_node_url}{sep}setup_token={pending_setup_token}", 302)
 
-        # Assign a node from the pool
         node_row = con.execute(
             "SELECT node_id, node_url, setup_token FROM available_nodes ORDER BY added_at LIMIT 1"
         ).fetchone()

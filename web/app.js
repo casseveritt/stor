@@ -7,6 +7,23 @@ function _setCFG(cfg) {
       serverProfiles[cfg.own_server] = { display_name: cfg.own_display_name, handle: cfg.own_handle };
     }
   }
+  _refreshInviteBtn();
+}
+
+async function _refreshInviteBtn() {
+  const btn = document.getElementById('invite-friend-btn');
+  if (!btn) return;
+  const { provider_url, own_identity } = CFG || {};
+  if (!provider_url || !own_identity) { btn.hidden = true; return; }
+  try {
+    const r = await fetch(`${provider_url}/nodes/invite-status?identity=${encodeURIComponent(own_identity)}`);
+    if (r.ok && (await r.json()).eligible) {
+      btn.href = provider_url + '/invite/friend';
+      btn.hidden = false;
+      return;
+    }
+  } catch { /* provider unreachable */ }
+  btn.hidden = true;
 }
 let activeServer = null;
 let activeTags = new Set();
@@ -2131,22 +2148,22 @@ async function submitReply(e, parentPostId, parentServerUrl, visibility) {
       const reply = await r.json();
       ta.value = '';
 
-      const list = panel.querySelector('.reply-list');
-      if (list) {
-        const card = makePostCard(reply, allPosts.length);
-        card.style.cssText = 'margin-top:0.5rem;margin-left:1.5rem;border-left:2px solid var(--border-strong);padding-left:0.5rem';
-        list.appendChild(card);
+      const cardEl = panel.parentElement;
+      const repliesToggle = cardEl?.querySelector('.replies-toggle');
+      const label = repliesToggle?.querySelector('.replies-toggle-label');
+      if (label) {
+        const n = (parseInt(label.textContent) || 0) + 1;
+        label.textContent = n + ' repl' + (n !== 1 ? 'ies' : 'y');
       }
-      if (notifyCheck?.checked) {
-        const repliesToggle = panel.parentElement?.querySelector('.replies-toggle');
-        const label = repliesToggle?.querySelector('.replies-toggle-label');
-        if (label) {
-          const n = (parseInt(label.textContent) || 0) + 1;
-          label.textContent = n + ' repl' + (n !== 1 ? 'ies' : 'y');
-          repliesToggle.hidden = false;
-        }
-      }
+      if (repliesToggle) repliesToggle.hidden = false;
       panel.hidden = true;
+      // Open (or refresh) the replies panel so the user sees the new reply
+      if (cardEl) {
+        const repliesPanel = cardEl.querySelector('.replies-panel');
+        if (repliesPanel && !repliesPanel.hidden) repliesPanel.hidden = true;
+        const postRef = { id: parentPostId, _server_url: parentServerUrl || CFG?.own_server };
+        _toggleReplies(postRef, cardEl);
+      }
     } else {
       if (err) err.textContent = 'Error ' + r.status;
       btn.disabled = false;
