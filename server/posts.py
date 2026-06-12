@@ -447,7 +447,7 @@ def get_posts(
             params.append(identity.node_id)
         elif is_contact:
             conditions.append("p.visibility IN ('contacts', 'authenticated', 'public')")
-        elif origin_server:
+        elif getattr(request.state, 'sig_verified', False):
             conditions.append("p.visibility IN ('authenticated', 'public')")
         else:
             conditions.append("p.visibility = 'public'")
@@ -517,7 +517,7 @@ def get_post(post_id: str, request: Request, identity: OptionalAuthDep, _sig: Fe
         if visibility in ("contacts", "authenticated"):
             origin_pub_key = request.headers.get("X-Public-Key", "")
             is_contact = _is_known_contact(db, origin_server, origin_pub_key)
-            is_authenticated = bool(origin_server or origin_pub_key)
+            is_authenticated = getattr(request.state, 'sig_verified', False)
             passes = is_authenticated if visibility == "authenticated" else is_contact
             if not passes and not _check_post_access(db, post_id, identity):
                 raise HTTPException(status_code=403, detail="Access denied")

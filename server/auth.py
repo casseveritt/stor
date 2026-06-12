@@ -345,14 +345,18 @@ InternalOrOwnerDep = Annotated[TokenIdentity, Depends(require_owner_or_internal)
 # ── federated request signature verification ─────────────────────────────────
 
 async def verify_federated_signature(request: Request) -> None:
-    """Verify Ed25519 signature on federated requests from known users.
+    """Verify Ed25519 signature on federated requests.
 
-    - No X-Public-Key → not verifiable, skip.
-    - Known user with valid signature → accept.
-    - Known user with missing/invalid signature → reject 401.
-    Lookup is by X-Public-Key only; X-Origin-Server is used only to keep the
-    stored server_url current, never as a fallback identity.
+    - No X-Public-Key → not verifiable, skip. sig_verified stays False.
+    - Known contact with valid signature → accept, sig_verified = True.
+    - Known contact with missing/invalid signature → reject 401.
+    - Unknown key with valid signature → sig_verified = True (any contacc node
+      can access 'authenticated' content without being a stored contact).
+    - Unknown key with invalid/missing signature → sig_verified stays False.
+
+    Sets request.state.sig_verified so downstream visibility checks can use it.
     """
+    request.state.sig_verified = False
     pub_key_header = request.headers.get("X-Public-Key", "")
     if not pub_key_header:
         return
@@ -362,12 +366,31 @@ async def verify_federated_signature(request: Request) -> None:
     if row and origin and row[1] != origin:
         db.execute("UPDATE users SET server_url = ? WHERE public_key = ?", (origin, pub_key_header))
         db.commit()
-    if not row or not row[0]:
-        return  # unknown public key — cannot verify
 
     timestamp_str = request.headers.get("X-Timestamp", "")
     signature_b64 = request.headers.get("X-Signature", "")
 
+    if not row or not row[0]:
+        # Unknown key — verify opportunistically; don't reject if missing
+        if not timestamp_str or not signature_b64:
+            return
+        try:
+            ts = int(timestamp_str)
+            if abs(time.time() - ts) > FEDERATED_TIMESTAMP_TOLERANCE:
+                return
+            body = await request.body()
+            body_hash = hashlib.sha256(body).hexdigest()
+            canonical = f"{request.method}\n{request.url.path}\n{timestamp_str}\n{body_hash}"
+            pub_bytes = base64.b64decode(pub_key_header + "==")
+            pub_key = Ed25519PublicKey.from_public_bytes(pub_bytes)
+            sig = base64.b64decode(signature_b64 + "==")
+            pub_key.verify(sig, canonical.encode())
+            request.state.sig_verified = True
+        except Exception:
+            pass  # invalid key or signature — sig_verified stays False
+        return
+
+    # Known contact — signature is required
     if not timestamp_str or not signature_b64:
         raise HTTPException(status_code=401,
                             detail="Federated request from verified contact requires a signature")
@@ -389,6 +412,7 @@ async def verify_federated_signature(request: Request) -> None:
         pub_key = Ed25519PublicKey.from_public_bytes(pub_bytes)
         sig = base64.b64decode(signature_b64 + "==")
         pub_key.verify(sig, canonical.encode())
+        request.state.sig_verified = True
     except (InvalidSignature, Exception):
         raise HTTPException(status_code=401, detail="Invalid federated signature")
 
