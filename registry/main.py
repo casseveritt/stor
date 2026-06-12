@@ -1716,8 +1716,10 @@ blockquote p { color: #888; font-style: italic; }
         if superseded_at:
             raise HTTPException(status_code=410, detail="This node has been superseded and cannot update its registration")
         ttl = _clamp_ttl(body.ttl)
-        msg = f"contacc:update:{username}:{body.server_url}:{body.timestamp}"
-        if not _verify_sig(pub_key, msg, body.signature):
+        # Accept node_id-based signature (canonical) or legacy handle-based signature
+        msg_node = f"contacc:update:{update_node_id}:{body.server_url}:{body.timestamp}"
+        msg_handle = f"contacc:update:{username}:{body.server_url}:{body.timestamp}"
+        if not (_verify_sig(pub_key, msg_node, body.signature) or _verify_sig(pub_key, msg_handle, body.signature)):
             raise HTTPException(status_code=401, detail="Invalid signature")
         upd_identity_public_key = upd_delegation_json = None
         if body.delegation_cert:

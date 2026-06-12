@@ -43,6 +43,7 @@ def _registry_heartbeat(
     node_address: str,
     handle: str,
     registry_url: str,
+    node_id: str = "",
     display_name: str | None = None,
     web_address: str | None = None,
     delegation_cert: dict | None = None,
@@ -52,7 +53,7 @@ def _registry_heartbeat(
     try:
         pub_bytes = private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
         timestamp = int(time.time())
-        msg = f"contacc:update:{handle}:{node_address}:{timestamp}"
+        msg = f"contacc:update:{node_id or handle}:{node_address}:{timestamp}"
         signature = base64.b64encode(private_key.sign(msg.encode())).decode()
         payload = {"server_url": node_address, "ttl": 14400,
                    "timestamp": timestamp, "signature": signature}
@@ -343,7 +344,7 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
 
             HEARTBEAT_INTERVAL = 3600  # re-register every hour; TTL is 4 hours
 
-            def _make_trigger(pk, addr, hdl, reg_url, db_con, web_addr, cfg_path):
+            def _make_trigger(pk, addr, hdl, reg_url, nid, db_con, web_addr, cfg_path):
                 def trigger():
                     row = db_con.execute(
                         "SELECT display_name FROM profile WHERE id = 1"
@@ -357,7 +358,7 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
                     except Exception:
                         _dcert = None
                         _gid = None
-                    _registry_heartbeat(pk, addr, hdl, reg_url, dn, web_addr, _dcert, _gid)
+                    _registry_heartbeat(pk, addr, hdl, reg_url, nid, dn, web_addr, _dcert, _gid)
                 return trigger
 
             def _heartbeat_loop(trigger):
@@ -367,7 +368,7 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
                     _retry_undelivered_dms(app)
                     _time.sleep(HEARTBEAT_INTERVAL)
 
-            trigger_fn = _make_trigger(private_key, node_address, config.registry_handle, registry_url, db_con, app.state.web_address, config_path)
+            trigger_fn = _make_trigger(private_key, node_address, config.registry_handle, registry_url, config.node_id or "", db_con, app.state.web_address, config_path)
             app.state.trigger_heartbeat = trigger_fn
             threading.Thread(target=_heartbeat_loop, args=(trigger_fn,), daemon=True).start()
 
@@ -642,10 +643,9 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
             return JSONResponse({"detail": "Server not ready", "state": state}, status_code=503)
         if app.state.initialized and not is_setup_path and not is_public_path:
             internal_token = getattr(app.state, "internal_token", None)
-            if internal_token:
-                provided = request.headers.get("x-contacc-internal", "")
-                if not secrets.compare_digest(provided, internal_token):
-                    return JSONResponse({"detail": "Unauthorized"}, status_code=403)
+            provided = request.headers.get("x-contacc-internal", "")
+            if not internal_token or not secrets.compare_digest(provided, internal_token):
+                return JSONResponse({"detail": "Unauthorized"}, status_code=403)
         return await call_next(request)
 
     if config_path.exists() and passphrase:

@@ -1691,8 +1691,7 @@ function mdRender(text) {
                    'h1','h2','h3','h4','h5','h6','ul','ol','li','hr',
                    'a','img','table','thead','tbody','tr','th','td',
                    'span','div','small'],
-    ALLOWED_ATTR: ['href','src','alt','title','class','target',
-                   'data-mention-id','onmouseenter','onmouseleave'],
+    ALLOWED_ATTR: ['href','src','alt','title','class','target','data-mention-id'],
     ALLOW_DATA_ATTR: false,
   });
 }
