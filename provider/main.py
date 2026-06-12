@@ -32,6 +32,10 @@ def create_app(db_path: str) -> FastAPI:
             used_at         INTEGER
         )
     """)
+    try:
+        con.execute("ALTER TABLE invitations ADD COLUMN node_id TEXT")
+    except Exception:
+        pass  # column already exists
     con.execute("""
         CREATE TABLE IF NOT EXISTS available_nodes (
             node_id     TEXT PRIMARY KEY,
