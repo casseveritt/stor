@@ -180,9 +180,13 @@ def create_app(db_path: str) -> FastAPI:
       .err{color:#f87;font-size:.85rem}
       a{color:#4f8ef7;text-decoration:none}
       .section{margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid #333}
-      .badge{display:inline-block;font-size:.7rem;padding:.1rem .4rem;border-radius:3px;
-             background:#2a3a2a;color:#7c7;margin-left:.4rem}
-      .badge-warn{background:#3a2a1a;color:#ca7}
+      .pending-row{display:flex;flex-direction:column;gap:.15rem;padding:.55rem 0;
+                   border-bottom:1px solid #2a2a2a}
+      .pending-row:last-child{border-bottom:none}
+      .pending-email{font-size:.9rem;color:#ccc}
+      .pending-node{font-size:.78rem;color:#7af}
+      .pending-age{font-size:.75rem;color:#666;margin-top:.1rem}
+      .pending-age.warn{color:#ca7}
     """
 
     # ── node pool registration ─────────────────────────────────────────────────
@@ -282,12 +286,13 @@ def create_app(db_path: str) -> FastAPI:
             elapsed = int((now_ns - pending_at) / NS)
             mins = elapsed // 60
             secs = elapsed % 60
-            age = f"{mins}m {secs}s ago"
-            warn = ' class="badge badge-warn"' if elapsed > 5 * 60 else ' class=badge'
+            age = f"{mins}m {secs}s" if mins else f"{secs}s"
+            age_class = "pending-age warn" if elapsed > 5 * 60 else "pending-age"
             pending_html += (
-                f'<div class=row>'
-                f'<span class=main>{email}<span{warn}>{node_url}</span></span>'
-                f'<span class=sub>{age}</span>'
+                f'<div class=pending-row>'
+                f'<span class=pending-email>{email}</span>'
+                f'<span class=pending-node>{node_url}</span>'
+                f'<span class="{age_class}">pending for {age}</span>'
                 f'</div>'
             )
         if not pending_html:
