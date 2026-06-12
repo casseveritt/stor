@@ -100,6 +100,18 @@ def setup_status(request: Request):
     return {"state": _state(request.app)}
 
 
+@router.post("/refresh-token")
+def setup_refresh_token(request: Request, setup_token: str = ""):
+    """Exchange the current setup token for a new one. Only works when uninitialized."""
+    app = request.app
+    if _state(app) != "uninitialized":
+        raise HTTPException(status_code=403, detail="Node is not in uninitialized state")
+    _validate_token(app, setup_token)
+    _consume_token(app)
+    new_token = ensure_setup_token(app)
+    return {"setup_token": new_token}
+
+
 @router.get("/identity-proxy-url")
 def setup_identity_proxy_url():
     """Return the identity proxy (registry) URL for use during setup."""

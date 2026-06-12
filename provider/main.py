@@ -15,26 +15,30 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 NS = 1_000_000_000
-ADMIN_SESSION_TTL = 1800   # 30 minutes
-TIMESTAMP_TOLERANCE = 120  # seconds
+ADMIN_SESSION_TTL = 1800    # 30 minutes
+TIMESTAMP_TOLERANCE = 120   # seconds
+PENDING_TIMEOUT = 10 * 60  # 10 minutes before a stalled setup is recovered
 
 
 def create_app(db_path: str) -> FastAPI:
     con = sqlite3.connect(db_path, check_same_thread=False)
 
-    # Migrate old invitations table (had code/node_url/setup_token columns) to new schema
+    # Migrate old invitations table if needed
     try:
         old_cols = {row[1] for row in con.execute("PRAGMA table_info(invitations)").fetchall()}
-        if old_cols and "code" in old_cols:
+        if old_cols and ("code" in old_cols or "pending_at" not in old_cols):
             con.execute("DROP TABLE invitations")
     except Exception:
         pass
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS invitations (
-            google_identity TEXT PRIMARY KEY,
-            created_at      INTEGER NOT NULL,
-            used_at         INTEGER
+            google_identity      TEXT PRIMARY KEY,
+            created_at           INTEGER NOT NULL,
+            pending_at           INTEGER,
+            pending_node_url     TEXT,
+            pending_setup_token  TEXT,
+            used_at              INTEGER
         )
     """)
     con.execute("""
@@ -96,13 +100,57 @@ def create_app(db_path: str) -> FastAPI:
         ).fetchone()
         return bool(row and time.time_ns() - row[0] <= ADMIN_SESSION_TTL * NS)
 
+    def _check_pending_timeouts() -> None:
+        """Re-add stalled pending nodes back to the pool if they're still uninitialized."""
+        cutoff = time.time_ns() - PENDING_TIMEOUT * NS
+        rows = con.execute(
+            "SELECT google_identity, pending_node_url, pending_setup_token"
+            " FROM invitations WHERE pending_at IS NOT NULL AND pending_at < ? AND used_at IS NULL",
+            (cutoff,)
+        ).fetchall()
+        for identity, node_url, setup_token in rows:
+            if not node_url:
+                continue
+            try:
+                r = httpx.get(f"{node_url}/setup/status", timeout=5)
+                if not r.is_success:
+                    continue
+                state = r.json().get("state", "")
+            except Exception:
+                continue  # node unreachable — try again next time
+
+            if state == "uninitialized":
+                # Setup never started — get a fresh token and return node to pool
+                try:
+                    tr = httpx.post(f"{node_url}/setup/refresh-token",
+                                    params={"setup_token": setup_token}, timeout=5)
+                    new_token = tr.json().get("setup_token", setup_token) if tr.is_success else setup_token
+                except Exception:
+                    new_token = setup_token
+                con.execute(
+                    "INSERT OR REPLACE INTO available_nodes VALUES (?, ?, ?, ?)",
+                    (node_url, node_url, new_token, time.time_ns())
+                )
+                con.execute(
+                    "UPDATE invitations"
+                    " SET pending_at=NULL, pending_node_url=NULL, pending_setup_token=NULL"
+                    " WHERE google_identity = ?", (identity,)
+                )
+            elif state in ("locked", "running"):
+                # Setup completed (possibly without provider notification) — close out invitation
+                con.execute(
+                    "UPDATE invitations SET used_at = ? WHERE google_identity = ?",
+                    (time.time_ns(), identity)
+                )
+        con.commit()
+
     _CSS = """
       *{box-sizing:border-box}
       body{font-family:system-ui,sans-serif;background:#1a1a1a;color:#ddd;
            display:flex;align-items:center;justify-content:center;
            min-height:100vh;margin:0;padding:1rem}
       .card{background:#242424;border:1px solid #333;border-radius:8px;
-            padding:2rem;width:100%;max-width:520px}
+            padding:2rem;width:100%;max-width:560px}
       h2{margin:0 0 1rem;font-size:1.05rem;color:#eee}
       label{display:block;font-size:.8rem;color:#888;margin-bottom:.25rem}
       input{width:100%;background:#1a1a1a;border:1px solid #444;border-radius:4px;
@@ -110,19 +158,23 @@ def create_app(db_path: str) -> FastAPI:
       .btn{background:#4f8ef7;color:#fff;border:none;border-radius:4px;
            padding:.5rem 1.1rem;font-size:.9rem;cursor:pointer}
       .btn:hover{background:#3a7de0}
-      .inv-list{margin-top:.5rem;border-top:1px solid #333}
-      .inv-row{display:flex;align-items:center;gap:.75rem;padding:.55rem 0;
-               border-bottom:1px solid #2a2a2a}
-      .inv-email{flex:1;font-size:.9rem;color:#ccc}
-      .inv-date{font-size:.75rem;color:#666;white-space:nowrap}
+      .list{margin-top:.5rem}
+      .row{display:flex;align-items:center;gap:.6rem;padding:.45rem 0;
+           border-bottom:1px solid #2a2a2a;font-size:.85rem}
+      .row:last-child{border-bottom:none}
+      .main{flex:1;color:#ccc}
+      .sub{font-size:.75rem;color:#666;white-space:nowrap}
       .del-btn{background:none;border:none;color:#f87;font-size:1rem;
-               cursor:pointer;padding:.1rem .3rem;border-radius:3px;line-height:1}
+               cursor:pointer;padding:.1rem .3rem;border-radius:3px;line-height:1;flex-shrink:0}
       .del-btn:hover{background:#3a2020}
-      .empty{color:#666;font-size:.85rem;padding:.5rem 0}
-      .meta{font-size:.78rem;color:#666;margin:.5rem 0 0}
+      .empty{color:#555;font-size:.85rem;padding:.35rem 0}
+      .meta{font-size:.78rem;color:#666;margin:.4rem 0 0}
       .err{color:#f87;font-size:.85rem}
       a{color:#4f8ef7;text-decoration:none}
-      .section{margin-top:1.75rem;padding-top:1.25rem;border-top:1px solid #333}
+      .section{margin-top:1.5rem;padding-top:1.25rem;border-top:1px solid #333}
+      .badge{display:inline-block;font-size:.7rem;padding:.1rem .4rem;border-radius:3px;
+             background:#2a3a2a;color:#7c7;margin-left:.4rem}
+      .badge-warn{background:#3a2a1a;color:#ca7}
     """
 
     # ── node pool registration ─────────────────────────────────────────────────
@@ -162,6 +214,13 @@ def create_app(db_path: str) -> FastAPI:
     def node_startup(body: NodeStartupBody):
         """Uninitialized node announces availability; node_url used as synthetic node_id."""
         node_url = body.node_url.rstrip("/")
+        # Don't re-add if this node is currently pending (mid-setup)
+        pending = con.execute(
+            "SELECT 1 FROM invitations WHERE pending_node_url = ? AND used_at IS NULL",
+            (node_url,)
+        ).fetchone()
+        if pending:
+            return
         con.execute(
             "INSERT OR REPLACE INTO available_nodes VALUES (?, ?, ?, ?)",
             (node_url, node_url, body.setup_token, time.time_ns())
@@ -174,35 +233,78 @@ def create_app(db_path: str) -> FastAPI:
         msg = f"contacc:provider-registered:{body.node_id}:{body.timestamp}"
         if not _verify_node_sig(body.public_key, msg, body.signature):
             raise HTTPException(401, "Invalid signature")
-        # Delete both the real node_id entry and any synthetic startup entry (node_id == node_url)
+        node_url = body.node_url.rstrip("/")
+        # Remove from pool (both real node_id and synthetic startup entries)
         con.execute("DELETE FROM available_nodes WHERE node_id = ? OR node_id = ?",
-                    (body.node_id, body.node_url.rstrip("/")))
+                    (body.node_id, node_url))
+        # Close out any pending invitation for this node
+        con.execute(
+            "UPDATE invitations SET used_at = ?"
+            " WHERE pending_node_url = ? AND used_at IS NULL",
+            (time.time_ns(), node_url)
+        )
         con.commit()
 
     # ── admin UI ──────────────────────────────────────────────────────────────
 
     def _admin_page(s: str) -> str:
-        rows = con.execute(
-            "SELECT google_identity, created_at FROM invitations"
-            " WHERE used_at IS NULL ORDER BY created_at DESC"
-        ).fetchall()
-        pool_count = con.execute("SELECT count(*) FROM available_nodes").fetchone()[0]
+        _check_pending_timeouts()
 
+        # Available nodes
+        avail_rows = con.execute(
+            "SELECT node_url FROM available_nodes ORDER BY added_at"
+        ).fetchall()
+        avail_html = ""
+        for (node_url,) in avail_rows:
+            avail_html += f'<div class=row><span class=main>{node_url}</span></div>'
+        if not avail_html:
+            avail_html = '<p class=empty>No nodes available.</p>'
+
+        # Pending invitations (node assigned, setup not yet complete)
+        pending_rows = con.execute(
+            "SELECT google_identity, pending_at, pending_node_url FROM invitations"
+            " WHERE pending_at IS NOT NULL AND used_at IS NULL ORDER BY pending_at"
+        ).fetchall()
+        pending_html = ""
+        now_ns = time.time_ns()
+        for identity, pending_at, node_url in pending_rows:
+            email = identity.removeprefix("google:")
+            elapsed = int((now_ns - pending_at) / NS)
+            mins = elapsed // 60
+            secs = elapsed % 60
+            age = f"{mins}m {secs}s ago"
+            warn = ' class="badge badge-warn"' if elapsed > 5 * 60 else ' class=badge'
+            pending_html += (
+                f'<div class=row>'
+                f'<span class=main>{email}<span{warn}>{node_url}</span></span>'
+                f'<span class=sub>{age}</span>'
+                f'</div>'
+            )
+        if not pending_html:
+            pending_html = '<p class=empty>No pending setups.</p>'
+
+        # Outstanding invitations (no node assigned yet)
+        inv_rows = con.execute(
+            "SELECT google_identity, created_at FROM invitations"
+            " WHERE pending_at IS NULL AND used_at IS NULL ORDER BY created_at DESC"
+        ).fetchall()
         inv_html = ""
-        for identity, created_at in rows:
+        for identity, created_at in inv_rows:
             email = identity.removeprefix("google:")
             ts = time.strftime("%Y-%m-%d", time.gmtime(created_at / NS))
-            inv_html += f"""<div class=inv-row>
-              <span class=inv-email>{email}</span>
-              <span class=inv-date>{ts}</span>
-              <form method=post action=/invite/delete style="margin:0">
-                <input type=hidden name=s value="{s}">
-                <input type=hidden name=google_identity value="{identity}">
-                <button type=submit class=del-btn title="Delete invitation">🗑</button>
-              </form>
-            </div>"""
+            inv_html += (
+                f'<div class=row>'
+                f'<span class=main>{email}</span>'
+                f'<span class=sub>{ts}</span>'
+                f'<form method=post action=/invite/delete style="margin:0">'
+                f'<input type=hidden name=s value="{s}">'
+                f'<input type=hidden name=google_identity value="{identity}">'
+                f'<button type=submit class=del-btn title="Delete">🗑</button>'
+                f'</form>'
+                f'</div>'
+            )
         if not inv_html:
-            inv_html = "<p class=empty>No pending invitations.</p>"
+            inv_html = '<p class=empty>No outstanding invitations.</p>'
 
         return f"""<!doctype html><html><head><meta charset=utf-8>
 <title>Invitations — contacc</title><style>{_CSS}</style></head><body>
@@ -213,10 +315,20 @@ def create_app(db_path: str) -> FastAPI:
     <input name=google_identity placeholder="friend@example.com" required autocomplete=off>
     <button type=submit class=btn>Add Invite</button>
   </form>
-  <p class=meta>{pool_count} node{'s' if pool_count != 1 else ''} available in pool</p>
+
   <div class=section>
-    <h2>Pending Invitations</h2>
-    <div class=inv-list>{inv_html}</div>
+    <h2>Available Instances ({len(avail_rows)})</h2>
+    <div class=list>{avail_html}</div>
+  </div>
+
+  <div class=section>
+    <h2>Pending Setup ({len(pending_rows)})</h2>
+    <div class=list>{pending_html}</div>
+  </div>
+
+  <div class=section>
+    <h2>Outstanding Invitations ({len(inv_rows)})</h2>
+    <div class=list>{inv_html}</div>
   </div>
 </div></body></html>"""
 
@@ -259,7 +371,8 @@ def create_app(db_path: str) -> FastAPI:
             if not google_identity.startswith("google:"):
                 google_identity = "google:" + google_identity
             con.execute(
-                "INSERT OR REPLACE INTO invitations VALUES (?, ?, NULL)",
+                "INSERT OR REPLACE INTO invitations(google_identity, created_at)"
+                " VALUES (?, ?)",
                 (google_identity, time.time_ns())
             )
             con.commit()
@@ -294,17 +407,34 @@ def create_app(db_path: str) -> FastAPI:
         identity = data.get("identity", "")
 
         inv = con.execute(
-            "SELECT google_identity FROM invitations WHERE google_identity = ? AND used_at IS NULL",
+            "SELECT pending_at, pending_node_url, pending_setup_token, used_at"
+            " FROM invitations WHERE google_identity = ?",
             (identity,)
         ).fetchone()
+
         if not inv:
             return HTMLResponse(
                 f"<style>{_CSS}</style><div class=card>"
                 "<h2>No invitation found</h2>"
-                f"<p>No pending invitation for <b>{identity.removeprefix('google:')}</b>.</p>"
+                f"<p>No invitation for <b>{identity.removeprefix('google:')}</b>.</p>"
                 "<p>Please ask the admin for an invite.</p></div>", 403
             )
 
+        pending_at, pending_node_url, pending_setup_token, used_at = inv
+
+        if used_at:
+            return HTMLResponse(
+                f"<style>{_CSS}</style><div class=card>"
+                "<h2>Already registered</h2>"
+                "<p>This invitation has already been used.</p></div>", 409
+            )
+
+        if pending_node_url:
+            # Already mid-setup — send them back to the same node
+            sep = "&" if "?" in pending_node_url else "?"
+            return RedirectResponse(f"{pending_node_url}{sep}setup_token={pending_setup_token}", 302)
+
+        # Assign a node from the pool
         node_row = con.execute(
             "SELECT node_id, node_url, setup_token FROM available_nodes ORDER BY added_at LIMIT 1"
         ).fetchone()
@@ -316,8 +446,11 @@ def create_app(db_path: str) -> FastAPI:
             )
 
         node_id, node_url, setup_token = node_row
-        con.execute("UPDATE invitations SET used_at = ? WHERE google_identity = ?",
-                    (time.time_ns(), identity))
+        con.execute(
+            "UPDATE invitations SET pending_at=?, pending_node_url=?, pending_setup_token=?"
+            " WHERE google_identity = ?",
+            (time.time_ns(), node_url, setup_token, identity)
+        )
         con.execute("DELETE FROM available_nodes WHERE node_id = ?", (node_id,))
         con.commit()
 
