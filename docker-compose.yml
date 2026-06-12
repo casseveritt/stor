@@ -457,6 +457,7 @@ services:
       - "8451:8451"
       - "8452:8452"
       - "8453:8453"
+      - "8420:8420"
       - "8421:8421"
     environment:
       CONTACC_DOMAIN: ${CONTACC_DOMAIN}

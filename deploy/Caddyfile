@@ -73,6 +73,10 @@
     reverse_proxy web-10:16453
 }
 
+{$CONTACC_DOMAIN}:8420 {
+    reverse_proxy provider:9520
+}
+
 {$CONTACC_DOMAIN}:8421 {
     reverse_proxy registry:9532
 }
