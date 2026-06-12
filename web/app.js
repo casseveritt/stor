@@ -3656,6 +3656,14 @@ function _badSetupToken(msg) {
   document.getElementById("setup-token-error").textContent = msg || "Invalid setup token.";
 }
 
+async function _autoLoginAfterSetup() {
+  try {
+    const r = await fetch("/client/login-url?return_to=" + encodeURIComponent(window.location.origin + "/auth/callback"));
+    if (r.ok) { window.location.href = (await r.json()).auth_url; return; }
+  } catch {}
+  location.reload();
+}
+
 async function doSetupNew() {
   const displayName = document.getElementById("setup-display-name").value.trim();
   const handle = document.getElementById("setup-handle").value.trim().toLowerCase();
@@ -3682,7 +3690,7 @@ async function doSetupNew() {
       const d = await r.json();
       if (r.status === 403) { err.textContent = d.detail || "Wrong owner passphrase."; return; }
       if (!r.ok) { err.textContent = d.detail || "Error."; return; }
-      location.reload();
+      await _autoLoginAfterSetup();
     } catch { err.textContent = "Network error."; }
     return;
   }
@@ -3695,7 +3703,7 @@ async function doSetupNew() {
     const d = await r.json();
     if (r.status === 403) { _badSetupToken(d.detail); return; }
     if (!r.ok) { err.textContent = d.detail || "Error."; return; }
-    location.reload();
+    await _autoLoginAfterSetup();
   } catch { err.textContent = "Network error."; }
 }
 
