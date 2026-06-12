@@ -401,6 +401,20 @@ services:
       CONTACC_CLIENT_URL: http://node-10-them:18453
     depends_on: [node-10-them]
 
+  # ── provider (opt-in) ────────────────────────────────────────────────────
+  provider:
+    image: contacc
+    restart: unless-stopped
+    profiles: [registry]
+    command: sh -c "python -m provider.main /data/provider.db --host 0.0.0.0 --port 9520"
+    environment:
+      CONTACC_REGISTRY_URL: https://${CONTACC_DOMAIN}:8421
+      CONTACC_PROVIDER_URL: https://${CONTACC_DOMAIN}:8420
+      CONTACC_ADMIN_IDENTITY: ${CONTACC_ADMIN_IDENTITY:-}
+    volumes:
+      - ${CONTACC_DATA_DIR}/provider:/data
+    expose: ["9520"]
+
   # ── registry (opt-in) ─────────────────────────────────────────────────────
   registry:
     image: contacc
@@ -411,7 +425,6 @@ services:
       CONTACC_GOOGLE_CLIENT_ID: ${CONTACC_GOOGLE_CLIENT_ID:-}
       CONTACC_GOOGLE_CLIENT_SECRET: ${CONTACC_GOOGLE_CLIENT_SECRET:-}
       CONTACC_REGISTRY_URL: https://${CONTACC_DOMAIN}:8421
-      CONTACC_ADMIN_IDENTITY: ${CONTACC_ADMIN_IDENTITY:-}
     volumes:
       - ${CONTACC_DATA_DIR}/registry:/data
     expose: ["9532"]
