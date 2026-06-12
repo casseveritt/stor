@@ -429,7 +429,7 @@ class ChangePassphraseBody(BaseModel):
 
 
 @router.post("/change-passphrase")
-def change_passphrase(body: ChangePassphraseBody, request: Request):
+def change_passphrase(body: ChangePassphraseBody, request: Request, _identity: InternalOrOwnerDep):
     if body.new_passphrase != body.confirm_new_passphrase:
         raise HTTPException(400, "New passphrases do not match")
     if not body.new_passphrase:
@@ -822,7 +822,7 @@ class EscrowBody(BaseModel):
 
 
 @router.post("/escrow-identity-key", status_code=204)
-def escrow_identity_key(body: EscrowBody, request: Request):
+def escrow_identity_key(body: EscrowBody, request: Request, _identity: InternalOrOwnerDep):
     """Encrypt the user-provided identity private key with a owner passphrase and upload to the registry."""
     from .identity import identity_key_from_hex
     app = request.app
@@ -884,7 +884,7 @@ class RedelegateBody(BaseModel):
 
 
 @router.post("/redelegate")
-def redelegate(body: RedelegateBody, request: Request):
+def redelegate(body: RedelegateBody, request: Request, _identity: InternalOrOwnerDep):
     """Sign a new delegation cert using the user-provided identity private key.
     Use when the delegation cert has expired or the node key has changed."""
     from .identity import identity_key_from_hex, make_delegation_cert
