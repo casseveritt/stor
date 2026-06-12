@@ -255,9 +255,15 @@ async function continueInit() {
       const ss = await sr.json();
       if (ss.state === "uninitialized") {
         showView("setup");
-        const urlToken = new URLSearchParams(location.search).get("setup_token");
-        if (urlToken) {
-          document.getElementById("setup-token-input").value = urlToken;
+        const _up = new URLSearchParams(location.search);
+        const _proxyStep = _up.get("proxy_step");
+        const _proxyToken = _up.get("proxy_token");
+        const _setupTok = _up.get("setup_token");
+        if (_proxyStep === "identity" && _proxyToken && _setupTok) {
+          history.replaceState({}, "", "/");
+          await _handleSetupProxyIdentity(_proxyToken, _setupTok);
+        } else if (_setupTok) {
+          document.getElementById("setup-token-input").value = _setupTok;
           acceptSetupToken();
         }
         return;
@@ -3595,32 +3601,38 @@ let _setupGoogleIdentity = null;
 let _setupExistingOwnerId = null;
 let restoreFile = null;
 
-function acceptSetupToken() {
+async function acceptSetupToken() {
   const token = document.getElementById("setup-token-input").value.trim();
   const err = document.getElementById("setup-token-error");
   if (!token) { err.textContent = "Token required."; return; }
-  _setupToken = token;
-  document.getElementById("setup-token-step").hidden = true;
-  document.getElementById("setup-identity-step").hidden = false;
+  err.textContent = "Connecting…";
+  try {
+    const r = await fetch("/setup/identity-proxy-url");
+    if (!r.ok) { err.textContent = "Could not reach server."; return; }
+    const { url } = await r.json();
+    const returnTo = window.location.origin + "/?setup_token=" + encodeURIComponent(token) + "&proxy_step=identity";
+    window.location.href = url + "/auth/start?return_to=" + encodeURIComponent(returnTo);
+  } catch { err.textContent = "Network error."; }
 }
 
-async function acceptSetupIdentity() {
-  const email = document.getElementById("setup-owner-email").value.trim();
-  const err = document.getElementById("setup-identity-error");
-  if (!email) { err.textContent = "Email required."; return; }
-  err.textContent = "Looking up account…";
+async function _handleSetupProxyIdentity(proxyToken, setupToken) {
+  const err = document.getElementById("setup-token-error");
+  err.textContent = "Verifying identity…";
   try {
-    const r = await fetch("/setup/owner-lookup?" + new URLSearchParams({google_identity: "google:" + email}));
+    const r = await fetch("/setup/verify-proxy-identity?" + new URLSearchParams({proxy_token: proxyToken}));
     const d = await r.json();
-    if (!r.ok) { err.textContent = d.detail || "Lookup failed."; return; }
-    _setupGoogleIdentity = "google:" + email;
+    if (!r.ok) { err.textContent = d.detail || "Identity verification failed."; return; }
+    _setupToken = setupToken;
+    _setupGoogleIdentity = d.google_identity;
     _setupExistingOwnerId = d.owner_id;
-    document.getElementById("setup-identity-display").textContent = email;
+    document.getElementById("setup-identity-display").textContent = d.google_identity.replace("google:", "");
+    if (d.display_name) document.getElementById("setup-display-name").value = d.display_name;
     const ownerSection = document.getElementById("setup-owner-passphrase-section");
     ownerSection.hidden = d.is_new_owner;
     ownerSection.style.display = d.is_new_owner ? "" : "flex";
     document.getElementById("setup-submit-btn").textContent = d.is_new_owner ? "Create Identity" : "Add Node";
-    document.getElementById("setup-identity-step").hidden = true;
+    err.textContent = "";
+    document.getElementById("setup-token-step").hidden = true;
     document.getElementById("setup-wizard-step").hidden = false;
   } catch { err.textContent = "Network error."; }
 }
@@ -3640,7 +3652,6 @@ function restoreFileSelected(input) {
 function _badSetupToken(msg) {
   _setupToken = null;
   document.getElementById("setup-wizard-step").hidden = true;
-  document.getElementById("setup-identity-step").hidden = true;
   document.getElementById("setup-token-step").hidden = false;
   document.getElementById("setup-token-error").textContent = msg || "Invalid setup token.";
 }

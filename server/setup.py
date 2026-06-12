@@ -74,6 +74,14 @@ def setup_status(request: Request):
     return {"state": _state(request.app)}
 
 
+@router.get("/identity-proxy-url")
+def setup_identity_proxy_url():
+    """Return the identity proxy (registry) URL for use during setup."""
+    url = os.environ.get("CONTACC_REGISTRY_URL",
+          os.environ.get("CONTACC_IDENTITY_PROXY_URL", "https://strk.xyzw.us:8421"))
+    return {"url": url}
+
+
 @router.get("/owner-lookup")
 def setup_owner_lookup(google_identity: str):
     """Return the existing owner_id for a google_identity, or null if this is a new owner."""
@@ -86,6 +94,31 @@ def setup_owner_lookup(google_identity: str):
         if not r.is_success:
             raise HTTPException(502, "Registry lookup failed")
         return {**r.json(), "is_new_owner": False}
+    except httpx.RequestError:
+        raise HTTPException(502, "Could not reach registry")
+
+
+@router.get("/verify-proxy-identity")
+def setup_verify_proxy_identity(proxy_token: str):
+    """Verify a registry proxy token and return {google_identity, display_name, owner_id, is_new_owner}."""
+    registry_url = os.environ.get("CONTACC_REGISTRY_URL",
+                   os.environ.get("CONTACC_IDENTITY_PROXY_URL", "https://strk.xyzw.us:8421"))
+    try:
+        r = httpx.get(f"{registry_url}/auth/verify", params={"token": proxy_token}, timeout=10)
+        if not r.is_success:
+            raise HTTPException(502, "Identity verification failed")
+        data = r.json()
+        google_identity = data["identity"]
+        display_name = data.get("display_name")
+
+        r2 = httpx.get(f"{registry_url}/owner-by-google-identity", params={"q": google_identity}, timeout=10)
+        if r2.status_code == 404:
+            return {"google_identity": google_identity, "display_name": display_name,
+                    "owner_id": None, "is_new_owner": True}
+        if not r2.is_success:
+            raise HTTPException(502, "Owner lookup failed")
+        return {**r2.json(), "google_identity": google_identity, "display_name": display_name,
+                "is_new_owner": False}
     except httpx.RequestError:
         raise HTTPException(502, "Could not reach registry")
 

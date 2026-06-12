@@ -21,12 +21,6 @@
         <button class="btn btn-primary" onclick="acceptSetupToken()">Continue</button>
         <div class="setup-error" id="setup-token-error"></div>
       </div>
-      <div id="setup-identity-step" class="setup-form" hidden>
-        <p style="color:var(--text-4);font-size:0.9rem;text-align:center">Enter your Google account email.</p>
-        <input type="email" id="setup-owner-email" placeholder="your@email.com" autocomplete="email" onkeydown="if(event.key==='Enter')acceptSetupIdentity()">
-        <button class="btn btn-primary" onclick="acceptSetupIdentity()">Continue</button>
-        <div class="setup-error" id="setup-identity-error"></div>
-      </div>
       <div id="setup-wizard-step" hidden>
         <div class="setup-tabs">
           <button class="setup-tab active" id="tab-new" onclick="showSetupTab('new')">New Identity</button>
