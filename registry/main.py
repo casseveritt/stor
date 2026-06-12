@@ -285,6 +285,16 @@ def create_app(db_path: str) -> FastAPI:
             )
         except Exception:
             pass
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS invitations (
+            code            TEXT PRIMARY KEY,
+            google_identity TEXT NOT NULL,
+            node_url        TEXT NOT NULL,
+            setup_token     TEXT NOT NULL,
+            created_at      INTEGER NOT NULL,
+            used_at         INTEGER
+        )
+    """)
     con.commit()
 
     # Identity proxy config — read from environment at startup.
@@ -292,6 +302,7 @@ def create_app(db_path: str) -> FastAPI:
     proxy_client_secret = os.environ.get("CONTACC_GOOGLE_CLIENT_SECRET")
     registry_public_url = os.environ.get("CONTACC_REGISTRY_URL", "").rstrip("/")
     proxy_enabled = bool(proxy_client_id and proxy_client_secret and registry_public_url)
+    admin_identity = os.environ.get("CONTACC_ADMIN_IDENTITY", "")
 
     app = FastAPI(title="contacc registry", docs_url=None, redoc_url=None)
 
@@ -2156,6 +2167,129 @@ blockquote p { color: #888; font-style: italic; }
         if not row or time.time_ns() - row[2] > 300 * NS:
             raise HTTPException(status_code=404, detail="Token not found or expired")
         return {"identity": row[0], "display_name": row[1]}
+
+    # ── invitations ───────────────────────────────────────────────────────────
+
+    _INVITE_CSS = """
+      body{font-family:sans-serif;background:#1a1a1a;color:#ddd;display:flex;align-items:center;
+           justify-content:center;min-height:100vh;margin:0}
+      .card{background:#242424;border:1px solid #333;border-radius:8px;padding:2rem;width:100%;max-width:420px}
+      h2{margin:0 0 1.2rem;font-size:1.1rem;color:#eee}
+      input,textarea{width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #444;
+             border-radius:4px;color:#ddd;padding:.5rem .65rem;margin-bottom:.75rem;font-size:.9rem}
+      button{width:100%;background:#4f8ef7;color:#fff;border:none;border-radius:4px;
+             padding:.6rem;font-size:.95rem;cursor:pointer}
+      .url{word-break:break-all;background:#1a1a1a;border:1px solid #444;border-radius:4px;
+           padding:.65rem;font-size:.85rem;margin-top:1rem}
+      .err{color:#f87;font-size:.85rem;margin-top:.5rem}
+    """
+
+    @app.get("/invite/new", response_class=HTMLResponse)
+    def invite_new_start():
+        if not proxy_enabled or not admin_identity:
+            raise HTTPException(503, "Invitations not configured")
+        return_to = registry_public_url + "/invite/new/form"
+        return RedirectResponse(f"/auth/start?return_to={quote(return_to, safe='')}", 302)
+
+    @app.get("/invite/new/form", response_class=HTMLResponse)
+    def invite_new_form(proxy_token: str = ""):
+        if not proxy_token:
+            return RedirectResponse("/invite/new", 302)
+        row = con.execute(
+            "SELECT identity, created_at FROM proxy_tokens WHERE token = ?", (proxy_token,)
+        ).fetchone()
+        if not row or time.time_ns() - row[1] > 300 * NS:
+            return HTMLResponse("<p>Token expired — <a href='/invite/new'>try again</a></p>", 403)
+        if row[0] != admin_identity:
+            return HTMLResponse("<p>Admin access required.</p>", 403)
+        return HTMLResponse(f"""<!doctype html><html><head><meta charset=utf-8>
+        <title>New Invitation</title><style>{_INVITE_CSS}</style></head><body>
+        <div class=card><h2>Create Invitation</h2>
+        <form method=post action=/invite/new>
+          <input type=hidden name=proxy_token value="{proxy_token}">
+          <input name=google_identity placeholder="Invitee Google email (google:you@example.com)"
+                 required autocomplete=off>
+          <input name=node_url placeholder="Node URL (https://pc.xyzw.us:6448)" required>
+          <input name=setup_token placeholder="Setup token" required>
+          <button type=submit>Create Invite Link</button>
+        </form></div></body></html>""")
+
+    @app.post("/invite/new", response_class=HTMLResponse)
+    async def invite_new_create(request: Request):
+        form = await request.form()
+        proxy_token = form.get("proxy_token", "")
+        google_identity = form.get("google_identity", "").strip()
+        node_url = form.get("node_url", "").strip().rstrip("/")
+        setup_token = form.get("setup_token", "").strip()
+
+        row = con.execute(
+            "SELECT identity, created_at FROM proxy_tokens WHERE token = ?", (proxy_token,)
+        ).fetchone()
+        con.execute("DELETE FROM proxy_tokens WHERE token = ?", (proxy_token,))
+        con.commit()
+        if not row or time.time_ns() - row[1] > 300 * NS:
+            return HTMLResponse("<p>Token expired — <a href='/invite/new'>try again</a></p>", 403)
+        if row[0] != admin_identity:
+            return HTMLResponse("<p>Admin access required.</p>", 403)
+        if not google_identity.startswith("google:"):
+            google_identity = "google:" + google_identity
+        if not google_identity or not node_url or not setup_token:
+            return HTMLResponse("<p>All fields required.</p>", 400)
+
+        code = secrets.token_urlsafe(16)
+        con.execute(
+            "INSERT INTO invitations VALUES (?, ?, ?, ?, ?, NULL)",
+            (code, google_identity, node_url, setup_token, time.time_ns())
+        )
+        con.commit()
+        invite_url = registry_public_url + "/invite/" + code
+        return HTMLResponse(f"""<!doctype html><html><head><meta charset=utf-8>
+        <title>Invitation Created</title><style>{_INVITE_CSS}</style></head><body>
+        <div class=card><h2>Invitation Created</h2>
+        <p style="font-size:.85rem;color:#aaa">For: {google_identity}</p>
+        <div class=url>{invite_url}</div>
+        <p style="font-size:.8rem;color:#888;margin-top:1rem">
+          Single-use. Send this link to the invitee.</p>
+        <p style="margin-top:1rem"><a href=/invite/new style="color:#4f8ef7">Create another</a></p>
+        </div></body></html>""")
+
+    @app.get("/invite/{code}")
+    def invite_start(code: str):
+        if not proxy_enabled:
+            raise HTTPException(503, "Identity proxy not configured")
+        row = con.execute(
+            "SELECT google_identity FROM invitations WHERE code = ? AND used_at IS NULL", (code,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Invitation not found or already used")
+        return_to = registry_public_url + "/invite/" + code + "/verify"
+        return RedirectResponse(f"/auth/start?return_to={quote(return_to, safe='')}", 302)
+
+    @app.get("/invite/{code}/verify")
+    def invite_verify(code: str, proxy_token: str = ""):
+        if not proxy_token:
+            raise HTTPException(400, "Missing proxy token")
+        row = con.execute(
+            "SELECT google_identity, node_url, setup_token FROM invitations WHERE code = ? AND used_at IS NULL",
+            (code,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Invitation not found or already used")
+
+        token_row = con.execute(
+            "SELECT identity, created_at FROM proxy_tokens WHERE token = ?", (proxy_token,)
+        ).fetchone()
+        con.execute("DELETE FROM proxy_tokens WHERE token = ?", (proxy_token,))
+        con.commit()
+        if not token_row or time.time_ns() - token_row[1] > 300 * NS:
+            raise HTTPException(403, "Token expired — ask for a new invitation link")
+        if token_row[0] != row[0]:
+            raise HTTPException(403, "This invitation is for a different Google account")
+
+        con.execute("UPDATE invitations SET used_at = ? WHERE code = ?", (time.time_ns(), code))
+        con.commit()
+        sep = "&" if "?" in row[1] else "?"
+        return RedirectResponse(f"{row[1]}{sep}setup_token={row[2]}", 302)
 
     return app
 
