@@ -6,6 +6,7 @@ import os
 import re
 import secrets
 import shutil
+import time
 import zipfile
 from pathlib import Path
 
@@ -26,6 +27,29 @@ from .db import WrongPassphraseError
 router = APIRouter(prefix="/setup")
 
 log = __import__("logging").getLogger("contacc")
+
+
+def _notify_provider_registered(app) -> None:
+    """Tell the provider this node is now claimed by a user."""
+    provider_url = os.environ.get("CONTACC_PROVIDER_URL", "").rstrip("/")
+    node_id = getattr(app.state, "node_id", "")
+    private_key = getattr(app.state, "private_key", None)
+    if not (provider_url and node_id and private_key):
+        return
+    try:
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat as PF
+        pub_b64 = base64.b64encode(
+            private_key.public_key().public_bytes(Encoding.Raw, PF.Raw)
+        ).decode()
+        ts = int(time.time())
+        msg = f"contacc:provider-registered:{node_id}:{ts}"
+        sig = base64.b64encode(private_key.sign(msg.encode())).decode()
+        httpx.post(f"{provider_url}/nodes/registered",
+                   json={"node_id": node_id, "public_key": pub_b64, "timestamp": ts, "signature": sig},
+                   timeout=5.0)
+        log.info("Notified provider of registration for node %s", node_id)
+    except Exception as e:
+        log.warning("Could not notify provider of registration: %s", e)
 
 
 def _state(app) -> str:
@@ -214,6 +238,7 @@ def setup_new(body: NewBody, request: Request):
     )
 
     _consume_token(app)
+    _notify_provider_registered(app)
     return {
         "status": "ok",
         "node_address": node_address,
@@ -355,6 +380,7 @@ def setup_new_for_owner(body: NewForOwnerBody, request: Request):
     )
 
     _consume_token(app)
+    _notify_provider_registered(app)
     return {
         "status": "ok",
         "node_address": node_address,
@@ -1309,6 +1335,17 @@ def release_node(body: ReleaseBody, request: Request, _identity: InternalOrOwner
         except Exception as _de:
             log.warning("Could not deregister node from registry: %s", _de)
 
+    # Capture identity before wiping — needed for provider notification below
+    _prov_private_key = app.state.private_key
+    _prov_node_id = getattr(app.state, "node_id", "")
+    _prov_node_address = getattr(app.state, "node_address", "")
+    _prov_pub_b64 = ""
+    if _prov_private_key:
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+        _prov_pub_b64 = base64.b64encode(
+            _prov_private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+        ).decode()
+
     # Reset in-memory state first so in-flight requests fail fast
     app.state.initialized = False
     app.state.private_key = None
@@ -1337,5 +1374,24 @@ def release_node(body: ReleaseBody, request: Request, _identity: InternalOrOwner
     config_path.unlink(missing_ok=True)
 
     # Generate a fresh setup token so the owner can re-initialize
-    ensure_setup_token(app)
+    new_setup_token = ensure_setup_token(app)
     log.info("Node released — all data erased, setup token generated")
+
+    # Notify provider that this node is now available
+    _provider_url = os.environ.get("CONTACC_PROVIDER_URL", "").rstrip("/")
+    if _provider_url and _prov_node_id and _prov_private_key:
+        try:
+            _ts = int(time.time())
+            _msg = f"contacc:provider-available:{_prov_node_id}:{_ts}"
+            _sig = base64.b64encode(_prov_private_key.sign(_msg.encode())).decode()
+            httpx.post(f"{_provider_url}/nodes/available", json={
+                "node_id": _prov_node_id,
+                "node_url": _prov_node_address,
+                "setup_token": new_setup_token,
+                "public_key": _prov_pub_b64,
+                "timestamp": _ts,
+                "signature": _sig,
+            }, timeout=5.0)
+            log.info("Notified provider of availability for node %s", _prov_node_id)
+        except Exception as _pe:
+            log.warning("Could not notify provider of availability: %s", _pe)

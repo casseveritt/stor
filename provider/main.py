@@ -1,4 +1,5 @@
 """contacc provider — node provisioning and invitation service."""
+import base64
 import os
 import secrets
 import sqlite3
@@ -7,11 +8,15 @@ from pathlib import Path
 from urllib.parse import quote
 
 import httpx
+from cryptography.exceptions import InvalidSignature
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
+from pydantic import BaseModel
 
 NS = 1_000_000_000
-ADMIN_SESSION_TTL = 600  # 10 minutes
+ADMIN_SESSION_TTL = 600   # 10 minutes
+TIMESTAMP_TOLERANCE = 120  # seconds
 
 
 def create_app(db_path: str) -> FastAPI:
@@ -20,10 +25,19 @@ def create_app(db_path: str) -> FastAPI:
         CREATE TABLE IF NOT EXISTS invitations (
             code            TEXT PRIMARY KEY,
             google_identity TEXT NOT NULL,
+            node_id         TEXT,
             node_url        TEXT NOT NULL,
             setup_token     TEXT NOT NULL,
             created_at      INTEGER NOT NULL,
             used_at         INTEGER
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS available_nodes (
+            node_id     TEXT PRIMARY KEY,
+            node_url    TEXT NOT NULL,
+            setup_token TEXT NOT NULL,
+            added_at    INTEGER NOT NULL
         )
     """)
     con.execute("""
@@ -40,8 +54,9 @@ def create_app(db_path: str) -> FastAPI:
 
     app = FastAPI(title="contacc provider", docs_url=None, redoc_url=None)
 
+    # ── helpers ───────────────────────────────────────────────────────────────
+
     def _verify_proxy_token(proxy_token: str) -> dict:
-        """Call the registry to verify a proxy token. Returns {identity, display_name}."""
         try:
             r = httpx.get(f"{registry_url}/auth/verify", params={"token": proxy_token}, timeout=10)
         except httpx.RequestError:
@@ -49,6 +64,18 @@ def create_app(db_path: str) -> FastAPI:
         if not r.is_success:
             raise HTTPException(403, "Token expired or invalid — please try again")
         return r.json()
+
+    def _verify_node_sig(public_key_b64: str, msg: str, signature_b64: str) -> bool:
+        try:
+            pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(public_key_b64))
+            pub.verify(base64.b64decode(signature_b64), msg.encode())
+            return True
+        except (InvalidSignature, Exception):
+            return False
+
+    def _check_timestamp(ts: int) -> None:
+        if abs(time.time() - ts) > TIMESTAMP_TOLERANCE:
+            raise HTTPException(401, "Timestamp out of range")
 
     def _new_admin_session() -> str:
         now = time.time_ns()
@@ -62,9 +89,18 @@ def create_app(db_path: str) -> FastAPI:
         row = con.execute(
             "SELECT created_at FROM admin_sessions WHERE token = ?", (token,)
         ).fetchone()
-        if not row or time.time_ns() - row[0] > ADMIN_SESSION_TTL * NS:
-            return False
-        return True
+        return bool(row and time.time_ns() - row[0] <= ADMIN_SESSION_TTL * NS)
+
+    def _available_options_html() -> str:
+        rows = con.execute(
+            "SELECT node_id, node_url FROM available_nodes ORDER BY added_at DESC"
+        ).fetchall()
+        if not rows:
+            return "<option value=''>— none available, enter manually —</option>"
+        opts = "<option value=''>— enter manually —</option>"
+        for node_id, node_url in rows:
+            opts += f"<option value='{node_id}'>{node_url} ({node_id[:8]}…)</option>"
+        return opts
 
     _CSS = """
       *{box-sizing:border-box}
@@ -72,11 +108,13 @@ def create_app(db_path: str) -> FastAPI:
            display:flex;align-items:center;justify-content:center;
            min-height:100vh;margin:0;padding:1rem}
       .card{background:#242424;border:1px solid #333;border-radius:8px;
-            padding:2rem;width:100%;max-width:440px}
+            padding:2rem;width:100%;max-width:460px}
       h2{margin:0 0 1.25rem;font-size:1.1rem;color:#eee}
       label{display:block;font-size:.8rem;color:#888;margin-bottom:.25rem}
-      input{width:100%;background:#1a1a1a;border:1px solid #444;border-radius:4px;
+      input,select{width:100%;background:#1a1a1a;border:1px solid #444;border-radius:4px;
             color:#ddd;padding:.5rem .65rem;margin-bottom:.85rem;font-size:.9rem}
+      select option{background:#1a1a1a}
+      .manual{margin-bottom:0}
       button{width:100%;background:#4f8ef7;color:#fff;border:none;border-radius:4px;
              padding:.6rem;font-size:.95rem;cursor:pointer;margin-top:.25rem}
       button:hover{background:#3a7de0}
@@ -86,7 +124,52 @@ def create_app(db_path: str) -> FastAPI:
       .meta{font-size:.78rem;color:#666;margin-top:.75rem}
       .err{color:#f87;font-size:.85rem;margin-top:.5rem}
       a{color:#4f8ef7;text-decoration:none}
+      #manual-fields{display:none}
     """
+
+    _POOL_JS = """
+      function onNodeSelect(sel) {
+        document.getElementById('manual-fields').style.display =
+          sel.value ? 'none' : 'block';
+      }
+    """
+
+    # ── node pool registration ─────────────────────────────────────────────────
+
+    class NodeAvailableBody(BaseModel):
+        node_id: str
+        node_url: str
+        setup_token: str
+        public_key: str
+        timestamp: int
+        signature: str
+
+    class NodeRegisteredBody(BaseModel):
+        node_id: str
+        public_key: str
+        timestamp: int
+        signature: str
+
+    @app.post("/nodes/available", status_code=204)
+    def node_available(body: NodeAvailableBody):
+        _check_timestamp(body.timestamp)
+        msg = f"contacc:provider-available:{body.node_id}:{body.timestamp}"
+        if not _verify_node_sig(body.public_key, msg, body.signature):
+            raise HTTPException(401, "Invalid signature")
+        con.execute(
+            "INSERT OR REPLACE INTO available_nodes VALUES (?, ?, ?, ?)",
+            (body.node_id, body.node_url, body.setup_token, time.time_ns())
+        )
+        con.commit()
+
+    @app.post("/nodes/registered", status_code=204)
+    def node_registered(body: NodeRegisteredBody):
+        _check_timestamp(body.timestamp)
+        msg = f"contacc:provider-registered:{body.node_id}:{body.timestamp}"
+        if not _verify_node_sig(body.public_key, msg, body.signature):
+            raise HTTPException(401, "Invalid signature")
+        con.execute("DELETE FROM available_nodes WHERE node_id = ?", (body.node_id,))
+        con.commit()
 
     # ── admin: create invitation ───────────────────────────────────────────────
 
@@ -109,18 +192,24 @@ def create_app(db_path: str) -> FastAPI:
                                 "<div class=card><p class=err>Admin access required.</p>"
                                 "<p><a href='/invite/new'>Sign in as admin</a></p></div>", 403)
         session = _new_admin_session()
+        opts = _available_options_html()
         return HTMLResponse(f"""<!doctype html><html><head><meta charset=utf-8>
-<title>New Invitation — contacc</title><style>{_CSS}</style></head><body>
+<title>New Invitation — contacc</title>
+<style>{_CSS}</style><script>{_POOL_JS}</script></head><body>
 <div class=card>
   <h2>Create Invitation</h2>
   <form method=post action=/invite/new>
     <input type=hidden name=admin_session value="{session}">
     <label>Invitee Google email</label>
     <input name=google_identity placeholder="friend@example.com" required autocomplete=off>
-    <label>Node URL</label>
-    <input name=node_url placeholder="https://pc.xyzw.us:6448" required>
-    <label>Setup token</label>
-    <input name=setup_token placeholder="token from .setup_token file" required>
+    <label>Node (from pool)</label>
+    <select name=pool_node_id onchange="onNodeSelect(this)">{opts}</select>
+    <div id=manual-fields>
+      <label>Node URL</label>
+      <input name=node_url placeholder="https://pc.xyzw.us:6448" class=manual>
+      <label>Setup token</label>
+      <input name=setup_token placeholder="token" class=manual>
+    </div>
     <button type=submit>Create Invite Link</button>
   </form>
 </div></body></html>""")
@@ -133,8 +222,23 @@ def create_app(db_path: str) -> FastAPI:
             return RedirectResponse("/invite/new", 302)
 
         google_identity = form.get("google_identity", "").strip()
-        node_url = form.get("node_url", "").strip().rstrip("/")
-        setup_token = form.get("setup_token", "").strip()
+        pool_node_id = form.get("pool_node_id", "").strip()
+
+        if pool_node_id:
+            row = con.execute(
+                "SELECT node_url, setup_token FROM available_nodes WHERE node_id = ?",
+                (pool_node_id,)
+            ).fetchone()
+            if not row:
+                return HTMLResponse(f"<style>{_CSS}</style><div class=card>"
+                                    "<p class=err>Selected node no longer available.</p>"
+                                    "<p><a href='javascript:history.back()'>Go back</a></p></div>", 400)
+            node_url, setup_token = row
+            node_id = pool_node_id
+        else:
+            node_url = form.get("node_url", "").strip().rstrip("/")
+            setup_token = form.get("setup_token", "").strip()
+            node_id = None
 
         if not google_identity or not node_url or not setup_token:
             return HTMLResponse(f"<style>{_CSS}</style><div class=card>"
@@ -145,8 +249,8 @@ def create_app(db_path: str) -> FastAPI:
 
         code = secrets.token_urlsafe(16)
         con.execute(
-            "INSERT INTO invitations VALUES (?, ?, ?, ?, ?, NULL)",
-            (code, google_identity, node_url, setup_token, time.time_ns())
+            "INSERT INTO invitations VALUES (?, ?, ?, ?, ?, ?, NULL)",
+            (code, google_identity, node_id, node_url, setup_token, time.time_ns())
         )
         con.commit()
 
@@ -181,8 +285,8 @@ def create_app(db_path: str) -> FastAPI:
         if not proxy_token:
             raise HTTPException(400, "Missing proxy token")
         row = con.execute(
-            "SELECT google_identity, node_url, setup_token FROM invitations"
-            " WHERE code = ? AND used_at IS NULL",
+            "SELECT google_identity, node_id, node_url, setup_token"
+            " FROM invitations WHERE code = ? AND used_at IS NULL",
             (code,)
         ).fetchone()
         if not row:
@@ -193,9 +297,12 @@ def create_app(db_path: str) -> FastAPI:
             raise HTTPException(403, "This invitation is for a different Google account")
 
         con.execute("UPDATE invitations SET used_at = ? WHERE code = ?", (time.time_ns(), code))
+        # Remove from pool — the node is now spoken for
+        if row[1]:
+            con.execute("DELETE FROM available_nodes WHERE node_id = ?", (row[1],))
         con.commit()
 
-        node_url, setup_token = row[1], row[2]
+        node_url, setup_token = row[2], row[3]
         sep = "&" if "?" in node_url else "?"
         return RedirectResponse(f"{node_url}{sep}setup_token={setup_token}", 302)
 
