@@ -658,7 +658,7 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
         """If uninitialized, announce this node as available to the provider."""
         if app.state.initialized:
             return
-        provider_url_env = os.environ.get("CONTACC_PROVIDER_URL", "").rstrip("/")
+        provider_url_env = (os.environ.get("CONTACC_PROVIDER_NOTIFY_URL") or os.environ.get("CONTACC_PROVIDER_URL", "")).rstrip("/")
         node_address = (os.environ.get("CONTACC_WEB_ADDRESS") or os.environ.get("CONTACC_NODE_ADDRESS") or "").rstrip("/")
         if not provider_url_env or not node_address:
             return

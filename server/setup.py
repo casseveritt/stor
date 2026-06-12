@@ -31,7 +31,7 @@ log = __import__("logging").getLogger("contacc")
 
 def _notify_provider_registered(app) -> None:
     """Tell the provider this node is now claimed by a user."""
-    provider_url = os.environ.get("CONTACC_PROVIDER_URL", "").rstrip("/")
+    provider_url = (os.environ.get("CONTACC_PROVIDER_NOTIFY_URL") or os.environ.get("CONTACC_PROVIDER_URL", "")).rstrip("/")
     node_id = getattr(app.state, "node_id", "")
     private_key = getattr(app.state, "private_key", None)
     if not (provider_url and node_id and private_key):
@@ -1392,7 +1392,7 @@ def release_node(body: ReleaseBody, request: Request, _identity: InternalOrOwner
     log.info("Node released — all data erased, setup token generated")
 
     # Notify provider that this node is now available
-    _provider_url = os.environ.get("CONTACC_PROVIDER_URL", "").rstrip("/")
+    _provider_url = (os.environ.get("CONTACC_PROVIDER_NOTIFY_URL") or os.environ.get("CONTACC_PROVIDER_URL", "")).rstrip("/")
     if _provider_url and _prov_node_id and _prov_private_key:
         try:
             _ts = int(time.time())

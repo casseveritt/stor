@@ -166,7 +166,7 @@ def create_app(db_path: str) -> FastAPI:
       .btn{background:#4f8ef7;color:#fff;border:none;border-radius:4px;
            padding:.5rem 1.1rem;font-size:.9rem;cursor:pointer}
       .btn:hover{background:#3a7de0}
-      .list{margin-top:.5rem}
+      .list{margin-top:.5rem;max-height:200px;overflow-y:auto}
       .row{display:flex;align-items:center;gap:.6rem;padding:.45rem 0;
            border-bottom:1px solid #2a2a2a;font-size:.85rem}
       .row:last-child{border-bottom:none}
