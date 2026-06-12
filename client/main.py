@@ -91,7 +91,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         _client_db = open_client_db_memory()
 
     # One-time migration: move any tags from config JSON into client DB (keyed by node_id)
-    _url_to_node_id = {c.url: c.node_id for c in config.contacts if c.node_id}
+    _url_to_node_id = {c.url: c.node_id for c in config.contacts if c.url and c.node_id}
     for raw_contact in raw_config_data.get("contacts", []):
         tag = raw_contact.get("tag")
         url = raw_contact.get("url")
@@ -139,7 +139,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         asyncio.create_task(_background_fetch_one(config.own_server, own_poll_id))
         for c in config.contacts:
             if c.node_id:
-                asyncio.create_task(_background_fetch_one(c.url, c.node_id))
+                asyncio.create_task(_background_fetch_one(c.node_id))
 
     async def _startup_consistency_check():
         """Run all startup consistency checks. Add new checks here as needed."""
@@ -250,22 +250,26 @@ def create_app(config_path: str | Path) -> FastAPI:
         for contact in config.contacts:
             if contact.public_key:
                 continue
+            if not contact.node_id:
+                continue
+            url = await _contact_server_url(contact.node_id)
+            if not url:
+                continue
             try:
                 async with httpx.AsyncClient() as hc:
-                    r = await hc.get(contact.url.rstrip("/") + "/node", timeout=5)
+                    r = await hc.get(url.rstrip("/") + "/node", timeout=5)
                 if r.is_success:
                     pub_key = r.json().get("public_key")
                     if pub_key:
                         contact.public_key = pub_key
-                        _contact_url_cache[pub_key] = contact.url
                         changed = True
-                        log.info("Backfilled public key for contact %s", contact.url)
+                        log.info("Backfilled public key for contact %s", contact.node_id)
                         t = _token(config.own_server)
                         if t:
                             async with httpx.AsyncClient() as hc2:
                                 await hc2.post(
                                     _server + "/users",
-                                    json={"server_url": contact.url, "name": contact.name,
+                                    json={"server_url": url, "name": contact.name,
                                           "handle": contact.handle, "public_key": pub_key,
                                           "node_id": contact.node_id},
                                     headers=_headers(config.own_server),
@@ -277,17 +281,20 @@ def create_app(config_path: str | Path) -> FastAPI:
             config.save(config_path)
 
     async def _refresh_contact_photos():
-        import hashlib
         cache_dir = Path("/data/photo_cache")
         cache_dir.mkdir(parents=True, exist_ok=True)
         for contact in config.contacts:
+            if not contact.node_id:
+                continue
+            url = await _contact_server_url(contact.node_id)
+            if not url:
+                continue
             try:
                 async with httpx.AsyncClient() as hc:
-                    r = await hc.get(contact.url + "/profile/photo", timeout=5)
+                    r = await hc.get(url + "/profile/photo", timeout=5)
                 if r.is_success:
-                    key = hashlib.sha256(contact.url.encode()).hexdigest()
-                    (cache_dir / key).write_bytes(r.content)
-                    log.info("Cached photo for %s", contact.url)
+                    (cache_dir / contact.node_id).write_bytes(r.content)
+                    log.info("Cached photo for %s", contact.node_id)
             except Exception:
                 pass
 
@@ -392,16 +399,6 @@ def create_app(config_path: str | Path) -> FastAPI:
             pass
         return {}
 
-    # ── contact URL indirection ───────────────────────────────────────────
-    # pub_key → current URL; the only place contact URLs are cached.
-    # Populated from config at startup; refreshed from registry on demand.
-    _contact_url_cache: dict[str, str] = {
-        c.public_key: c.url for c in config.contacts if c.public_key and c.url
-    }
-
-    def _url_for_pubkey(pub_key: str) -> str | None:
-        return _contact_url_cache.get(pub_key)
-
     def _registry_url() -> str:
         # Prefer explicit registry/proxy URL from environment, then fall back
         # to deriving from own_server hostname (same host, port 8421).
@@ -419,38 +416,23 @@ def create_app(config_path: str | Path) -> FastAPI:
         get_db=lambda: getattr(app.state, "db", None),
     )
 
-    async def _refresh_url_for_pubkey(pub_key: str) -> str | None:
-        """Query registry by public key, update cache + config, return fresh URL."""
-        from registry.client import lookup_by_key as _lookup_by_key
+    async def _contact_server_url(node_id: str) -> str | None:
+        """Return the current server URL for a node via the registry module."""
         try:
-            record = await _lookup_by_key(pub_key, registry_url=_registry_url())
-            if record and record.get("server_url"):
-                url = record["server_url"]
-                _contact_url_cache[pub_key] = url
-                contact = next((c for c in config.contacts if c.public_key == pub_key), None)
-                if contact and contact.url != url:
-                    log.info("Contact URL refreshed via registry: %s → %s", contact.url, url)
-                    contact.url = url
-                    config.save(config_path)
-                return url
+            record = await registry.lookup(node_id)
+            return record.get("server_url")
         except Exception:
-            pass
-        return None
+            return None
 
     def _server_name(url: str) -> str:
-        if url == config.own_server:
-            return "me"
-        return next((c.name for c in config.contacts if c.url == url), url)
+        return "me" if url == config.own_server else url
 
-    def _all_servers() -> list[str]:
-        seen = {config.own_server.rstrip("/")}
-        urls = [config.own_server]
-        for c in config.contacts:
-            url = (_url_for_pubkey(c.public_key) if c.public_key else None) or c.url
-            if url and url.rstrip("/") not in seen:
-                seen.add(url.rstrip("/"))
-                urls.append(url)
-        return urls
+    def _contact_name(node_id: str) -> str:
+        c = next((c for c in config.contacts if c.node_id == node_id), None)
+        return c.name if c else node_id
+
+    def _all_contact_node_ids() -> list[str]:
+        return [c.node_id for c in config.contacts if c.node_id]
 
     # ── background poll state ─────────────────────────────────────────────
     _fetch_in_flight: set[str] = set()   # node_ids currently being fetched
@@ -464,7 +446,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         age_s = (time.time_ns() - last_update_ns) / 1e9
         return max(300.0, min(86400.0, age_s / 2.0))
 
-    async def _background_fetch_one(url: str, node_id: str) -> None:
+    async def _background_fetch_one(node_id: str) -> None:
         if not _cache_key_event.is_set():
             try:
                 await asyncio.wait_for(_cache_key_event.wait(), timeout=60)
@@ -473,10 +455,16 @@ def create_app(config_path: str | Path) -> FastAPI:
         if node_id in _fetch_in_flight:
             return
         _fetch_in_flight.add(node_id)
+        is_own = (node_id == config.own_node_id)
         try:
             set_contact_poll(_client_db, node_id, last_check=time.time_ns())
-            contact = next((c for c in config.contacts if c.url == url), None)
-            contact_key = (contact.public_key if contact else None) or hashlib.sha256(url.encode()).hexdigest()
+            if is_own:
+                url = config.own_server
+            else:
+                url = await _contact_server_url(node_id)
+                if not url:
+                    _contact_status[node_id] = "offline"
+                    return
             fetch_target = _call_url(url)
             hdrs = {**_headers(url), **await _sign_federated("GET", "/posts", b"")}
             async with httpx.AsyncClient() as hc:
@@ -484,11 +472,12 @@ def create_app(config_path: str | Path) -> FastAPI:
             if r.is_success:
                 _contact_status[node_id] = "online"
                 posts = r.json().get("posts", [])
-                name = _server_name(url)
+                name = _contact_name(node_id) if not is_own else "me"
                 for post in posts:
                     post["_server_url"] = url
                     post["_server_name"] = name
-                _cache_posts(contact_key, posts)
+                    post["_server_node_id"] = node_id
+                _cache_posts(node_id, posts)
                 if posts:
                     newest = max(p.get("created_at", 0) for p in posts)
                     set_contact_poll(_client_db, node_id, last_update=newest)
@@ -516,7 +505,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                 last_update, last_check = get_contact_poll(_client_db, c.node_id)
                 elapsed_s = (now_ns - last_check) / 1e9
                 if elapsed_s >= _poll_interval_s(last_update):
-                    asyncio.create_task(_background_fetch_one(c.url, c.node_id))
+                    asyncio.create_task(_background_fetch_one(c.node_id))
             await asyncio.sleep(60)
 
     # ── local post/asset cache ────────────────────────────────────────────
@@ -670,11 +659,9 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     @api.get("/config")
     async def api_config():
-        import hashlib
         cache_dir = Path("/data/photo_cache")
-        def _has_cached_photo(url: str) -> bool:
-            key = hashlib.sha256(url.encode()).hexdigest()
-            return (cache_dir / key).exists()
+        def _has_cached_photo(node_id: str) -> bool:
+            return (cache_dir / node_id).exists()
         own_display_name = None
         own_handle = None
         try:
@@ -687,22 +674,37 @@ def create_app(config_path: str | Path) -> FastAPI:
         except Exception:
             pass
         tags = get_all_tags(_client_db)
-        contact_by_url = {c.url: c for c in config.contacts}
-        servers_list = []
-        for url in _all_servers():
-            entry: dict = {"name": _server_name(url), "url": url, "authenticated": bool(_token(url))}
-            c = contact_by_url.get(url)
-            if c:
-                entry["tag"] = tags.get(c.node_id) if c.node_id else None
-                entry["handle"] = c.handle
-                entry["description"] = c.description
-                entry["poll_weight"] = _contact_weight(c)
-                for f in _CAT_FIELDS:
-                    entry[f] = getattr(c, f, 0.0)
+
+        # Resolve current server URL for each contact from the registry.
+        # registry.lookup has its own memory+DB cache so repeated calls are fast.
+        async def _resolved_url(c) -> str:
+            if c.node_id:
+                url = await _contact_server_url(c.node_id)
+                if url:
+                    c.url = url  # populate transient field for this request's lifetime
+                    return url
+            return c.url or ""
+
+        # Build contacts with fresh URLs
+        contact_urls = {}
+        for c in config.contacts:
+            contact_urls[c.node_id] = await _resolved_url(c)
+
+        servers_list = [{"name": "me", "url": config.own_server, "authenticated": bool(_token(config.own_server))}]
+        for c in config.contacts:
+            url = contact_urls.get(c.node_id, "")
+            entry: dict = {"name": c.name, "url": url, "authenticated": bool(_token(url))}
+            entry["tag"] = tags.get(c.node_id) if c.node_id else None
+            entry["handle"] = c.handle
+            entry["description"] = c.description
+            entry["poll_weight"] = _contact_weight(c)
+            for f in _CAT_FIELDS:
+                entry[f] = getattr(c, f, 0.0)
             servers_list.append(entry)
 
         def _contact_dict(c):
-            d = {"name": c.name, "url": c.url, "handle": c.handle, "public_key": c.public_key,
+            url = contact_urls.get(c.node_id, c.url or "")
+            d = {"name": c.name, "url": url, "handle": c.handle, "public_key": c.public_key,
                  "node_id": c.node_id,
                  "tag": tags.get(c.node_id) if c.node_id else None,
                  "description": c.description,
@@ -719,7 +721,7 @@ def create_app(config_path: str | Path) -> FastAPI:
             "identity_proxy_url": os.environ.get("CONTACC_IDENTITY_PROXY_URL", ""),
             "servers": servers_list,
             "contacts": [_contact_dict(c) for c in config.contacts],
-            "cached_photos": [c.url for c in config.contacts if _has_cached_photo(c.url)],
+            "cached_photos": [c.node_id for c in config.contacts if c.node_id and _has_cached_photo(c.node_id)],
         }
 
     # ── auth ──────────────────────────────────────────────────────────────
@@ -786,19 +788,12 @@ def create_app(config_path: str | Path) -> FastAPI:
             return data
 
         # aggregate all servers — serve from cache, fire background refreshes for visible nodes
-        servers = _all_servers()
-
-        def _node_id_for_url(url: str) -> str | None:
-            if url == config.own_server:
-                return config.own_node_id
-            c = next((c for c in config.contacts if c.url == url), None)
-            return c.node_id if c else None
+        own_poll_id = config.own_node_id or hashlib.sha256(config.own_server.encode()).hexdigest()[:16]
+        node_ids = [own_poll_id] + _all_contact_node_ids()
 
         all_posts: list[dict] = []
-        for url in servers:
-            contact = next((c for c in config.contacts if c.url == url), None)
-            contact_key = (contact.public_key if contact else None) or hashlib.sha256(url.encode()).hexdigest()
-            cached = _read_cached_posts(contact_key) or _read_cached_posts(contact_key, allow_expired=True)
+        for nid in node_ids:
+            cached = _read_cached_posts(nid) or _read_cached_posts(nid, allow_expired=True)
             all_posts.extend(cached)
 
         # If own server has no cached posts, do a synchronous live fetch so the
@@ -843,15 +838,14 @@ def create_app(config_path: str | Path) -> FastAPI:
                 deduped.append(p)
         merged = sorted(deduped, key=lambda p: p.get("created_at", 0), reverse=True)[:limit]
 
-        visible_urls = {p["_server_url"] for p in merged if p.get("_server_url")}
-        # Always refresh all servers when nothing is visible (empty cache); otherwise
-        # only refresh servers whose posts are currently shown.
-        for url in (visible_urls or servers):
-            nid = _node_id_for_url(url)
+        visible_node_ids = {p.get("_server_node_id") for p in merged if p.get("_server_node_id")}
+        # Always refresh all nodes when nothing is visible (empty cache); otherwise
+        # only refresh nodes whose posts are currently shown.
+        for nid in (visible_node_ids or node_ids):
             if nid:
-                asyncio.create_task(_background_fetch_one(url, nid))
+                asyncio.create_task(_background_fetch_one(nid))
 
-        server_status = {url: _contact_status.get(_node_id_for_url(url) or "", "unknown") for url in servers}
+        server_status = {nid: _contact_status.get(nid, "unknown") for nid in node_ids}
         next_cursor = str(merged[-1]["created_at"]) if len(merged) == limit else None
         return {"posts": merged, "server_status": server_status, "next_cursor": next_cursor}
 
@@ -1386,7 +1380,8 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def api_refresh_contact_node_ids():
         """Back-fill and correct node_id for contacts.
 
-        Fetches /node for every contact and updates node_id when:
+        Fetches /node for every contact (resolving URL via registry or legacy c.url)
+        and updates node_id when:
         - it is missing entirely, or
         - the stored value is an old user_id/owner_id that differs from the
           server's current node_id (handles migrated identities).
@@ -1395,7 +1390,14 @@ def create_app(config_path: str | Path) -> FastAPI:
         async with httpx.AsyncClient() as hc:
             for c in config.contacts:
                 try:
-                    r = await hc.get(c.url.rstrip("/") + "/node", timeout=4)
+                    url = None
+                    if c.node_id:
+                        url = await _contact_server_url(c.node_id)
+                    if not url:
+                        url = c.url  # fallback for contacts without node_id yet
+                    if not url:
+                        continue
+                    r = await hc.get(url.rstrip("/") + "/node", timeout=4)
                     if not r.is_success:
                         continue
                     nd = r.json()
@@ -1445,18 +1447,15 @@ def create_app(config_path: str | Path) -> FastAPI:
         if not node_id:
             raise HTTPException(status_code=502, detail="Could not reach contact's node to get node ID")
 
-        # Deduplicate by node_id (primary key) then url
+        # Deduplicate by node_id (primary key)
         if any(c.node_id == node_id for c in config.contacts):
             raise HTTPException(status_code=409, detail="Contact with this node ID already exists")
-        if any(c.url == body.url for c in config.contacts):
-            raise HTTPException(status_code=409, detail="Contact with this URL already exists")
 
+        # url is transient: populate in-memory for this request but don't persist
         config.contacts.append(ContactEntry(
             name=body.name, url=body.url, handle=body.handle,
             public_key=pub_key, node_id=node_id,
         ))
-        if pub_key:
-            _contact_url_cache[pub_key] = body.url
         config.save(config_path)
         if _token(config.own_server):
             async with httpx.AsyncClient() as hc:
@@ -1554,25 +1553,31 @@ def create_app(config_path: str | Path) -> FastAPI:
         )
 
     @api.delete("/contacts")
-    async def api_remove_contact(url: str = Query(...)):
+    async def api_remove_contact(node_id: str = Query(None), url: str = Query(None)):
         before = len(config.contacts)
-        removed = [c for c in config.contacts if c.url == url]
-        config.contacts = [c for c in config.contacts if c.url != url]
+        if node_id:
+            removed = [c for c in config.contacts if c.node_id == node_id]
+            config.contacts = [c for c in config.contacts if c.node_id != node_id]
+        elif url:
+            removed = [c for c in config.contacts if c.url == url]
+            config.contacts = [c for c in config.contacts if c.url != url]
+        else:
+            raise HTTPException(status_code=400, detail="node_id or url required")
         if len(config.contacts) == before:
             raise HTTPException(status_code=404, detail="Contact not found")
-        for c in removed:
-            if c.public_key:
-                _contact_url_cache.pop(c.public_key, None)
         config.save(config_path)
         # Sync removal to server
-        if _token(config.own_server):
-            async with httpx.AsyncClient() as hc:
-                await hc.delete(
-                    _server + "/users",
-                    params={"server_url": url},
-                    headers=_headers(config.own_server),
-                    timeout=10.0,
-                )
+        if _token(config.own_server) and removed:
+            c = removed[0]
+            server_url = c.url or (await _contact_server_url(c.node_id) if c.node_id else None)
+            if server_url:
+                async with httpx.AsyncClient() as hc:
+                    await hc.delete(
+                        _server + "/users",
+                        params={"server_url": server_url},
+                        headers=_headers(config.own_server),
+                        timeout=10.0,
+                    )
         return {"ok": True}
 
     # ── node lists ────────────────────────────────────────────────────────────
@@ -1626,7 +1631,6 @@ def create_app(config_path: str | Path) -> FastAPI:
             data = r2.json() if r2.is_success else data
             threads = data.get("threads", [])
         contact_by_node_id = {c.node_id: c for c in config.contacts if c.node_id}
-        contact_by_url = {c.url: c for c in config.contacts}
         tags = get_all_tags(_client_db)
 
         def _name_for(node_id: str) -> str | None:
@@ -1636,8 +1640,7 @@ def create_app(config_path: str | Path) -> FastAPI:
             return (tags.get(contact.node_id) if contact.node_id else None) or contact.name
 
         for t in threads:
-            contact = contact_by_node_id.get(t.get("peer_node_id", "")) \
-                   or contact_by_url.get(t.get("peer_url", ""))
+            contact = contact_by_node_id.get(t.get("peer_node_id", ""))
             t["is_contact"] = contact is not None
             if contact and not t.get("peer_name"):
                 t["peer_name"] = _name_for(contact.node_id) if contact.node_id else contact.name
@@ -1737,29 +1740,30 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     app.include_router(api)
 
-    # ── contact photo cache (public — no client auth, contact URLs only) ──────
+    # ── contact photo cache (public — no client auth, contact node_id only) ──────
 
     @app.get("/api/contacts/photo")
-    async def api_contact_photo(url: str):
-        import hashlib
-        if not any(c.url == url for c in config.contacts):
+    async def api_contact_photo(node_id: str):
+        contact = next((c for c in config.contacts if c.node_id == node_id), None)
+        if not contact:
             raise HTTPException(status_code=403, detail="Not a known contact")
         cache_dir = Path("/data/photo_cache")
-        cache_key = hashlib.sha256(url.encode()).hexdigest()
-        cache_file = cache_dir / cache_key
-        try:
-            sign_hdrs = await _sign_federated("GET", "/profile/photo", b"")
-            async with httpx.AsyncClient() as hc:
-                r = await hc.get(url + "/profile/photo",
-                                 headers={"X-Origin-Server": config.own_server, **sign_hdrs},
-                                 timeout=5)
-            if r.is_success:
-                cache_dir.mkdir(parents=True, exist_ok=True)
-                cache_file.write_bytes(r.content)
-                return Response(content=r.content, media_type="image/jpeg",
-                                headers={"Cache-Control": "public, max-age=3600"})
-        except Exception:
-            pass
+        cache_file = cache_dir / node_id
+        url = await _contact_server_url(node_id)
+        if url:
+            try:
+                sign_hdrs = await _sign_federated("GET", "/profile/photo", b"")
+                async with httpx.AsyncClient() as hc:
+                    r = await hc.get(url + "/profile/photo",
+                                     headers={"X-Origin-Server": config.own_server, **sign_hdrs},
+                                     timeout=5)
+                if r.is_success:
+                    cache_dir.mkdir(parents=True, exist_ok=True)
+                    cache_file.write_bytes(r.content)
+                    return Response(content=r.content, media_type="image/jpeg",
+                                    headers={"Cache-Control": "public, max-age=3600"})
+            except Exception:
+                pass
         if cache_file.exists():
             return Response(content=cache_file.read_bytes(), media_type="image/jpeg",
                             headers={"Cache-Control": "public, max-age=3600"})

@@ -7,7 +7,7 @@ from pathlib import Path
 @dataclass
 class ContactEntry:
     name: str
-    url: str
+    url: str | None = None  # transient: populated from registry at runtime, never persisted
     handle: str | None = None
     public_key: str | None = None
     node_id: str | None = None  # node deployment identifier
@@ -77,9 +77,13 @@ class ClientConfig:
         )
 
     def save(self, path: str | Path) -> None:
+        def _contact_dict(c: ContactEntry) -> dict:
+            d = dataclasses.asdict(c)
+            d.pop("url", None)  # never persist URL — always resolved from registry at runtime
+            return d
         data: dict = {
             "own_server": self.own_server,
-            "contacts": [dataclasses.asdict(c) for c in self.contacts],
+            "contacts": [_contact_dict(c) for c in self.contacts],
         }
         if self.node_key:
             data["node_key"] = dataclasses.asdict(self.node_key)

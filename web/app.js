@@ -336,7 +336,7 @@ function _showMentionPopup(event, span) {
       d.textContent = initials;
       return d;
     };
-    const photoUrl = '/api/contacts/photo?url=' + encodeURIComponent(contact.url);
+    const photoUrl = contact.node_id ? '/api/contacts/photo?node_id=' + encodeURIComponent(contact.node_id) : '';
     const img = document.createElement('img');
     img.src = photoUrl;
     img.style.cssText = avatarStyle + ';object-fit:cover';
@@ -662,9 +662,16 @@ async function fetchServerHandles() {
 }
 
 async function fetchServerProfiles() {
-  const servers = [CFG.own_server, ...(CFG.contacts || []).map(c => c.url)];
+  const servers = [CFG.own_server, ...(CFG.contacts || []).map(c => c.url).filter(Boolean)];
   // Seed from server (authoritative — knows what's actually on disk) + localStorage
-  const cachedPhotos = new Set([...(CFG.cached_photos || []), ...JSON.parse(localStorage.getItem('cachedContactPhotos') || '[]')]);
+  // cachedPhotos is keyed by node_id; filter out legacy URL-shaped entries from localStorage
+  const cachedPhotos = new Set([
+    ...(CFG.cached_photos || []),
+    ...JSON.parse(localStorage.getItem('cachedContactPhotos') || '[]').filter(x => !x.startsWith('http')),
+  ]);
+  // url→node_id map for photo cache keying during profile fetch
+  const urlToNodeId = {};
+  for (const c of (CFG.contacts || [])) { if (c.url && c.node_id) urlToNodeId[c.url] = c.node_id; }
 
   // Pre-seed contacts from local config so names show even when offline;
   // only set photo_url if we've previously confirmed a cached photo exists.
@@ -673,7 +680,7 @@ async function fetchServerProfiles() {
       serverProfiles[c.url] = {
         display_name: c.name,
         handle: c.handle,
-        photo_url: cachedPhotos.has(c.url) ? "/api/contacts/photo?url=" + encodeURIComponent(c.url) : null,
+        photo_url: c.node_id && cachedPhotos.has(c.node_id) ? "/api/contacts/photo?node_id=" + encodeURIComponent(c.node_id) : null,
       };
     }
   }
@@ -686,17 +693,18 @@ async function fetchServerProfiles() {
       if (r.ok) {
         const profile = await r.json();
         if (url !== CFG.own_server) {
-          const proxyUrl = "/api/contacts/photo?url=" + encodeURIComponent(url);
-          if (profile.photo_url) {
+          const nid = urlToNodeId[url];
+          const proxyUrl = nid ? "/api/contacts/photo?node_id=" + encodeURIComponent(nid) : null;
+          if (profile.photo_url && proxyUrl) {
             fetch(proxyUrl).catch(() => {}); // warm the cache
             profile.photo_url = proxyUrl;
-            if (!cachedPhotos.has(url)) {
-              cachedPhotos.add(url);
+            if (nid && !cachedPhotos.has(nid)) {
+              cachedPhotos.add(nid);
               localStorage.setItem('cachedContactPhotos', JSON.stringify([...cachedPhotos]));
             }
           } else {
-            if (cachedPhotos.has(url)) {
-              cachedPhotos.delete(url);
+            if (nid && cachedPhotos.has(nid)) {
+              cachedPhotos.delete(nid);
               localStorage.setItem('cachedContactPhotos', JSON.stringify([...cachedPhotos]));
             }
             profile.photo_url = null;
@@ -2992,7 +3000,7 @@ function _renderDmThreads() {
     const name = esc(displayName);
     const initial = esc((displayName || '?')[0].toUpperCase());
     const unread = t.unread_count || 0;
-    const photoUrl = (!isGroup && t.peer_url) ? '/api/contacts/photo?url=' + encodeURIComponent(t.peer_url) : '';
+    const photoUrl = (!isGroup && t.peer_node_id) ? '/api/contacts/photo?node_id=' + encodeURIComponent(t.peer_node_id) : '';
     const avatarHtml = isGroup
       ? `<span class="post-author-initials" style="width:28px;height:28px;font-size:0.85rem">👥</span>`
       : (photoUrl
