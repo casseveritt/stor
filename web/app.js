@@ -963,6 +963,7 @@ async function loadFeed() {
   showView("feed");
   renderServerList();
   checkDefaultPassphrase();
+  checkEscrow();
   loadMentions();
 
   // Restore cached profiles so avatars show immediately without a flash.
@@ -3394,6 +3395,43 @@ async function checkDefaultPassphrase() {
       document.getElementById("default-passphrase-banner").hidden = !data.is_default;
     }
   } catch (_) {}
+}
+
+async function checkEscrow() {
+  try {
+    const r = await apiFetch("/api/setup/has-escrow");
+    if (r.ok) {
+      const data = await r.json();
+      document.getElementById("no-escrow-banner").hidden = data.has_escrow;
+    }
+  } catch (_) {}
+}
+
+function openEscrowPanel() {
+  document.getElementById("ce-pass").value = "";
+  document.getElementById("ce-confirm").value = "";
+  document.getElementById("ce-error").textContent = "";
+  document.getElementById("create-escrow-overlay").hidden = false;
+}
+
+async function doCreateEscrow() {
+  const pass = document.getElementById("ce-pass").value;
+  const confirm = document.getElementById("ce-confirm").value;
+  const err = document.getElementById("ce-error");
+  if (!pass) { err.textContent = "Please enter a recovery passphrase."; return; }
+  if (pass !== confirm) { err.style.color = "#e06c6c"; err.textContent = "Passphrases don't match."; return; }
+  err.style.color = "#888"; err.textContent = "Setting up…";
+  const r = await apiFetch("/api/setup/create-identity-escrow", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({owner_passphrase: pass}),
+  });
+  if (!r.ok) {
+    const e = await r.json().catch(() => ({}));
+    err.style.color = "#e06c6c"; err.textContent = e.detail || "Failed."; return;
+  }
+  document.getElementById("create-escrow-overlay").hidden = true;
+  document.getElementById("no-escrow-banner").hidden = true;
 }
 
 function openDefaultPassphrasePanel() {

@@ -1857,6 +1857,54 @@ blockquote p { color: #888; font-style: italic; }
             for r in rows
         ]}
 
+    class IdentityBootstrapBody(BaseModel):
+        node_id: str
+        identity_public_key: str   # base64 — new identity public key
+        delegation_cert: dict       # signed by new identity key
+        encrypted_identity_key: str # base64 AES-GCM ciphertext
+        argon2_salt: str
+        argon2_time_cost: int = 3
+        argon2_memory_cost: int = 65536
+        argon2_parallelism: int = 4
+        timestamp: int
+        signature: str             # node key signs "contacc:identity-bootstrap:{owner_id}:{timestamp}"
+
+    @app.post("/identity-key/{owner_id}/bootstrap", status_code=204)
+    def bootstrap_escrow(owner_id: str, body: IdentityBootstrapBody):
+        """Create the initial identity key escrow for an owner who has none.
+        Authenticated by node key. Fails if escrow already exists."""
+        _check_timestamp(body.timestamp)
+        row = con.execute(
+            "SELECT public_key FROM nodes WHERE node_id=? AND owner_id=? AND superseded_at IS NULL",
+            (body.node_id, owner_id),
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Node not found for this owner")
+        if not _verify_sig(row[0], f"contacc:identity-bootstrap:{owner_id}:{body.timestamp}", body.signature):
+            raise HTTPException(401, "Invalid signature")
+        existing = con.execute(
+            "SELECT 1 FROM nodes WHERE owner_id=? AND encrypted_identity_key IS NOT NULL LIMIT 1",
+            (owner_id,),
+        ).fetchone()
+        if existing:
+            raise HTTPException(409, "Escrow already exists — use PUT /identity-key/{owner_id} to update")
+        if not _verify_delegation_cert(body.delegation_cert, row[0]):
+            raise HTTPException(400, "Invalid delegation cert")
+        escrow_data = json.dumps({
+            "encrypted_identity_key": body.encrypted_identity_key,
+            "argon2_salt": body.argon2_salt,
+            "argon2_time_cost": body.argon2_time_cost,
+            "argon2_memory_cost": body.argon2_memory_cost,
+            "argon2_parallelism": body.argon2_parallelism,
+        })
+        now = time.time_ns()
+        con.execute(
+            "UPDATE nodes SET encrypted_identity_key=?, identity_public_key=?, updated_at=? WHERE node_id=?",
+            (escrow_data, body.identity_public_key, now, body.node_id),
+        )
+        _record_key(owner_id, "identity", body.identity_public_key, now)
+        con.commit()
+
     @app.get("/identity-key/{owner_id}")
     def get_escrow(owner_id: str):
         """Return the encrypted escrow blob for an owner_id. Decryption requires the owner passphrase."""

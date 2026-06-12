@@ -1013,6 +1013,111 @@ def change_owner_passphrase(body: ChangeOwnerPassphraseBody, request: Request):
     }
 
 
+@router.get("/has-escrow")
+def has_escrow(request: Request):
+    """Check whether this owner has an identity key escrow in the registry."""
+    app = request.app
+    if not app.state.initialized:
+        return {"has_escrow": False}
+    config = NodeConfig.load(Path(app.state.config_path))
+    owner_id = config.owner_id or config.user_id
+    if not owner_id:
+        return {"has_escrow": False}
+    registry_url = (config.registry_url or config.identity_proxy_url or "").rstrip("/")
+    if not registry_url:
+        return {"has_escrow": False}
+    import httpx as _hx
+    try:
+        r = _hx.get(f"{registry_url}/identity-key/{owner_id}", timeout=5)
+        return {"has_escrow": r.is_success}
+    except Exception:
+        return {"has_escrow": False}
+
+
+class CreateEscrowBody(BaseModel):
+    owner_passphrase: str
+
+
+@router.post("/create-identity-escrow")
+def create_identity_escrow(body: CreateEscrowBody, request: Request, _identity: InternalOrOwnerDep):
+    """Generate a fresh identity key, create a delegation cert, and store escrow in the registry.
+    Use when the owner has no existing escrow. Fails if escrow already exists."""
+    from .identity import make_delegation_cert
+    import httpx as _hx2
+    app = request.app
+    if not app.state.initialized:
+        raise HTTPException(400, "Server not initialized")
+    config_path = Path(app.state.config_path)
+    config = NodeConfig.load(config_path)
+    owner_id = config.owner_id or config.user_id
+    if not owner_id:
+        raise HTTPException(400, "No owner identity configured on this node")
+    registry_url = (config.registry_url or config.identity_proxy_url or "").rstrip("/")
+    if not registry_url:
+        raise HTTPException(400, "No registry URL configured")
+    node_id = config.node_id
+    if not node_id:
+        raise HTTPException(400, "Node ID not yet assigned")
+
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _EK
+    from cryptography.hazmat.primitives.serialization import Encoding as _Enc, PublicFormat as _PuF, PrivateFormat as _PrF, NoEncryption as _NE
+    import json as _json
+
+    identity_key = _EK.generate()
+    id_pub_b64 = base64.b64encode(identity_key.public_key().public_bytes(_Enc.Raw, _PuF.Raw)).decode()
+    id_priv_raw = identity_key.private_bytes(_Enc.Raw, _PrF.Raw, _NE())
+
+    node_pub_b64 = base64.b64encode(
+        app.state.private_key.public_key().public_bytes(_Enc.Raw, _PuF.Raw)
+    ).decode()
+    delegation_cert = make_delegation_cert(identity_key, owner_id, node_pub_b64, node_id=node_id)
+
+    recovery_salt = os.urandom(16)
+    recovery_key = derive_master_key(body.owner_passphrase, recovery_salt)
+    encrypted_id = encrypt_bytes(id_priv_raw, recovery_key)
+
+    import time as _t
+    timestamp = int(_t.time())
+    sign_msg = f"contacc:identity-bootstrap:{owner_id}:{timestamp}"
+    sig = base64.b64encode(app.state.private_key.sign(sign_msg.encode())).decode()
+
+    bootstrap_payload = {
+        "node_id": node_id,
+        "identity_public_key": id_pub_b64,
+        "delegation_cert": delegation_cert,
+        "encrypted_identity_key": base64.b64encode(encrypted_id).decode(),
+        "argon2_salt": recovery_salt.hex(),
+        "argon2_time_cost": ARGON2_TIME_COST,
+        "argon2_memory_cost": ARGON2_MEMORY_COST,
+        "argon2_parallelism": ARGON2_PARALLELISM,
+        "timestamp": timestamp,
+        "signature": sig,
+    }
+    r = _hx2.post(f"{registry_url}/identity-key/{owner_id}/bootstrap", json=bootstrap_payload, timeout=10)
+    if r.status_code == 409:
+        raise HTTPException(409, "Escrow already exists — use refresh-delegation instead")
+    if not r.is_success:
+        raise HTTPException(502, f"Registry bootstrap failed: {r.status_code} {r.text}")
+
+    # Store new delegation cert and identity key in node config
+    config_data = _json.loads(config_path.read_text())
+    config_data["identity_delegation"] = _json.dumps(delegation_cert)
+    config_data["identity_public_key"] = id_pub_b64
+    _mk = getattr(app.state, "master_key", None)
+    if _mk:
+        config_data["encrypted_identity_private_key"] = base64.b64encode(
+            encrypt_bytes(id_priv_raw, _mk)
+        ).decode()
+    config_path.write_text(_json.dumps(config_data, indent=2))
+
+    trigger = getattr(app.state, "trigger_heartbeat", None)
+    if trigger:
+        import threading
+        threading.Thread(target=trigger, daemon=True).start()
+
+    return {"status": "ok", "expires_at": delegation_cert["expires_at"]}
+
+
 class RefreshDelegationBody(BaseModel):
     owner_passphrase: str
 

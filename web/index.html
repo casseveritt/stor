@@ -223,6 +223,7 @@
     </nav>
     <div id="main-area">
       <div id="default-passphrase-banner" hidden onclick="openDefaultPassphrasePanel()" style="cursor:pointer;text-align:center;padding:0.55rem 1rem;background:#7a2020;color:#fff;font-size:0.9rem;font-weight:bold;border-radius:6px;margin-bottom:0.75rem;max-width:680px;margin-left:auto;margin-right:auto;letter-spacing:0.03em">⚠ PLEASE set your passphrase — click here</div>
+      <div id="no-escrow-banner" hidden onclick="openEscrowPanel()" style="cursor:pointer;text-align:center;padding:0.55rem 1rem;background:#5a4010;color:#fff;font-size:0.9rem;font-weight:bold;border-radius:6px;margin-bottom:0.75rem;max-width:680px;margin-left:auto;margin-right:auto;letter-spacing:0.03em">⚠ Account recovery not set up — click here</div>
 <div id="inline-compose" hidden style="max-width:680px;margin:0 auto 0.75rem;position:relative">
         <div id="inline-mention-dropdown" class="mention-dropdown" hidden style="top:100%;margin-top:2px"></div>
         <div style="display:flex;gap:0.5rem;align-items:center">
@@ -555,6 +556,20 @@
       </label>
       <button class="btn btn-primary" onclick="doSetDefaultPassphrase()">Set Passphrase</button>
       <div class="setup-error" id="dp-error"></div>
+    </div>
+  </div>
+</div>
+
+<div id="create-escrow-overlay" class="overlay" hidden onclick="maybeClose('create-escrow-overlay',event)">
+  <div class="modal" style="max-width:420px">
+    <button class="modal-close" onclick="document.getElementById('create-escrow-overlay').hidden=true">&#x2715;</button>
+    <h3 style="margin-bottom:0.5rem">Set Up Account Recovery</h3>
+    <p style="font-size:0.85rem;color:var(--text-3);margin-bottom:1.25rem">Choose a recovery passphrase and save it in your password manager. You'll need it to add nodes or restore your account.</p>
+    <div class="setup-form" style="gap:0.75rem">
+      <input type="password" id="ce-pass" placeholder="Recovery passphrase">
+      <input type="password" id="ce-confirm" placeholder="Confirm recovery passphrase">
+      <button class="btn btn-primary" onclick="doCreateEscrow()">Set Up Recovery</button>
+      <div class="setup-error" id="ce-error"></div>
     </div>
   </div>
 </div>
