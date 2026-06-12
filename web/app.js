@@ -3605,7 +3605,7 @@ async function acceptSetupIdentity() {
   if (!email) { err.textContent = "Email required."; return; }
   err.textContent = "Looking up account…";
   try {
-    const r = await fetch("/api/setup/owner-lookup?" + new URLSearchParams({google_identity: "google:" + email}));
+    const r = await fetch("/setup/owner-lookup?" + new URLSearchParams({google_identity: "google:" + email}));
     const d = await r.json();
     if (!r.ok) { err.textContent = d.detail || "Lookup failed."; return; }
     _setupGoogleIdentity = "google:" + email;
