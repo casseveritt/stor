@@ -156,6 +156,18 @@ def create_app(db_path: str) -> FastAPI:
     con.execute("CREATE INDEX IF NOT EXISTS nodes_username ON nodes (username)")
 
     con.execute("""
+        CREATE TABLE IF NOT EXISTS key_history (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            subject_id  TEXT    NOT NULL,
+            key_type    TEXT    NOT NULL,
+            public_key  TEXT    NOT NULL,
+            valid_from  INTEGER NOT NULL,
+            valid_until INTEGER
+        )
+    """)
+    con.execute("CREATE INDEX IF NOT EXISTS key_history_subject ON key_history (subject_id, key_type)")
+
+    con.execute("""
         CREATE TABLE IF NOT EXISTS registry_keys (
             id          INTEGER PRIMARY KEY DEFAULT 1,
             private_key TEXT NOT NULL,
@@ -177,6 +189,27 @@ def create_app(db_path: str) -> FastAPI:
         from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey as _EPK
         _registry_signing_key = _EPK.from_private_bytes(bytes.fromhex(_reg_key_row[0]))
         _registry_pub_b64 = _reg_key_row[1]
+
+    # Backfill key_history for existing nodes that predate this table.
+    _existing = con.execute(
+        "SELECT node_id, owner_id, public_key, identity_public_key, registered_at FROM nodes"
+    ).fetchall()
+    for _nid, _oid, _npub, _ipub, _reg_at in _existing:
+        if _npub and not con.execute(
+            "SELECT 1 FROM key_history WHERE subject_id=? AND key_type='node'", (_nid,)
+        ).fetchone():
+            con.execute(
+                "INSERT INTO key_history (subject_id, key_type, public_key, valid_from) VALUES (?,?,?,?)",
+                (_nid, "node", _npub, _reg_at),
+            )
+        if _ipub and not con.execute(
+            "SELECT 1 FROM key_history WHERE subject_id=? AND key_type='identity'", (_oid,)
+        ).fetchone():
+            con.execute(
+                "INSERT INTO key_history (subject_id, key_type, public_key, valid_from) VALUES (?,?,?,?)",
+                (_oid, "identity", _ipub, _reg_at),
+            )
+    con.commit()
 
     def _sign_record(record: dict) -> dict:
         """Return a signed node record stripped of owner_id — querying nodes don't need it."""
@@ -255,6 +288,24 @@ def create_app(db_path: str) -> FastAPI:
     proxy_enabled = bool(proxy_client_id and proxy_client_secret and registry_public_url)
 
     app = FastAPI(title="contacc registry", docs_url=None, redoc_url=None)
+
+    # ── key history helpers ───────────────────────────────────────────────────
+
+    def _record_key(subject_id: str, key_type: str, public_key: str, now: int) -> None:
+        """Close the active key_history entry for (subject_id, key_type) if the key
+        has changed, then insert a new active entry."""
+        row = con.execute(
+            "SELECT id, public_key FROM key_history WHERE subject_id=? AND key_type=? AND valid_until IS NULL",
+            (subject_id, key_type),
+        ).fetchone()
+        if row:
+            if row[1] == public_key:
+                return  # unchanged — nothing to do
+            con.execute("UPDATE key_history SET valid_until=? WHERE id=?", (now, row[0]))
+        con.execute(
+            "INSERT INTO key_history (subject_id, key_type, public_key, valid_from) VALUES (?,?,?,?)",
+            (subject_id, key_type, public_key, now),
+        )
 
     # ── registry sessions ─────────────────────────────────────────────────────
     _reg_sessions: dict[str, tuple[str, float]] = {}  # token → (identity, expires_at)
@@ -1653,6 +1704,9 @@ blockquote p { color: #888; font-style: italic; }
             (reg_node_id, reg_owner_id, username, body.server_url, body.public_key, ttl, now, now,
              body.display_name, body.web_url, reg_identity_public_key, reg_delegation_json, body.google_identity),
         )
+        _record_key(reg_node_id, "node", body.public_key, now)
+        if reg_identity_public_key:
+            _record_key(reg_owner_id, "identity", reg_identity_public_key, now)
         con.commit()
         return {"username": username, "ttl": ttl}
 
@@ -1729,13 +1783,17 @@ blockquote p { color: #888; font-style: italic; }
             upd_identity_public_key = cert.get("identity_public_key")
             upd_delegation_json = json.dumps(cert)
         _claim_url(body.server_url, update_node_id, pub_key)
+        now = time.time_ns()
         con.execute(
             "UPDATE nodes SET username=?, server_url=?, ttl=?, updated_at=?, display_name=?, web_url=?, "
             "identity_public_key=?, delegation_sig=?, google_identity=COALESCE(?, google_identity) "
             "WHERE node_id=?",
-            (username, body.server_url, ttl, time.time_ns(), body.display_name, body.web_url,
+            (username, body.server_url, ttl, now, body.display_name, body.web_url,
              upd_identity_public_key, upd_delegation_json, body.google_identity, update_node_id),
         )
+        if upd_identity_public_key:
+            _record_key(update_node_id, "node", pub_key, now)
+            _record_key(cert_owner_id or update_node_id, "identity", upd_identity_public_key, now)
         con.commit()
         return {"username": username, "ttl": ttl}
 
@@ -1778,6 +1836,26 @@ blockquote p { color: #888; font-style: italic; }
             (escrow_data, owner_id),
         )
         con.commit()
+
+    @app.get("/key-history/{subject_id}")
+    def get_key_history(subject_id: str, key_type: str | None = None, at: int | None = None):
+        """Return key history for a node_id or owner_id.
+        key_type: filter to 'node' or 'identity' (default: all).
+        at: nanosecond timestamp — return only the key active at that moment."""
+        query = "SELECT key_type, public_key, valid_from, valid_until FROM key_history WHERE subject_id=?"
+        params: list = [subject_id]
+        if key_type:
+            query += " AND key_type=?"
+            params.append(key_type)
+        if at is not None:
+            query += " AND valid_from<=? AND (valid_until IS NULL OR valid_until>?)"
+            params.extend([at, at])
+        query += " ORDER BY valid_from"
+        rows = con.execute(query, params).fetchall()
+        return {"subject_id": subject_id, "keys": [
+            {"key_type": r[0], "public_key": r[1], "valid_from": r[2], "valid_until": r[3]}
+            for r in rows
+        ]}
 
     @app.get("/identity-key/{owner_id}")
     def get_escrow(owner_id: str):
