@@ -480,6 +480,7 @@ def create_app(db_path: str) -> FastAPI:
 def main() -> None:
     import argparse
     import uvicorn
+    from logging.handlers import RotatingFileHandler
 
     parser = argparse.ArgumentParser(description="Run the contacc provider")
     parser.add_argument("db", help="Path to provider SQLite database")
@@ -488,6 +489,13 @@ def main() -> None:
     args = parser.parse_args()
 
     Path(args.db).parent.mkdir(parents=True, exist_ok=True)
+
+    log_path = Path(args.db).parent / "provider.log"
+    fmt = logging.Formatter("%(asctime)s %(levelname)s %(name)s %(message)s")
+    file_handler = RotatingFileHandler(log_path, maxBytes=5_000_000, backupCount=4)
+    file_handler.setFormatter(fmt)
+    logging.getLogger().addHandler(file_handler)
+
     uvicorn.run(create_app(args.db), host=args.host, port=args.port)
 
 
