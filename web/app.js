@@ -3657,14 +3657,14 @@ async function doSetupNew() {
 
   if (_setupExistingOwnerId) {
     const ownerPass = document.getElementById("setup-owner-passphrase").value;
-    if (!ownerPass) { err.textContent = "Recovery passphrase required."; return; }
+    if (!ownerPass) { err.textContent = "Owner passphrase required."; return; }
     try {
       const r = await fetch("/setup/new-for-owner", {
         method: "POST", headers: {"Content-Type": "application/json"},
         body: JSON.stringify({...baseBody, existing_owner_id: _setupExistingOwnerId, owner_passphrase: ownerPass}),
       });
       const d = await r.json();
-      if (r.status === 403) { err.textContent = d.detail || "Wrong recovery passphrase."; return; }
+      if (r.status === 403) { err.textContent = d.detail || "Wrong owner passphrase."; return; }
       if (!r.ok) { err.textContent = d.detail || "Error."; return; }
       location.reload();
     } catch { err.textContent = "Network error."; }
