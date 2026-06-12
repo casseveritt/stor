@@ -10,7 +10,7 @@ from pydantic import BaseModel
 from . import auth as auth_module
 from . import node as node_module
 from . import sso as sso_module
-from .auth import AuthDep
+from .auth import AuthDep, InternalOrOwnerDep
 from .sso import SSOError, UnknownIdentityError
 
 router = APIRouter(prefix="/auth")
@@ -127,7 +127,7 @@ def callback(request: Request, code: str = None, state: str = None, proxy_token:
 
 
 @router.get("/me")
-def me(request: Request, identity: AuthDep):
+def me(request: Request, identity: InternalOrOwnerDep):
     """Return the current user's role and identity."""
     if identity.is_owner:
         return {
