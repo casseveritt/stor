@@ -23,17 +23,18 @@ PENDING_TIMEOUT = 10 * 60  # 10 minutes before a stalled setup is recovered
 def create_app(db_path: str) -> FastAPI:
     con = sqlite3.connect(db_path, check_same_thread=False)
 
-    # Migrate old invitations table (only drop if it has the old code-based schema)
-    try:
-        old_cols = {row[1] for row in con.execute("PRAGMA table_info(invitations)").fetchall()}
-        if old_cols and "code" in old_cols:
-            con.execute("DROP TABLE invitations")
-        elif old_cols and "pending_at" not in old_cols:
-            con.execute("ALTER TABLE invitations ADD COLUMN pending_at INTEGER")
-            con.execute("ALTER TABLE invitations ADD COLUMN pending_node_url TEXT")
-            con.execute("ALTER TABLE invitations ADD COLUMN pending_setup_token TEXT")
-    except Exception:
-        pass
+    # Add any missing columns to invitations (safe, never drops)
+    existing_cols = {row[1] for row in con.execute("PRAGMA table_info(invitations)").fetchall()}
+    for col, typedef in [
+        ("pending_at", "INTEGER"),
+        ("pending_node_url", "TEXT"),
+        ("pending_setup_token", "TEXT"),
+    ]:
+        if col not in existing_cols:
+            try:
+                con.execute(f"ALTER TABLE invitations ADD COLUMN {col} {typedef}")
+            except Exception:
+                pass
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS invitations (
