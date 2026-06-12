@@ -454,6 +454,13 @@
           <input type="checkbox" id="release-confirmed" onchange="_onReleaseCheckbox(this)">
           I have downloaded and verified my backup
         </label>
+        <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.82rem;color:var(--text-3);cursor:pointer;margin-top:0.2rem">
+          <input type="checkbox" id="release-delete-registry" onchange="_onReleaseDeleteRegistry(this)">
+          Also remove from registry
+        </label>
+        <div id="release-delete-warning" hidden style="font-size:0.75rem;color:var(--error);padding:0.35rem 0.5rem;background:color-mix(in srgb,var(--error) 10%,transparent);border-radius:4px">
+          Warning: removing from registry means this node cannot be resumed or reclaimed. Only do this if you are permanently retiring this node.
+        </div>
         <input type="password" id="release-passphrase" placeholder="Passphrase to confirm" disabled style="opacity:0.5" onkeydown="if(event.key==='Enter'&&!this.disabled)releaseNode()">
         <button class="btn btn-sm" id="release-btn" onclick="releaseNode()" disabled style="background:var(--error);color:#fff;opacity:0.4;width:100%">Release node</button>
         <div id="release-status" style="font-size:0.8rem;min-height:1em"></div>

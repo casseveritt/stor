@@ -2720,7 +2720,11 @@ function _onReleaseCheckbox(cb) {
   passEl.style.opacity = enabled ? '1' : '0.5';
   btnEl.disabled = !enabled;
   btnEl.style.opacity = enabled ? '1' : '0.4';
-  if (!enabled) passEl.value = '';
+  if (!enabled) { passEl.value = ''; document.getElementById('release-delete-registry').checked = false; document.getElementById('release-delete-warning').hidden = true; }
+}
+
+function _onReleaseDeleteRegistry(cb) {
+  document.getElementById('release-delete-warning').hidden = !cb.checked;
 }
 
 async function releaseNode() {
@@ -2730,10 +2734,11 @@ async function releaseNode() {
   if (!confirm('This will permanently erase ALL node data — posts, contacts, settings, and files. This cannot be undone.\n\nContinue?')) return;
   statusEl.style.color = 'var(--text-4)'; statusEl.textContent = 'Releasing…';
   try {
+    const deleteFromRegistry = document.getElementById('release-delete-registry')?.checked || false;
     const r = await apiFetch('/api/setup/release', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({passphrase}),
+      body: JSON.stringify({passphrase, delete_from_registry: deleteFromRegistry}),
     });
     if (r.ok || r.status === 204) {
       statusEl.style.color = 'var(--ok)'; statusEl.textContent = 'Node released. Reloading…';

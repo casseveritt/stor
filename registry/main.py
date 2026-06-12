@@ -106,7 +106,8 @@ def create_app(db_path: str) -> FastAPI:
             encrypted_identity_key TEXT,
             google_identity TEXT,
             is_primary    INTEGER DEFAULT 0,
-            superseded_at INTEGER
+            superseded_at INTEGER,
+            deleted_at    INTEGER
         )
     """)
     # Migrate from v2 schema (user_id PK) to v3 (node_id PK, owner_id separate)
@@ -154,6 +155,11 @@ def create_app(db_path: str) -> FastAPI:
     con.execute("DROP INDEX IF EXISTS handles_username")
     con.execute("CREATE INDEX IF NOT EXISTS nodes_owner_id ON nodes (owner_id)")
     con.execute("CREATE INDEX IF NOT EXISTS nodes_username ON nodes (username)")
+    try:
+        con.execute("ALTER TABLE nodes ADD COLUMN deleted_at INTEGER")
+        con.commit()
+    except Exception:
+        pass
 
     con.execute("""
         CREATE TABLE IF NOT EXISTS key_history (
@@ -1713,6 +1719,28 @@ blockquote p { color: #888; font-style: italic; }
     class SuspendBody(BaseModel):
         timestamp: int
         signature: str  # node signs f"contacc:suspend:{node_id}:{timestamp}"
+
+    class DeregisterBody(BaseModel):
+        timestamp: int
+        signature: str  # node_key signs f"contacc:deregister:{node_id}:{timestamp}"
+
+    @app.post("/nodes/{node_id}/deregister", status_code=204)
+    def deregister_node(node_id: str, body: DeregisterBody):
+        """Node-initiated permanent removal from the registry. Cannot be undone."""
+        _check_timestamp(body.timestamp)
+        row = con.execute(
+            "SELECT public_key FROM nodes WHERE node_id = ? AND superseded_at IS NULL", (node_id,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "Node not found")
+        if not _verify_sig(row[0], f"contacc:deregister:{node_id}:{body.timestamp}", body.signature):
+            raise HTTPException(401, "Invalid signature")
+        con.execute(
+            "UPDATE nodes SET deleted_at = ?, server_url = '', superseded_at = ? WHERE node_id = ?",
+            (time.time_ns(), time.time_ns(), node_id)
+        )
+        con.commit()
+        log.info("Node %s marked as deleted in registry", node_id)
 
     @app.post("/suspend/{node_id}", status_code=204)
     def suspend(node_id: str, body: SuspendBody):

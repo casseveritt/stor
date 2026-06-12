@@ -1213,6 +1213,7 @@ def refresh_delegation(body: RefreshDelegationBody, request: Request, _identity:
 
 class ReleaseBody(BaseModel):
     passphrase: str
+    delete_from_registry: bool = False
 
 
 @router.post("/release", status_code=204)
@@ -1256,6 +1257,22 @@ def release_node(body: ReleaseBody, request: Request, _identity: InternalOrOwner
             log.info("Notified registry of suspension for node %s", _node_id_r)
     except Exception as _re:
         log.warning("Could not notify registry of node suspension: %s", _re)
+
+    if body.delete_from_registry:
+        try:
+            import httpx as _hx_d, time as _t_d
+            _config_d = NodeConfig.load(config_path)
+            _registry_url_d = (_config_d.registry_url or _config_d.identity_proxy_url or "").rstrip("/")
+            _node_id_d = _config_d.node_id or ""
+            if _registry_url_d and _node_id_d and app.state.private_key:
+                _ts_d = int(_t_d.time())
+                _msg_d = f"contacc:deregister:{_node_id_d}:{_ts_d}"
+                _sig_d = base64.b64encode(app.state.private_key.sign(_msg_d.encode())).decode()
+                _hx_d.post(f"{_registry_url_d}/nodes/{_node_id_d}/deregister",
+                           json={"timestamp": _ts_d, "signature": _sig_d}, timeout=5.0)
+                log.info("Deregistered node %s from registry", _node_id_d)
+        except Exception as _de:
+            log.warning("Could not deregister node from registry: %s", _de)
 
     # Reset in-memory state first so in-flight requests fail fast
     app.state.initialized = False
