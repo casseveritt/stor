@@ -385,11 +385,19 @@ def _notify_parent_of_reply(parent_node_id: str, parent_post_id: str,
         db = app.state.db
         priv = getattr(app.state, "private_key", None)
         node_address = getattr(app.state, "node_address", "") or ""
+
         row = db.execute("SELECT server_url FROM users WHERE node_id = ?", (parent_node_id,)).fetchone()
-        if not row:
-            return
-        try:
-            ts = int(_t.time())
+        server_url = row[0] if row else None
+
+        def _get_registry_url():
+            try:
+                from .config import NodeConfig
+                cfg = NodeConfig.load(app.state.config_path)
+                return (cfg.registry_url or cfg.identity_proxy_url or "").rstrip("/")
+            except Exception:
+                return ""
+
+        def _build_headers(ts):
             headers = {"Content-Type": "application/json"}
             if priv:
                 from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
@@ -400,14 +408,59 @@ def _notify_parent_of_reply(parent_node_id: str, parent_post_id: str,
                 ).decode()
                 headers.update({"X-Public-Key": pub_b64, "X-Timestamp": str(ts),
                                  "X-Signature": sig, "X-Origin-Server": node_address})
-            _hx.post(
-                row[0].rstrip("/") + f"/posts/{parent_post_id}/notify-reply",
+            return headers
+
+        def _try_deliver(url):
+            ts = int(_t.time())
+            r = _hx.post(
+                url.rstrip("/") + f"/posts/{parent_post_id}/notify-reply",
                 json={"reply_node_id": reply_node_id, "reply_post_id": reply_post_id},
-                headers=headers,
+                headers=_build_headers(ts),
                 timeout=5,
             )
+            return r
+
+        def _lookup_fresh_url():
+            reg_url = _get_registry_url()
+            if not reg_url:
+                return None
+            try:
+                r = _hx.get(f"{reg_url}/nodes/{parent_node_id}", timeout=5)
+                if not r.is_success:
+                    return None
+                d = r.json()
+                fresh = d.get("server_url")
+                if fresh and fresh != server_url:
+                    db.execute("UPDATE users SET server_url = ? WHERE node_id = ?",
+                               (fresh, parent_node_id))
+                    db.commit()
+                return fresh
+            except Exception:
+                return None
+
+        try:
+            if not server_url:
+                server_url_to_use = _lookup_fresh_url()
+            else:
+                server_url_to_use = server_url
+
+            if not server_url_to_use:
+                return
+
+            r = _try_deliver(server_url_to_use)
+            if r.status_code in (404, 410) or r.status_code >= 500:
+                # Cached URL may be stale — re-lookup and retry once
+                fresh = _lookup_fresh_url()
+                if fresh and fresh != server_url_to_use:
+                    _try_deliver(fresh)
         except Exception:
-            pass
+            # Connection failed — try registry re-lookup once
+            try:
+                fresh = _lookup_fresh_url()
+                if fresh:
+                    _try_deliver(fresh)
+            except Exception:
+                pass
 
     threading.Thread(target=_send, daemon=True).start()
 
