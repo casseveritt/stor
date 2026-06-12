@@ -436,6 +436,14 @@
         <div id="eu-status" style="font-size:0.8rem;min-height:1em"></div>
       </div>
       <hr style="border:none;border-top:1px solid var(--surface-3);margin:0.5rem 0">
+      <div id="refresh-delegation-wrap" style="display:flex;flex-direction:column;gap:0.4rem">
+        <div style="font-size:0.72rem;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.08em">Refresh delegation cert</div>
+        <div style="font-size:0.78rem;color:var(--text-5)">Use when registry heartbeat fails with "Invalid delegation cert" after bundle restore. Fetches your identity key from registry escrow and signs a fresh cert.</div>
+        <input type="password" id="rd-pass" placeholder="Owner passphrase">
+        <button class="btn btn-muted btn-sm" onclick="refreshDelegation()">Refresh delegation</button>
+        <div id="rd-status" style="font-size:0.8rem;min-height:1em"></div>
+      </div>
+      <hr style="border:none;border-top:1px solid var(--surface-3);margin:0.5rem 0">
       <div id="release-node-wrap" style="display:flex;flex-direction:column;gap:0.4rem">
         <div style="font-size:0.72rem;color:var(--error);text-transform:uppercase;letter-spacing:0.08em">Release node</div>
         <div style="font-size:0.78rem;color:var(--text-5)">Permanently erases all posts, contacts, and settings, returning this node to its uninitialized state. Download a backup first — this cannot be undone.</div>

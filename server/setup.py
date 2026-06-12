@@ -1013,6 +1013,64 @@ def change_owner_passphrase(body: ChangeOwnerPassphraseBody, request: Request):
     }
 
 
+class RefreshDelegationBody(BaseModel):
+    owner_passphrase: str
+
+
+@router.post("/refresh-delegation")
+def refresh_delegation(body: RefreshDelegationBody, request: Request, _identity: InternalOrOwnerDep):
+    """Fetch identity key from registry escrow, sign a fresh delegation cert.
+    Use when the stored delegation cert has expired (e.g. after bundle restore)."""
+    from .identity import identity_key_from_hex, make_delegation_cert
+    import httpx as _httpx
+    app = request.app
+    if not app.state.initialized:
+        raise HTTPException(400, "Server not initialized")
+    config_path = Path(app.state.config_path)
+    config = NodeConfig.load(config_path)
+    owner_id = config.owner_id or config.user_id
+    if not owner_id or not config.identity_public_key:
+        raise HTTPException(400, "No identity configured on this node")
+    registry_url = (config.registry_url or config.identity_proxy_url or "").rstrip("/")
+    if not registry_url:
+        raise HTTPException(400, "No registry URL configured")
+    r = _httpx.post(f"{registry_url}/identity-key/{owner_id}/recover", timeout=10)
+    if not r.is_success:
+        raise HTTPException(502, "Could not fetch identity key from registry escrow")
+    escrow = r.json()
+    try:
+        salt = bytes.fromhex(escrow["argon2_salt"])
+        key = derive_master_key(
+            body.owner_passphrase, salt,
+            escrow.get("argon2_time_cost", ARGON2_TIME_COST),
+            escrow.get("argon2_memory_cost", ARGON2_MEMORY_COST),
+            escrow.get("argon2_parallelism", ARGON2_PARALLELISM),
+        )
+        id_priv_bytes = decrypt_bytes(base64.b64decode(escrow["encrypted_identity_key"]), key)
+        identity_private_key = identity_key_from_hex(id_priv_bytes.hex())
+    except Exception:
+        raise HTTPException(403, "Wrong owner passphrase")
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    provided_pub = base64.b64encode(
+        identity_private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    ).decode()
+    if provided_pub != config.identity_public_key:
+        raise HTTPException(403, "Recovered key does not match this node's identity")
+    node_pub_b64 = base64.b64encode(
+        app.state.private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
+    ).decode()
+    delegation_cert = make_delegation_cert(identity_private_key, owner_id, node_pub_b64)
+    import json as _json
+    config_data = _json.loads(config_path.read_text())
+    config_data["identity_delegation"] = _json.dumps(delegation_cert)
+    config_path.write_text(_json.dumps(config_data, indent=2))
+    trigger = getattr(app.state, "trigger_heartbeat", None)
+    if trigger:
+        import threading
+        threading.Thread(target=trigger, daemon=True).start()
+    return {"status": "ok", "expires_at": delegation_cert["expires_at"]}
+
+
 class ReleaseBody(BaseModel):
     passphrase: str
 

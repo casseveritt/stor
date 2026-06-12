@@ -3454,6 +3454,26 @@ async function changePassphrase() {
   setTimeout(() => { status.textContent = ""; }, 4000);
 }
 
+async function refreshDelegation() {
+  const pass = document.getElementById("rd-pass").value;
+  const status = document.getElementById("rd-status");
+  if (!pass) { status.style.color = "#e06c6c"; status.textContent = "Owner passphrase required."; return; }
+  status.style.color = "#888"; status.textContent = "Refreshing…";
+  const r = await apiFetch("/api/setup/refresh-delegation", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({owner_passphrase: pass}),
+  });
+  if (r.ok) {
+    document.getElementById("rd-pass").value = "";
+    status.style.color = "#4caf50"; status.textContent = "Delegation cert refreshed. Heartbeat sent.";
+    setTimeout(() => { status.textContent = ""; }, 6000);
+  } else {
+    const e = await r.json().catch(() => ({}));
+    status.style.color = "#e06c6c"; status.textContent = e.detail || "Failed.";
+  }
+}
+
 async function uploadEscrowFromSettings() {
   const key = document.getElementById("eu-key").value.trim();
   const pass = document.getElementById("eu-pass").value;
