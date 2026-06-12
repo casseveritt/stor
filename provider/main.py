@@ -15,27 +15,28 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from pydantic import BaseModel
 
 NS = 1_000_000_000
-ADMIN_SESSION_TTL = 600   # 10 minutes
+ADMIN_SESSION_TTL = 1800   # 30 minutes
 TIMESTAMP_TOLERANCE = 120  # seconds
 
 
 def create_app(db_path: str) -> FastAPI:
     con = sqlite3.connect(db_path, check_same_thread=False)
+
+    # Migrate old invitations table (had code/node_url/setup_token columns) to new schema
+    try:
+        old_cols = {row[1] for row in con.execute("PRAGMA table_info(invitations)").fetchall()}
+        if old_cols and "code" in old_cols:
+            con.execute("DROP TABLE invitations")
+    except Exception:
+        pass
+
     con.execute("""
         CREATE TABLE IF NOT EXISTS invitations (
-            code            TEXT PRIMARY KEY,
-            google_identity TEXT NOT NULL,
-            node_id         TEXT,
-            node_url        TEXT NOT NULL,
-            setup_token     TEXT NOT NULL,
+            google_identity TEXT PRIMARY KEY,
             created_at      INTEGER NOT NULL,
             used_at         INTEGER
         )
     """)
-    try:
-        con.execute("ALTER TABLE invitations ADD COLUMN node_id TEXT")
-    except Exception:
-        pass  # column already exists
     con.execute("""
         CREATE TABLE IF NOT EXISTS available_nodes (
             node_id     TEXT PRIMARY KEY,
@@ -95,48 +96,33 @@ def create_app(db_path: str) -> FastAPI:
         ).fetchone()
         return bool(row and time.time_ns() - row[0] <= ADMIN_SESSION_TTL * NS)
 
-    def _available_options_html() -> str:
-        rows = con.execute(
-            "SELECT node_id, node_url FROM available_nodes ORDER BY added_at DESC"
-        ).fetchall()
-        if not rows:
-            return "<option value=''>— none available, enter manually —</option>"
-        opts = "<option value=''>— enter manually —</option>"
-        for node_id, node_url in rows:
-            label = node_url if node_id == node_url else f"{node_url} ({node_id[:8]}…)"
-            opts += f"<option value='{node_id}'>{label}</option>"
-        return opts
-
     _CSS = """
       *{box-sizing:border-box}
       body{font-family:system-ui,sans-serif;background:#1a1a1a;color:#ddd;
            display:flex;align-items:center;justify-content:center;
            min-height:100vh;margin:0;padding:1rem}
       .card{background:#242424;border:1px solid #333;border-radius:8px;
-            padding:2rem;width:100%;max-width:460px}
-      h2{margin:0 0 1.25rem;font-size:1.1rem;color:#eee}
+            padding:2rem;width:100%;max-width:520px}
+      h2{margin:0 0 1rem;font-size:1.05rem;color:#eee}
       label{display:block;font-size:.8rem;color:#888;margin-bottom:.25rem}
-      input,select{width:100%;background:#1a1a1a;border:1px solid #444;border-radius:4px;
-            color:#ddd;padding:.5rem .65rem;margin-bottom:.85rem;font-size:.9rem}
-      select option{background:#1a1a1a}
-      .manual{margin-bottom:0}
-      button{width:100%;background:#4f8ef7;color:#fff;border:none;border-radius:4px;
-             padding:.6rem;font-size:.95rem;cursor:pointer;margin-top:.25rem}
-      button:hover{background:#3a7de0}
-      .url-box{word-break:break-all;background:#1a1a1a;border:1px solid #444;
-               border-radius:4px;padding:.65rem;font-size:.85rem;color:#7cf;
-               margin-top:1rem;cursor:pointer}
-      .meta{font-size:.78rem;color:#666;margin-top:.75rem}
-      .err{color:#f87;font-size:.85rem;margin-top:.5rem}
+      input{width:100%;background:#1a1a1a;border:1px solid #444;border-radius:4px;
+            color:#ddd;padding:.5rem .65rem;margin-bottom:.75rem;font-size:.9rem}
+      .btn{background:#4f8ef7;color:#fff;border:none;border-radius:4px;
+           padding:.5rem 1.1rem;font-size:.9rem;cursor:pointer}
+      .btn:hover{background:#3a7de0}
+      .inv-list{margin-top:.5rem;border-top:1px solid #333}
+      .inv-row{display:flex;align-items:center;gap:.75rem;padding:.55rem 0;
+               border-bottom:1px solid #2a2a2a}
+      .inv-email{flex:1;font-size:.9rem;color:#ccc}
+      .inv-date{font-size:.75rem;color:#666;white-space:nowrap}
+      .del-btn{background:none;border:none;color:#f87;font-size:1rem;
+               cursor:pointer;padding:.1rem .3rem;border-radius:3px;line-height:1}
+      .del-btn:hover{background:#3a2020}
+      .empty{color:#666;font-size:.85rem;padding:.5rem 0}
+      .meta{font-size:.78rem;color:#666;margin:.5rem 0 0}
+      .err{color:#f87;font-size:.85rem}
       a{color:#4f8ef7;text-decoration:none}
-      #manual-fields{display:none}
-    """
-
-    _POOL_JS = """
-      function onNodeSelect(sel) {
-        document.getElementById('manual-fields').style.display =
-          sel.value ? 'none' : 'block';
-      }
+      .section{margin-top:1.75rem;padding-top:1.25rem;border-top:1px solid #333}
     """
 
     # ── node pool registration ─────────────────────────────────────────────────
@@ -174,7 +160,7 @@ def create_app(db_path: str) -> FastAPI:
 
     @app.post("/nodes/startup", status_code=204)
     def node_startup(body: NodeStartupBody):
-        """Uninitialized node announces availability; node_url is used as synthetic node_id."""
+        """Uninitialized node announces availability; node_url used as synthetic node_id."""
         node_url = body.node_url.rstrip("/")
         con.execute(
             "INSERT OR REPLACE INTO available_nodes VALUES (?, ?, ?, ?)",
@@ -188,144 +174,153 @@ def create_app(db_path: str) -> FastAPI:
         msg = f"contacc:provider-registered:{body.node_id}:{body.timestamp}"
         if not _verify_node_sig(body.public_key, msg, body.signature):
             raise HTTPException(401, "Invalid signature")
-        # Remove both: the real node_id entry (from release-based registration)
-        # and the synthetic startup entry (where node_id == node_url)
+        # Delete both the real node_id entry and any synthetic startup entry (node_id == node_url)
         con.execute("DELETE FROM available_nodes WHERE node_id = ? OR node_id = ?",
                     (body.node_id, body.node_url.rstrip("/")))
         con.commit()
 
-    # ── admin: create invitation ───────────────────────────────────────────────
+    # ── admin UI ──────────────────────────────────────────────────────────────
 
-    @app.get("/invite/new", response_class=HTMLResponse)
-    def invite_new_start():
+    def _admin_page(s: str) -> str:
+        rows = con.execute(
+            "SELECT google_identity, created_at FROM invitations"
+            " WHERE used_at IS NULL ORDER BY created_at DESC"
+        ).fetchall()
+        pool_count = con.execute("SELECT count(*) FROM available_nodes").fetchone()[0]
+
+        inv_html = ""
+        for identity, created_at in rows:
+            email = identity.removeprefix("google:")
+            ts = time.strftime("%Y-%m-%d", time.gmtime(created_at / NS))
+            inv_html += f"""<div class=inv-row>
+              <span class=inv-email>{email}</span>
+              <span class=inv-date>{ts}</span>
+              <form method=post action=/invite/delete style="margin:0">
+                <input type=hidden name=s value="{s}">
+                <input type=hidden name=google_identity value="{identity}">
+                <button type=submit class=del-btn title="Delete invitation">🗑</button>
+              </form>
+            </div>"""
+        if not inv_html:
+            inv_html = "<p class=empty>No pending invitations.</p>"
+
+        return f"""<!doctype html><html><head><meta charset=utf-8>
+<title>Invitations — contacc</title><style>{_CSS}</style></head><body>
+<div class=card>
+  <h2>Invite Someone</h2>
+  <form method=post action="/invite/add?s={s}">
+    <label>Google email</label>
+    <input name=google_identity placeholder="friend@example.com" required autocomplete=off>
+    <button type=submit class=btn>Add Invite</button>
+  </form>
+  <p class=meta>{pool_count} node{'s' if pool_count != 1 else ''} available in pool</p>
+  <div class=section>
+    <h2>Pending Invitations</h2>
+    <div class=inv-list>{inv_html}</div>
+  </div>
+</div></body></html>"""
+
+    @app.get("/", response_class=HTMLResponse)
+    def root():
+        return RedirectResponse("/invite/admin", 302)
+
+    @app.get("/invite/admin", response_class=HTMLResponse)
+    def invite_admin(s: str = ""):
         if not admin_identity:
             raise HTTPException(503, "Provider admin not configured")
-        return_to = provider_url + "/invite/new/form"
-        return RedirectResponse(
-            f"{registry_url}/auth/start?return_to={quote(return_to, safe='')}", 302
-        )
+        if not s or not _check_admin_session(s):
+            return_to = provider_url + "/invite/admin/verify"
+            return RedirectResponse(
+                f"{registry_url}/auth/start?return_to={quote(return_to, safe='')}", 302
+            )
+        return HTMLResponse(_admin_page(s))
 
-    @app.get("/invite/new/form", response_class=HTMLResponse)
-    def invite_new_form(proxy_token: str = ""):
+    @app.get("/invite/admin/verify")
+    def invite_admin_verify(proxy_token: str = ""):
         if not proxy_token:
-            return RedirectResponse("/invite/new", 302)
+            return RedirectResponse("/invite/admin", 302)
         data = _verify_proxy_token(proxy_token)
         if data.get("identity") != admin_identity:
-            return HTMLResponse(f"<style>{_CSS}</style>"
-                                "<div class=card><p class=err>Admin access required.</p>"
-                                "<p><a href='/invite/new'>Sign in as admin</a></p></div>", 403)
+            return HTMLResponse(
+                f"<style>{_CSS}</style><div class=card>"
+                "<p class=err>Admin access required.</p>"
+                "<p><a href='/invite/admin'>Sign in as admin</a></p></div>", 403
+            )
         session = _new_admin_session()
-        opts = _available_options_html()
-        return HTMLResponse(f"""<!doctype html><html><head><meta charset=utf-8>
-<title>New Invitation — contacc</title>
-<style>{_CSS}</style><script>{_POOL_JS}</script></head><body>
-<div class=card>
-  <h2>Create Invitation</h2>
-  <form method=post action=/invite/new>
-    <input type=hidden name=admin_session value="{session}">
-    <label>Invitee Google email</label>
-    <input name=google_identity placeholder="friend@example.com" required autocomplete=off>
-    <label>Node (from pool)</label>
-    <select name=pool_node_id onchange="onNodeSelect(this)">{opts}</select>
-    <div id=manual-fields>
-      <label>Node URL</label>
-      <input name=node_url placeholder="https://pc.xyzw.us:6448" class=manual>
-      <label>Setup token</label>
-      <input name=setup_token placeholder="token" class=manual>
-    </div>
-    <button type=submit>Create Invite Link</button>
-  </form>
-</div></body></html>""")
+        return RedirectResponse(f"/invite/admin?s={session}", 302)
 
-    @app.post("/invite/new", response_class=HTMLResponse)
-    async def invite_new_create(request: Request):
+    @app.post("/invite/add")
+    async def invite_add(request: Request, s: str = ""):
+        if not _check_admin_session(s):
+            return RedirectResponse("/invite/admin", 302)
         form = await request.form()
-        admin_session = form.get("admin_session", "")
-        if not _check_admin_session(admin_session):
-            return RedirectResponse("/invite/new", 302)
-
         google_identity = form.get("google_identity", "").strip()
-        pool_node_id = form.get("pool_node_id", "").strip()
+        if google_identity:
+            if not google_identity.startswith("google:"):
+                google_identity = "google:" + google_identity
+            con.execute(
+                "INSERT OR REPLACE INTO invitations VALUES (?, ?, NULL)",
+                (google_identity, time.time_ns())
+            )
+            con.commit()
+        return RedirectResponse(f"/invite/admin?s={s}", 302)
 
-        if pool_node_id:
-            row = con.execute(
-                "SELECT node_url, setup_token FROM available_nodes WHERE node_id = ?",
-                (pool_node_id,)
-            ).fetchone()
-            if not row:
-                return HTMLResponse(f"<style>{_CSS}</style><div class=card>"
-                                    "<p class=err>Selected node no longer available.</p>"
-                                    "<p><a href='javascript:history.back()'>Go back</a></p></div>", 400)
-            node_url, setup_token = row
-            node_id = pool_node_id
-        else:
-            node_url = form.get("node_url", "").strip().rstrip("/")
-            setup_token = form.get("setup_token", "").strip()
-            node_id = None
+    @app.post("/invite/delete")
+    async def invite_delete(request: Request):
+        form = await request.form()
+        s = form.get("s", "")
+        if not _check_admin_session(s):
+            return RedirectResponse("/invite/admin", 302)
+        google_identity = form.get("google_identity", "")
+        if google_identity:
+            con.execute("DELETE FROM invitations WHERE google_identity = ?", (google_identity,))
+            con.commit()
+        return RedirectResponse(f"/invite/admin?s={s}", 302)
 
-        if not google_identity or not node_url or not setup_token:
-            return HTMLResponse(f"<style>{_CSS}</style><div class=card>"
-                                "<p class=err>All fields required.</p>"
-                                "<p><a href='javascript:history.back()'>Go back</a></p></div>", 400)
-        if not google_identity.startswith("google:"):
-            google_identity = "google:" + google_identity
+    # ── invitee: accept invitation ─────────────────────────────────────────────
 
-        code = secrets.token_urlsafe(16)
-        con.execute(
-            "INSERT INTO invitations VALUES (?, ?, ?, ?, ?, ?, NULL)",
-            (code, google_identity, node_id, node_url, setup_token, time.time_ns())
-        )
-        con.commit()
-
-        invite_url = f"{provider_url}/invite/{code}"
-        return HTMLResponse(f"""<!doctype html><html><head><meta charset=utf-8>
-<title>Invitation Created — contacc</title><style>{_CSS}</style></head><body>
-<div class=card>
-  <h2>Invitation Created</h2>
-  <p class=meta>For: {google_identity}</p>
-  <div class=url-box onclick="navigator.clipboard.writeText(this.textContent)"
-       title="Click to copy">{invite_url}</div>
-  <p class=meta>Single-use link. Click the box to copy.</p>
-  <p style="margin-top:1.25rem"><a href=/invite/new>Create another</a></p>
-</div></body></html>""")
-
-    # ── invitee: redeem invitation ─────────────────────────────────────────────
-
-    @app.get("/invite/{code}")
-    def invite_start(code: str):
-        row = con.execute(
-            "SELECT google_identity FROM invitations WHERE code = ? AND used_at IS NULL", (code,)
-        ).fetchone()
-        if not row:
-            raise HTTPException(404, "Invitation not found or already used")
-        return_to = f"{provider_url}/invite/{code}/verify"
+    @app.get("/accept_invitation")
+    def accept_invitation():
+        return_to = provider_url + "/accept_invitation/verify"
         return RedirectResponse(
             f"{registry_url}/auth/start?return_to={quote(return_to, safe='')}", 302
         )
 
-    @app.get("/invite/{code}/verify")
-    def invite_verify(code: str, proxy_token: str = ""):
+    @app.get("/accept_invitation/verify", response_class=HTMLResponse)
+    def accept_invitation_verify(proxy_token: str = ""):
         if not proxy_token:
-            raise HTTPException(400, "Missing proxy token")
-        row = con.execute(
-            "SELECT google_identity, node_id, node_url, setup_token"
-            " FROM invitations WHERE code = ? AND used_at IS NULL",
-            (code,)
-        ).fetchone()
-        if not row:
-            raise HTTPException(404, "Invitation not found or already used")
-
+            return RedirectResponse("/accept_invitation", 302)
         data = _verify_proxy_token(proxy_token)
-        if data.get("identity") != row[0]:
-            raise HTTPException(403, "This invitation is for a different Google account")
+        identity = data.get("identity", "")
 
-        con.execute("UPDATE invitations SET used_at = ? WHERE code = ?", (time.time_ns(), code))
-        # Remove from pool — the node is now spoken for
-        if row[1]:
-            con.execute("DELETE FROM available_nodes WHERE node_id = ?", (row[1],))
+        inv = con.execute(
+            "SELECT google_identity FROM invitations WHERE google_identity = ? AND used_at IS NULL",
+            (identity,)
+        ).fetchone()
+        if not inv:
+            return HTMLResponse(
+                f"<style>{_CSS}</style><div class=card>"
+                "<h2>No invitation found</h2>"
+                f"<p>No pending invitation for <b>{identity.removeprefix('google:')}</b>.</p>"
+                "<p>Please ask the admin for an invite.</p></div>", 403
+            )
+
+        node_row = con.execute(
+            "SELECT node_id, node_url, setup_token FROM available_nodes ORDER BY added_at LIMIT 1"
+        ).fetchone()
+        if not node_row:
+            return HTMLResponse(
+                f"<style>{_CSS}</style><div class=card>"
+                "<h2>No nodes available</h2>"
+                "<p>All instances are currently claimed. Please try again later.</p></div>", 503
+            )
+
+        node_id, node_url, setup_token = node_row
+        con.execute("UPDATE invitations SET used_at = ? WHERE google_identity = ?",
+                    (time.time_ns(), identity))
+        con.execute("DELETE FROM available_nodes WHERE node_id = ?", (node_id,))
         con.commit()
 
-        node_url, setup_token = row[2], row[3]
         sep = "&" if "?" in node_url else "?"
         return RedirectResponse(f"{node_url}{sep}setup_token={setup_token}", 302)
 
