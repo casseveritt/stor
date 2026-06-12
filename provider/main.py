@@ -22,6 +22,7 @@ NS = 1_000_000_000
 SESSION_TTL = 1800          # 30 minutes
 TIMESTAMP_TOLERANCE = 120   # seconds
 PENDING_TIMEOUT = 10 * 60   # 10 minutes before a stalled setup is recovered
+NODE_PROBE_TIMEOUT = 4.0    # seconds to wait when probing a candidate node
 USER_INVITE_LIMIT = 5       # max outstanding invites a node owner can have
 
 
@@ -103,6 +104,15 @@ def create_app(db_path: str) -> FastAPI:
     )
 
     # ── helpers ───────────────────────────────────────────────────────────────
+
+    def _probe_node(node_url: str, setup_token: str) -> bool:
+        sep = "&" if "?" in node_url else "?"
+        url = f"{node_url}{sep}setup_token={setup_token}"
+        try:
+            r = httpx.get(url, timeout=NODE_PROBE_TIMEOUT, follow_redirects=False)
+            return r.status_code < 500
+        except Exception:
+            return False
 
     def _verify_proxy_token(proxy_token: str) -> dict:
         try:
@@ -688,29 +698,42 @@ def create_app(db_path: str) -> FastAPI:
             )
 
         if pending_node_url:
-            log.info("Returning mid-setup invitee to node: %s → %s", identity, pending_node_url)
-            sep = "&" if "?" in pending_node_url else "?"
-            return RedirectResponse(f"{pending_node_url}{sep}setup_token={pending_setup_token}", 302)
-
-        node_row = con.execute(
-            "SELECT node_id, node_url, setup_token FROM available_nodes ORDER BY added_at LIMIT 1"
-        ).fetchone()
-        if not node_row:
-            log.warning("No nodes available for invitee: %s", identity)
-            return HTMLResponse(
-                f"<style>{_CSS}</style><div class=card>"
-                "<h2>No nodes available</h2>"
-                "<p>All instances are currently claimed. Please try again later.</p></div>", 503
+            if _probe_node(pending_node_url, pending_setup_token):
+                log.info("Returning mid-setup invitee to node: %s → %s", identity, pending_node_url)
+                sep = "&" if "?" in pending_node_url else "?"
+                return RedirectResponse(f"{pending_node_url}{sep}setup_token={pending_setup_token}", 302)
+            log.warning("Pending node unresponsive for %s (%s), reassigning", identity, pending_node_url)
+            con.execute(
+                "UPDATE invitations SET pending_at=NULL, pending_node_url=NULL, pending_setup_token=NULL"
+                " WHERE google_identity = ?",
+                (identity,)
             )
+            con.commit()
 
-        node_id, node_url, setup_token = node_row
+        while True:
+            node_row = con.execute(
+                "SELECT node_id, node_url, setup_token FROM available_nodes ORDER BY added_at LIMIT 1"
+            ).fetchone()
+            if not node_row:
+                log.warning("No nodes available for invitee: %s", identity)
+                return HTMLResponse(
+                    f"<style>{_CSS}</style><div class=card>"
+                    "<h2>No nodes available</h2>"
+                    "<p>All instances are currently claimed. Please try again later.</p></div>", 503
+                )
+            node_id, node_url, setup_token = node_row
+            con.execute("DELETE FROM available_nodes WHERE node_id = ?", (node_id,))
+            con.commit()
+            if _probe_node(node_url, setup_token):
+                break
+            log.warning("Candidate node %s (%s) unresponsive, removing and trying next", node_id, node_url)
+
         log.info("Assigned node to invitee: %s → %s", identity, node_url)
         con.execute(
             "UPDATE invitations SET pending_at=?, pending_node_url=?, pending_setup_token=?"
             " WHERE google_identity = ?",
             (time.time_ns(), node_url, setup_token, identity)
         )
-        con.execute("DELETE FROM available_nodes WHERE node_id = ?", (node_id,))
         con.commit()
 
         sep = "&" if "?" in node_url else "?"

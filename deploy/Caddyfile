@@ -115,21 +115,6 @@
 {$CONTACC_DOMAIN}:8467 {
     reverse_proxy node-24-them:18467
 }
-{$CONTACC_DOMAIN}:8468 {
-    reverse_proxy node-25-them:18468
-}
-{$CONTACC_DOMAIN}:8469 {
-    reverse_proxy node-26-them:18469
-}
-{$CONTACC_DOMAIN}:8470 {
-    reverse_proxy node-27-them:18470
-}
-{$CONTACC_DOMAIN}:8471 {
-    reverse_proxy node-28-them:18471
-}
-{$CONTACC_DOMAIN}:8472 {
-    reverse_proxy node-29-them:18472
-}
 
 {$CONTACC_DOMAIN}:6454 {
     reverse_proxy web-11:16454
@@ -172,21 +157,6 @@
 }
 {$CONTACC_DOMAIN}:6467 {
     reverse_proxy web-24:16467
-}
-{$CONTACC_DOMAIN}:6468 {
-    reverse_proxy web-25:16468
-}
-{$CONTACC_DOMAIN}:6469 {
-    reverse_proxy web-26:16469
-}
-{$CONTACC_DOMAIN}:6470 {
-    reverse_proxy web-27:16470
-}
-{$CONTACC_DOMAIN}:6471 {
-    reverse_proxy web-28:16471
-}
-{$CONTACC_DOMAIN}:6472 {
-    reverse_proxy web-29:16472
 }
 
 {$CONTACC_DOMAIN}:8420 {
