@@ -296,6 +296,14 @@ def create_app(db_path: str) -> FastAPI:
         timestamp: int
         signature: str
 
+    class NodeClaimBody(BaseModel):
+        node_id: str
+        node_url: str
+        google_identity: str
+        public_key: str
+        timestamp: int
+        signature: str
+
     @app.post("/nodes/available", status_code=204)
     def node_available(body: NodeAvailableBody):
         _check_timestamp(body.timestamp)
@@ -347,6 +355,24 @@ def create_app(db_path: str) -> FastAPI:
             log.info("Registration complete: %s → %s (node_id=%s)",
                      google_identity, node_url, body.node_id)
         con.commit()
+
+    @app.post("/nodes/claim", status_code=204)
+    def node_claim(body: NodeClaimBody):
+        """Initialized node self-registers ownership so the invite button works on restart."""
+        _check_timestamp(body.timestamp)
+        msg = f"contacc:provider-claim:{body.node_id}:{body.timestamp}"
+        if not _verify_node_sig(body.public_key, msg, body.signature):
+            raise HTTPException(401, "Invalid signature")
+        google_identity = body.google_identity
+        if not google_identity.startswith("google:"):
+            google_identity = "google:" + google_identity
+        node_url = body.node_url.rstrip("/")
+        con.execute(
+            "INSERT OR REPLACE INTO claimed_nodes VALUES (?, ?, ?)",
+            (node_url, google_identity, time.time_ns())
+        )
+        con.commit()
+        log.info("Node claim recorded: %s → %s", google_identity, node_url)
 
     # ── admin UI ──────────────────────────────────────────────────────────────
 

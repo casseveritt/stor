@@ -356,6 +356,9 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
     app.state.initialized = True
     log.info("Node %s ready.", node_address)
 
+    # Notify provider of ownership so the invite button works (idempotent on restart)
+    setup_module._notify_provider_claim(app, config, private_key)
+
     if config.registry_handle and node_address:
         registry_url = config.registry_url or config.identity_proxy_url or ""
         if registry_url:

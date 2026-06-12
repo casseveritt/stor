@@ -29,6 +29,31 @@ router = APIRouter(prefix="/setup")
 log = __import__("logging").getLogger("contacc")
 
 
+def _notify_provider_claim(app, config, private_key) -> None:
+    """Tell the provider this initialized node is owned by its current user."""
+    provider_url = (os.environ.get("CONTACC_PROVIDER_NOTIFY_URL") or os.environ.get("CONTACC_PROVIDER_URL", "")).rstrip("/")
+    node_id = getattr(app.state, "node_id", "") or config.node_id or ""
+    google_identity = config.sso_owner_identity or ""
+    if not (provider_url and node_id and private_key and google_identity):
+        return
+    try:
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat as PF
+        pub_b64 = base64.b64encode(
+            private_key.public_key().public_bytes(Encoding.Raw, PF.Raw)
+        ).decode()
+        node_url = getattr(app.state, "web_address", "") or getattr(app.state, "node_address", "")
+        ts = int(time.time())
+        msg = f"contacc:provider-claim:{node_id}:{ts}"
+        sig = base64.b64encode(private_key.sign(msg.encode())).decode()
+        httpx.post(f"{provider_url}/nodes/claim",
+                   json={"node_id": node_id, "node_url": node_url, "google_identity": google_identity,
+                         "public_key": pub_b64, "timestamp": ts, "signature": sig},
+                   timeout=5.0)
+        log.info("Notified provider of ownership for node %s (%s)", node_id, google_identity)
+    except Exception as e:
+        log.warning("Could not notify provider of ownership: %s", e)
+
+
 def _notify_provider_registered(app) -> None:
     """Tell the provider this node is now claimed by a user."""
     provider_url = (os.environ.get("CONTACC_PROVIDER_NOTIFY_URL") or os.environ.get("CONTACC_PROVIDER_URL", "")).rstrip("/")
