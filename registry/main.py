@@ -1917,6 +1917,17 @@ blockquote p { color: #888; font-style: italic; }
             raise HTTPException(404, "No escrow stored for this owner ID")
         return json.loads(row[0])
 
+    @app.get("/owner-by-google-identity")
+    def owner_by_google_identity(q: str):
+        """Return the owner_id for a google_identity, if one exists."""
+        row = con.execute(
+            "SELECT DISTINCT owner_id FROM nodes WHERE google_identity=? AND superseded_at IS NULL LIMIT 1",
+            (q,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "No owner found for that google identity")
+        return {"owner_id": row[0]}
+
     @app.post("/identity-key/{owner_id}/recover")
     def recover_escrow(owner_id: str):
         row = con.execute(

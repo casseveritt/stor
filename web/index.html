@@ -21,17 +21,23 @@
         <button class="btn btn-primary" onclick="acceptSetupToken()">Continue</button>
         <div class="setup-error" id="setup-token-error"></div>
       </div>
+      <div id="setup-identity-step" class="setup-form" hidden>
+        <p style="color:var(--text-4);font-size:0.9rem;text-align:center">Enter your Google account email.</p>
+        <input type="email" id="setup-owner-email" placeholder="your@email.com" autocomplete="email" onkeydown="if(event.key==='Enter')acceptSetupIdentity()">
+        <button class="btn btn-primary" onclick="acceptSetupIdentity()">Continue</button>
+        <div class="setup-error" id="setup-identity-error"></div>
+      </div>
       <div id="setup-wizard-step" hidden>
         <div class="setup-tabs">
           <button class="setup-tab active" id="tab-new" onclick="showSetupTab('new')">New Identity</button>
           <button class="setup-tab" id="tab-restore" onclick="showSetupTab('restore')">Restore Backup</button>
         </div>
         <div id="setup-new-form" class="setup-form">
-          <input type="email" id="setup-owner-email" placeholder="your@email.com (Google account)">
+          <div id="setup-identity-display" style="font-size:0.85rem;color:var(--text-3);background:var(--surface-input);border:1px solid var(--surface-3);border-radius:4px;padding:0.45rem 0.65rem"></div>
           <input type="text" id="setup-display-name" placeholder="Full name" autocomplete="name">
           <input type="text" id="setup-handle" placeholder="Handle — short name you go by" autocomplete="off" autocapitalize="none">
           <div style="font-size:0.78rem;color:var(--text-dim);margin-top:-0.3rem;padding-left:0.1rem">Not required to be unique. Just use your first name or a nickname.</div>
-          <input type="password" id="setup-passphrase" placeholder="Choose a passphrase">
+          <input type="password" id="setup-passphrase" placeholder="Choose a passphrase for this node">
           <input type="password" id="setup-passphrase-confirm" placeholder="Confirm passphrase">
           <div style="font-size:0.78rem;color:var(--text-4);background:var(--surface-input);border:1px solid var(--surface-3);border-radius:4px;padding:0.5rem 0.65rem;line-height:1.5">
             Your passphrase encrypts all your data at rest and is required to make changes to your account.
@@ -42,16 +48,11 @@
             Allow registry to unlock this node automatically
           </label>
           <div style="font-size:0.75rem;color:var(--text-dim);margin-top:-0.25rem">The registry can unlock your node on startup without requiring you to enter the passphrase manually.</div>
-          <label style="display:flex;align-items:center;gap:0.5rem;font-size:0.85rem;color:var(--text-3);cursor:pointer;margin-top:0.25rem">
-            <input type="checkbox" id="setup-existing-owner" onchange="toggleExistingOwner()">
-            This node belongs to an existing owner
-          </label>
-          <div id="setup-existing-owner-fields" hidden style="display:flex;flex-direction:column;gap:0.75rem;background:var(--surface-input);border:1px solid var(--surface-3);border-radius:4px;padding:0.65rem">
-            <div style="font-size:0.78rem;color:var(--text-4)">Enter your owner ID and owner passphrase to link this node to your existing identity.</div>
-            <input type="text" id="setup-owner-id" placeholder="Owner ID (UUID)" autocomplete="off" autocapitalize="none" style="font-family:monospace;font-size:0.82rem">
-            <input type="password" id="setup-owner-passphrase" placeholder="Owner passphrase">
+          <div id="setup-owner-passphrase-section" hidden style="display:flex;flex-direction:column;gap:0.75rem;background:var(--surface-input);border:1px solid var(--surface-3);border-radius:4px;padding:0.65rem;margin-top:0.25rem">
+            <div style="font-size:0.78rem;color:var(--text-4)">We found an existing account for this email. Enter your recovery passphrase to link this node to your identity.</div>
+            <input type="password" id="setup-owner-passphrase" placeholder="Recovery passphrase">
           </div>
-          <button class="btn btn-primary" onclick="doSetupNew()">Create Identity</button>
+          <button class="btn btn-primary" id="setup-submit-btn" onclick="doSetupNew()">Create Identity</button>
           <div class="setup-error" id="setup-new-error"></div>
         </div>
         <div id="setup-restore-form" class="setup-form" hidden>

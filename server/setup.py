@@ -9,6 +9,8 @@ import shutil
 import zipfile
 from pathlib import Path
 
+import httpx
+
 from cryptography.exceptions import InvalidTag
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
@@ -70,6 +72,22 @@ def _consume_token(app) -> None:
 @router.get("/status")
 def setup_status(request: Request):
     return {"state": _state(request.app)}
+
+
+@router.get("/owner-lookup")
+def setup_owner_lookup(google_identity: str):
+    """Return the existing owner_id for a google_identity, or null if this is a new owner."""
+    registry_url = os.environ.get("CONTACC_REGISTRY_URL",
+                   os.environ.get("CONTACC_IDENTITY_PROXY_URL", "https://strk.xyzw.us:8421"))
+    try:
+        r = httpx.get(f"{registry_url}/owner-by-google-identity", params={"q": google_identity}, timeout=10)
+        if r.status_code == 404:
+            return {"owner_id": None, "is_new_owner": True}
+        if not r.is_success:
+            raise HTTPException(502, "Registry lookup failed")
+        return {**r.json(), "is_new_owner": False}
+    except httpx.RequestError:
+        raise HTTPException(502, "Could not reach registry")
 
 
 @router.get("/passphrase-is-default")

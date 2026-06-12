@@ -1260,6 +1260,14 @@ def create_app(config_path: str | Path) -> FastAPI:
             raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", r.text))
         return r.json()
 
+    @api.get("/setup/owner-lookup")
+    async def api_owner_lookup(google_identity: str):
+        async with httpx.AsyncClient() as hc:
+            r = await hc.get(_server + "/setup/owner-lookup", params={"google_identity": google_identity}, timeout=10)
+        if not r.is_success:
+            raise HTTPException(status_code=r.status_code, detail=r.json().get("detail", r.text))
+        return r.json()
+
     @api.get("/setup/has-escrow")
     async def api_has_escrow():
         async with httpx.AsyncClient() as hc:

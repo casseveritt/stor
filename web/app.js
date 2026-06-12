@@ -3586,6 +3586,8 @@ async function uploadProfilePhoto(input) {
 // ── setup / unlock ─────────────────────────────────────────────────────────
 
 let _setupToken = null;
+let _setupGoogleIdentity = null;
+let _setupExistingOwnerId = null;
 let restoreFile = null;
 
 function acceptSetupToken() {
@@ -3594,7 +3596,28 @@ function acceptSetupToken() {
   if (!token) { err.textContent = "Token required."; return; }
   _setupToken = token;
   document.getElementById("setup-token-step").hidden = true;
-  document.getElementById("setup-wizard-step").hidden = false;
+  document.getElementById("setup-identity-step").hidden = false;
+}
+
+async function acceptSetupIdentity() {
+  const email = document.getElementById("setup-owner-email").value.trim();
+  const err = document.getElementById("setup-identity-error");
+  if (!email) { err.textContent = "Email required."; return; }
+  err.textContent = "Looking up account…";
+  try {
+    const r = await fetch("/api/setup/owner-lookup?" + new URLSearchParams({google_identity: "google:" + email}));
+    const d = await r.json();
+    if (!r.ok) { err.textContent = d.detail || "Lookup failed."; return; }
+    _setupGoogleIdentity = "google:" + email;
+    _setupExistingOwnerId = d.owner_id;
+    document.getElementById("setup-identity-display").textContent = email;
+    const ownerSection = document.getElementById("setup-owner-passphrase-section");
+    ownerSection.hidden = d.is_new_owner;
+    ownerSection.style.display = d.is_new_owner ? "" : "flex";
+    document.getElementById("setup-submit-btn").textContent = d.is_new_owner ? "Create Identity" : "Add Node";
+    document.getElementById("setup-identity-step").hidden = true;
+    document.getElementById("setup-wizard-step").hidden = false;
+  } catch { err.textContent = "Network error."; }
 }
 
 function showSetupTab(tab) {
@@ -3612,43 +3635,36 @@ function restoreFileSelected(input) {
 function _badSetupToken(msg) {
   _setupToken = null;
   document.getElementById("setup-wizard-step").hidden = true;
+  document.getElementById("setup-identity-step").hidden = true;
   document.getElementById("setup-token-step").hidden = false;
   document.getElementById("setup-token-error").textContent = msg || "Invalid setup token.";
 }
 
-function toggleExistingOwner() {
-  const checked = document.getElementById("setup-existing-owner").checked;
-  document.getElementById("setup-existing-owner-fields").hidden = !checked;
-}
-
 async function doSetupNew() {
-  const email = document.getElementById("setup-owner-email").value.trim();
   const displayName = document.getElementById("setup-display-name").value.trim();
   const handle = document.getElementById("setup-handle").value.trim().toLowerCase();
   const pass = document.getElementById("setup-passphrase").value;
   const confirm = document.getElementById("setup-passphrase-confirm").value;
   const err = document.getElementById("setup-new-error");
-  const existingOwner = document.getElementById("setup-existing-owner").checked;
   err.textContent = "";
-  if (!email || !handle || !pass) { err.textContent = "All fields required."; return; }
+  if (!handle || !pass) { err.textContent = "All fields required."; return; }
   if (!/^[a-z_][a-z0-9_]*$/.test(handle)) { err.textContent = "Handle must start with a letter or _, followed by letters, digits, or _."; return; }
   if (pass !== confirm) { err.textContent = "Passphrases do not match."; return; }
 
-  const baseBody = {passphrase: pass, confirm_passphrase: confirm, owner_identity: "google:" + email,
+  const baseBody = {passphrase: pass, confirm_passphrase: confirm, owner_identity: _setupGoogleIdentity,
     setup_token: _setupToken, handle, display_name: displayName,
     tang_enabled: document.getElementById("setup-tang").checked};
 
-  if (existingOwner) {
-    const ownerId = document.getElementById("setup-owner-id").value.trim();
+  if (_setupExistingOwnerId) {
     const ownerPass = document.getElementById("setup-owner-passphrase").value;
-    if (!ownerId || !ownerPass) { err.textContent = "Owner ID and owner passphrase required."; return; }
+    if (!ownerPass) { err.textContent = "Recovery passphrase required."; return; }
     try {
       const r = await fetch("/setup/new-for-owner", {
         method: "POST", headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({...baseBody, existing_owner_id: ownerId, owner_passphrase: ownerPass}),
+        body: JSON.stringify({...baseBody, existing_owner_id: _setupExistingOwnerId, owner_passphrase: ownerPass}),
       });
       const d = await r.json();
-      if (r.status === 403) { err.textContent = d.detail || "Wrong owner passphrase or invalid owner ID."; return; }
+      if (r.status === 403) { err.textContent = d.detail || "Wrong recovery passphrase."; return; }
       if (!r.ok) { err.textContent = d.detail || "Error."; return; }
       location.reload();
     } catch { err.textContent = "Network error."; }
