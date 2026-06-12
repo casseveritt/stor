@@ -7,7 +7,10 @@ import time
 from pathlib import Path
 from urllib.parse import quote
 
+import logging
 import httpx
+
+log = logging.getLogger("contacc.provider")
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from fastapi import FastAPI, HTTPException, Request
@@ -243,11 +246,13 @@ def create_app(db_path: str) -> FastAPI:
         con.execute("DELETE FROM available_nodes WHERE node_id = ? OR node_id = ?",
                     (body.node_id, node_url))
         # Close out any pending invitation for this node
-        con.execute(
+        cur = con.execute(
             "UPDATE invitations SET used_at = ?"
             " WHERE pending_node_url = ? AND used_at IS NULL",
             (time.time_ns(), node_url)
         )
+        if cur.rowcount:
+            log.info("Registration complete for node: %s (node_id=%s)", node_url, body.node_id)
         con.commit()
 
     # ── admin UI ──────────────────────────────────────────────────────────────
@@ -357,12 +362,15 @@ def create_app(db_path: str) -> FastAPI:
         if not proxy_token:
             return RedirectResponse("/invite/admin", 302)
         data = _verify_proxy_token(proxy_token)
-        if data.get("identity") != admin_identity:
+        identity = data.get("identity", "")
+        if identity != admin_identity:
+            log.warning("Admin auth rejected: %s", identity)
             return HTMLResponse(
                 f"<style>{_CSS}</style><div class=card>"
                 "<p class=err>Admin access required.</p>"
                 "<p><a href='/invite/admin'>Sign in as admin</a></p></div>", 403
             )
+        log.info("Admin authenticated: %s", identity)
         session = _new_admin_session()
         return RedirectResponse(f"/invite/admin?s={session}", 302)
 
@@ -418,6 +426,7 @@ def create_app(db_path: str) -> FastAPI:
         ).fetchone()
 
         if not inv:
+            log.warning("Invitation not found for: %s", identity)
             return HTMLResponse(
                 f"<style>{_CSS}</style><div class=card>"
                 "<h2>No invitation found</h2>"
@@ -428,6 +437,7 @@ def create_app(db_path: str) -> FastAPI:
         pending_at, pending_node_url, pending_setup_token, used_at = inv
 
         if used_at:
+            log.info("Invitation already used, access denied: %s", identity)
             return HTMLResponse(
                 f"<style>{_CSS}</style><div class=card>"
                 "<h2>Already registered</h2>"
@@ -435,7 +445,7 @@ def create_app(db_path: str) -> FastAPI:
             )
 
         if pending_node_url:
-            # Already mid-setup — send them back to the same node
+            log.info("Returning mid-setup invitee to node: %s → %s", identity, pending_node_url)
             sep = "&" if "?" in pending_node_url else "?"
             return RedirectResponse(f"{pending_node_url}{sep}setup_token={pending_setup_token}", 302)
 
@@ -444,6 +454,7 @@ def create_app(db_path: str) -> FastAPI:
             "SELECT node_id, node_url, setup_token FROM available_nodes ORDER BY added_at LIMIT 1"
         ).fetchone()
         if not node_row:
+            log.warning("No nodes available for invitee: %s", identity)
             return HTMLResponse(
                 f"<style>{_CSS}</style><div class=card>"
                 "<h2>No nodes available</h2>"
@@ -451,6 +462,7 @@ def create_app(db_path: str) -> FastAPI:
             )
 
         node_id, node_url, setup_token = node_row
+        log.info("Assigned node to invitee: %s → %s", identity, node_url)
         con.execute(
             "UPDATE invitations SET pending_at=?, pending_node_url=?, pending_setup_token=?"
             " WHERE google_identity = ?",
