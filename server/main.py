@@ -429,8 +429,7 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
     app.state.config_path = config_path
     app.state.node_address = os.environ.get("CONTACC_NODE_ADDRESS", "")
     app.state.web_address = os.environ.get("CONTACC_WEB_ADDRESS", "")
-    app.state.tang_nonce = None
-    app.state.tang_nonce_expires = 0.0
+    app.state.tang_nonces = {}  # nonce -> expiry timestamp; supports multiple outstanding attempts
 
     if not config_path.exists():
         setup_module.ensure_setup_token(app)
@@ -541,11 +540,12 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
         body = await request.json()
         nonce = body.get("nonce", "")
         S_b64 = body.get("S", "")
-        if not nonce or nonce != app.state.tang_nonce:
+        now = time.time()
+        # Purge expired nonces, then validate
+        app.state.tang_nonces = {n: exp for n, exp in app.state.tang_nonces.items() if exp > now}
+        if not nonce or nonce not in app.state.tang_nonces:
             return JSONResponse({"detail": "Invalid nonce"}, status_code=403)
-        if time.time() > app.state.tang_nonce_expires:
-            return JSONResponse({"detail": "Nonce expired"}, status_code=403)
-        app.state.tang_nonce = None  # one-use
+        app.state.tang_nonces.pop(nonce)  # one-use
         if app.state.initialized:
             return {"status": "already initialized"}
         try:
@@ -594,8 +594,7 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
             """Try Tang exchange for each candidate ID. Returns True if unlock was initiated."""
             for tang_node_id in _tang_ids:
                 nonce = _sec.token_urlsafe(32)
-                app.state.tang_nonce = nonce
-                app.state.tang_nonce_expires = time.time() + 30
+                app.state.tang_nonces[nonce] = time.time() + 30
                 try:
                     async with _hx.AsyncClient() as hc:
                         r = await hc.post(f"{registry_url}/tang/exchange", json={
@@ -612,7 +611,7 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
                 except Exception as e:
                     log.warning("Tang auto-unlock error: %s", e)
                     break
-                app.state.tang_nonce = None
+                app.state.tang_nonces.pop(nonce, None)
             return False
 
         # Fast retries: at 2s, 7s, 22s after startup
