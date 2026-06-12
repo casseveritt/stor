@@ -377,7 +377,12 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             author_node_id TEXT NOT NULL DEFAULT '',
             author_handle TEXT,
             received_at   INTEGER NOT NULL,
-            seen          INTEGER NOT NULL DEFAULT 0
+            seen          INTEGER NOT NULL DEFAULT 0,
+            notif_type    TEXT DEFAULT 'mention',
+            actor_name    TEXT,
+            emoji         TEXT,
+            post_server   TEXT DEFAULT '',
+            post_node_id  TEXT DEFAULT ''
         )
     """)
     # Rename legacy author_server column to author_node_id.
