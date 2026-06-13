@@ -2179,6 +2179,9 @@ let _mentionState = null;
 const COMPOSE_CTX = { taId: 'compose-body', hlId: 'compose-highlight', ddId: 'compose-mention-dropdown' };
 const EDIT_CTX    = { taId: 'edit-body',    hlId: 'edit-highlight',    ddId: 'edit-mention-dropdown' };
 let _mentionCtx = COMPOSE_CTX;
+// Tracks mentions selected from the dropdown this session: [{lowerLabel, contact}]
+// Enables resolving edited tags (e.g. @Jon → @Jonathan) back to the right contact.
+let _sessionMentionEntries = [];
 
 function _contactTag(c) {
   const displayName = (serverProfiles[c.url] || {}).display_name || c.name;
@@ -2189,6 +2192,19 @@ function _mentionTag(c) {
   return '@' + _contactTag(c);
 }
 
+async function _saveContactTag(contact, newTag) {
+  if (!contact?.url || !newTag) return;
+  const current = (CFG?.contacts || []).find(c => c.url === contact.url);
+  if (current?.tag === newTag) return;
+  try {
+    const r = await apiFetch('/api/contacts', {
+      method: 'PATCH', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({url: contact.url, tag: newTag}),
+    });
+    if (r.ok) { const cfg = await (await apiFetch('/api/config')).json(); _setCFG(cfg); _updateHighlight(); }
+  } catch (e) {}
+}
+
 // Expand @tag → [pubkey|tag] for known contacts. Called at submit time.
 function _expandMentions(text) {
   const tagMap = new Map();
@@ -2196,12 +2212,32 @@ function _expandMentions(text) {
     const id = c.node_id || (serverProfiles[c.url] || {}).owner_id || c.public_key;
     if (!id) continue;
     const tag = _contactTag(c);
-    tagMap.set(tag.toLowerCase(), {label: tag, id});
+    tagMap.set(tag.toLowerCase(), {label: tag, id, contact: c});
   }
-  return text.replace(/@(\w+)/g, (full, word) => {
-    const entry = tagMap.get(word.toLowerCase());
-    return entry ? `[${entry.id}|${entry.label}]` : full;
+  const toSave = [];
+  const result = text.replace(/@(\w+)/g, (full, word) => {
+    const lower = word.toLowerCase();
+    // 1. Exact match on saved tag
+    const entry = tagMap.get(lower);
+    if (entry) return `[${entry.id}|${entry.label}]`;
+    // 2. Prefix match against session-selected mentions (user extended the label inline)
+    let best = null;
+    for (const e of _sessionMentionEntries) {
+      if (lower.startsWith(e.lowerLabel) && e.lowerLabel.length >= 2) {
+        if (!best || e.lowerLabel.length > best.lowerLabel.length) best = e;
+      }
+    }
+    if (best) {
+      const id = best.contact.node_id || (serverProfiles[best.contact.url] || {}).owner_id || best.contact.public_key;
+      if (id) {
+        if (word !== _contactTag(best.contact)) toSave.push({contact: best.contact, newTag: word});
+        return `[${id}|${word}]`;
+      }
+    }
+    return full;
   });
+  for (const {contact, newTag} of toSave) _saveContactTag(contact, newTag);
+  return result;
 }
 
 // Collapse [pubkey|disptext] → @tag (reader's current tag for that pubkey). Called when loading for edit.
@@ -2280,6 +2316,7 @@ function _selectMention(c) {
   ta.value = before + replacement + after;
   const p = before.length + replacement.length;
   ta.selectionStart = ta.selectionEnd = p;
+  _sessionMentionEntries.push({lowerLabel: label.toLowerCase(), contact: c});
   hideMentionDropdown();
   _updateHighlight();
   ta.focus();
@@ -2319,11 +2356,16 @@ function _updateHighlight() {
   const escaped = ta.value
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   const highlighted = escaped
-    .replace(/@(\w+)/g, (full, word) =>
-      knownTags.has(word.toLowerCase())
-        ? `<span class="mention-tag">@${word}</span>`
-        : full
-    );
+    .replace(/@(\w+)/g, (full, word) => {
+      const lower = word.toLowerCase();
+      if (knownTags.has(lower)) return `<span class="mention-tag">@${word}</span>`;
+      // Also highlight if word extends a session-selected mention label
+      for (const e of _sessionMentionEntries) {
+        if (lower.startsWith(e.lowerLabel) && e.lowerLabel.length >= 2)
+          return `<span class="mention-tag">@${word}</span>`;
+      }
+      return full;
+    });
   if (hl) { hl.innerHTML = highlighted + '​'; hl.scrollTop = ta.scrollTop; }
 }
 
