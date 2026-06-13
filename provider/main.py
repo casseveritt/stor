@@ -390,7 +390,7 @@ def create_app(db_path: str) -> FastAPI:
 
     # ── admin UI ──────────────────────────────────────────────────────────────
 
-    def _admin_page(s: str) -> str:
+    def _admin_page(s: str, error: str = "") -> str:
         _check_pending_timeouts()
 
         avail_rows = con.execute(
@@ -457,6 +457,7 @@ def create_app(db_path: str) -> FastAPI:
     <input name=google_identity placeholder="friend@example.com" required autocomplete=off>
     <button type=submit class=btn>Add Invite</button>
   </form>
+  {'<p class=err>' + error + '</p>' if error else ''}
 
   <div class=section>
     <h2>Available Instances ({len(avail_rows)})</h2>
@@ -481,7 +482,7 @@ def create_app(db_path: str) -> FastAPI:
         return RedirectResponse("/invite/admin", 302)
 
     @app.get("/invite/admin", response_class=HTMLResponse)
-    def invite_admin(s: str = ""):
+    def invite_admin(s: str = "", err: str = ""):
         if not admin_identity:
             raise HTTPException(503, "Provider admin not configured")
         if not s or not _check_admin_session(s):
@@ -489,7 +490,7 @@ def create_app(db_path: str) -> FastAPI:
             return RedirectResponse(
                 f"{registry_url}/auth/start?return_to={quote(return_to, safe='')}", 302
             )
-        return HTMLResponse(_admin_page(s))
+        return HTMLResponse(_admin_page(s, error=err))
 
     @app.get("/invite/admin/verify")
     def invite_admin_verify(proxy_token: str = ""):
@@ -517,6 +518,10 @@ def create_app(db_path: str) -> FastAPI:
         if google_identity:
             if not google_identity.startswith("google:"):
                 google_identity = "google:" + google_identity
+            if _has_registry_node(google_identity):
+                log.info("Admin tried to invite %s who already has a registered node", google_identity)
+                err = quote(f"{google_identity.removeprefix('google:')} already has a registered node.", safe="")
+                return RedirectResponse(f"/invite/admin?s={s}&err={err}", 302)
             con.execute(
                 "INSERT OR REPLACE INTO invitations(google_identity, created_at, created_by)"
                 " VALUES (?, ?, NULL)",
