@@ -446,7 +446,19 @@ def create_app(db_path: str) -> FastAPI:
         if not inv_html:
             inv_html = '<p class=empty>No outstanding invitations.</p>'
 
-        claimed_count = con.execute("SELECT count(*) FROM claimed_nodes").fetchone()[0]
+        claimed_rows = con.execute(
+            "SELECT google_identity, node_url, claimed_at FROM claimed_nodes ORDER BY claimed_at DESC"
+        ).fetchall()
+        claimed_html = "".join(
+            f'<div class=row>'
+            f'<span class=main style="display:flex;flex-direction:column;gap:.1rem">'
+            f'<span>{r[0].removeprefix("google:")}</span>'
+            f'<span class=pending-node>{r[1]}</span>'
+            f'</span>'
+            f'<span class=sub>{time.strftime("%Y-%m-%d", time.gmtime(r[2] / NS))}</span>'
+            f'</div>'
+            for r in claimed_rows
+        ) or '<p class=empty>No claimed nodes.</p>'
 
         return f"""<!doctype html><html><head><meta charset=utf-8>
 <title>Invitations — contacc</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><style>{_CSS}</style></head><body>
@@ -474,7 +486,10 @@ def create_app(db_path: str) -> FastAPI:
     <div class=list>{inv_html}</div>
   </div>
 
-  <p class=meta style="margin-top:1.5rem">{claimed_count} claimed node{'s' if claimed_count != 1 else ''} total</p>
+  <div class=section>
+    <h2>Claimed Nodes ({len(claimed_rows)})</h2>
+    <div class=list>{claimed_html}</div>
+  </div>
 </div></body></html>"""
 
     _FAVICON = open(
