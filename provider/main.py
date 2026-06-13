@@ -578,6 +578,7 @@ def create_app(db_path: str) -> FastAPI:
         else:
             invite_form = f'<p class=err>You have reached the limit of {USER_INVITE_LIMIT} pending invitations.</p>'
 
+        accept_url = f"{provider_url}/accept_invitation"
         return f"""<!doctype html><html><head><meta charset=utf-8>
 <title>Invite a Friend — contacc</title><style>{_CSS}</style></head><body>
 <div class=card>
@@ -585,6 +586,11 @@ def create_app(db_path: str) -> FastAPI:
   <p class=meta>Signed in as {email}</p>
   <p class=node-url>{node_url}</p>
   {invite_form}
+  <div class=section>
+    <h2>Share this link with your friend</h2>
+    <p class=meta>After you add their email above, send them this link to claim their node:</p>
+    <p><a href="{accept_url}">{accept_url}</a></p>
+  </div>
   <div class=section>
     <h2>Your Invitations</h2>
     <div class=list>{inv_html}</div>
