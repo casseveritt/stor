@@ -525,7 +525,7 @@ function renderServerList() {
       : `<span class="post-author-initials">${sInitial}</span>`;
     const tagLabel = s.tag || s.name.trim().split(/\s+/)[0] || s.handle || '';
     const urlJson  = JSON.stringify(s.url).replace(/"/g, '&quot;');
-    return '<div class="contact-row">'
+    return '<div class="contact-row" data-server="' + esc(s.url) + '">'
       + '<button class="server-btn' + (activeServer === s.url ? " active" : "") + '" onclick="setActiveServer(' + globalIdx + ')" title="' + esc(tagLabel ? '@' + tagLabel : s.name) + '">'
       + avatarHtml
       + '<span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + label + '</span>'
