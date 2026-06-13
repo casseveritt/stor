@@ -178,8 +178,9 @@
   .tag-chip.active { background: var(--accent-surface); color: var(--accent-light); }
 
   /* ── inline compose ── */
-  #inline-compose-body { background: var(--surface-3); color: var(--text-1); border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.92rem; line-height: 1.5; outline: none; font-family: inherit; }
+  #inline-compose-body { background: var(--surface-3); color: var(--text-1); border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.92rem; line-height: 1.5; outline: none; font-family: inherit; position: relative; z-index: 1; }
   #inline-compose-body:focus { border-color: var(--accent); }
+  #inline-compose-highlight { position: absolute; top: 0; left: 0; right: 0; bottom: 0; padding: 0.4rem 0.6rem; font-size: 0.92rem; font-family: inherit; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; overflow: hidden; color: transparent; pointer-events: none; z-index: 2; box-sizing: border-box; border: 1px solid transparent; border-radius: 4px; }
   .reply-input { background: var(--surface-3); color: var(--text-1); border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.88rem; line-height: 1.5; outline: none; font-family: inherit; resize: vertical; min-height: 4rem; }
   .reply-input:focus { border-color: var(--accent); }
   #compose-reply-banner { font-size: 0.8rem; color: var(--text-4); background: var(--surface-3); border-left: 3px solid var(--accent); padding: 0.3rem 0.6rem; border-radius: 0 4px 4px 0; margin-bottom: 0.5rem; }

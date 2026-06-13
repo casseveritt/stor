@@ -2182,6 +2182,9 @@ let _mentionCtx = COMPOSE_CTX;
 // Tracks mentions selected from the dropdown this session: [{lowerLabel, contact}]
 // Enables resolving edited tags (e.g. @Jon → @Jonathan) back to the right contact.
 let _sessionMentionEntries = [];
+// Tracks a mention actively being edited after dropdown selection: {atPos, contact}
+// atPos is the index of the '@' in the textarea value.
+let _activeMentionEdit = null;
 
 function _contactTag(c) {
   const displayName = (serverProfiles[c.url] || {}).display_name || c.name;
@@ -2266,7 +2269,39 @@ function _renderMentions(text) {
   }).join('');
 }
 
+// Commit an in-progress mention edit: save the new tag and add to session entries.
+function _commitActiveMentionEdit() {
+  if (!_activeMentionEdit) return;
+  const { atPos, contact } = _activeMentionEdit;
+  _activeMentionEdit = null;
+  const ta = document.getElementById(_mentionCtx.taId);
+  if (!ta) return;
+  const text = ta.value;
+  if (atPos >= text.length || text[atPos] !== '@') return;
+  const m = text.slice(atPos).match(/^@(\w+)/);
+  if (!m) return;
+  const word = m[1];
+  const currentTag = _contactTag(contact);
+  if (word.toLowerCase() !== currentTag.toLowerCase()) {
+    _sessionMentionEntries.push({ lowerLabel: word.toLowerCase(), contact });
+    _saveContactTag(contact, word);
+  }
+}
+
 function onComposeInput() {
+  // If the cursor has left the @word being edited, commit the tag change.
+  if (_activeMentionEdit) {
+    const ta = document.getElementById(_mentionCtx.taId);
+    const pos = ta.selectionStart;
+    const text = ta.value;
+    const { atPos } = _activeMentionEdit;
+    let still = false;
+    if (atPos < text.length && text[atPos] === '@') {
+      const m = text.slice(atPos).match(/^@(\w*)/);
+      if (m && pos >= atPos && pos <= atPos + m[0].length) still = true;
+    }
+    if (!still) _commitActiveMentionEdit();
+  }
   _updateHighlight();
   const ta = document.getElementById(_mentionCtx.taId);
   const pos = ta.selectionStart;
@@ -2323,6 +2358,7 @@ function _selectMention(c) {
   const p = before.length + replacement.length;
   ta.selectionStart = ta.selectionEnd = p;
   _sessionMentionEntries.push({lowerLabel: label.toLowerCase(), contact: c});
+  _activeMentionEdit = { atPos: before.length, contact: c };
   hideMentionDropdown();
   _updateHighlight();
   ta.focus();
@@ -2359,24 +2395,35 @@ function _updateHighlight() {
   const knownTags = new Set(
     (CFG?.contacts || []).map(c => _contactTag(c).toLowerCase())
   );
-  const escaped = ta.value
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  const highlighted = escaped
-    .replace(/@(\w+)/g, (full, word) => {
-      const lower = word.toLowerCase();
-      if (knownTags.has(lower)) return `<span class="mention-tag">@${word}</span>`;
-      // Keep highlight when word extends a known tag (typed manually or via dropdown)
-      for (const tag of knownTags) {
-        if (tag.length >= 2 && lower.startsWith(tag))
-          return `<span class="mention-tag">@${word}</span>`;
-      }
+  const _e = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  const text = ta.value;
+  let html = '';
+  let last = 0;
+  const re = /@(\w+)/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const atPos = m.index;
+    const word = m[1];
+    const lower = word.toLowerCase();
+    html += _e(text.slice(last, atPos));
+    const lit = (() => {
+      if (knownTags.has(lower)) return true;
+      // Keep highlight while user edits (bidirectional prefix — word growing or shrinking)
+      for (const tag of knownTags)
+        if (tag.length >= 2 && lower.length >= 2 && (lower.startsWith(tag) || tag.startsWith(lower))) return true;
       for (const e of _sessionMentionEntries) {
-        if (lower.startsWith(e.lowerLabel) && e.lowerLabel.length >= 2)
-          return `<span class="mention-tag">@${word}</span>`;
+        const el = e.lowerLabel;
+        if (el.length >= 2 && lower.length >= 2 && (lower.startsWith(el) || el.startsWith(lower))) return true;
       }
-      return full;
-    });
-  if (hl) { hl.innerHTML = highlighted + '​'; hl.scrollTop = ta.scrollTop; }
+      // Keep highlight for the word the user is actively rewriting after a dropdown pick
+      if (_activeMentionEdit?.atPos === atPos) return true;
+      return false;
+    })();
+    html += lit ? `<span class="mention-tag">@${_e(word)}</span>` : _e(m[0]);
+    last = atPos + m[0].length;
+  }
+  html += _e(text.slice(last));
+  if (hl) { hl.innerHTML = html + '​'; hl.scrollTop = ta.scrollTop; }
 }
 
 // ── compose ────────────────────────────────────────────────────────────────
@@ -2457,6 +2504,7 @@ function openComposeAsReply(postId, serverUrl, taEl) {
   banner.hidden = false;
 }
 function closeCompose() {
+  _activeMentionEdit = null;
   hideMentionDropdown();
   _saveDraft();
   const ta = document.getElementById("compose-body");
@@ -2535,7 +2583,7 @@ async function addFiles(files) {
 }
 
 // ── inline compose ─────────────────────────────────────────────────────────
-const INLINE_CTX = { taId: 'inline-compose-body', hlId: null, ddId: 'inline-mention-dropdown' };
+const INLINE_CTX = { taId: 'inline-compose-body', hlId: 'inline-compose-highlight', ddId: 'inline-mention-dropdown' };
 
 function _inlineComposeMentionInput(e) {
   const ta = e.target;
@@ -2556,6 +2604,7 @@ function _inlineComposeKeydown(e) {
 }
 
 async function submitInlinePost() {
+  _commitActiveMentionEdit();
   const ta = document.getElementById("inline-compose-body");
   const body = _expandMentions(ta.value.trim());
   if (!body) return;
@@ -2581,6 +2630,7 @@ async function submitInlinePost() {
 }
 
 async function submitPost() {
+  _commitActiveMentionEdit();
   const bodyText = document.getElementById("compose-body").value.trim();
   if (!bodyText && !pendingFiles.length) return;
   const tags = document.getElementById("compose-tags").value.trim().split(/\s+/).filter(Boolean);
@@ -2699,6 +2749,7 @@ function closeEdit() {
 }
 
 async function submitEdit() {
+  _commitActiveMentionEdit();
   const post = allPosts[editingIdx];
   const body = _expandMentions(document.getElementById("edit-body").value);
   const tags = document.getElementById("edit-tags").value.trim().split(/\s+/).filter(Boolean);

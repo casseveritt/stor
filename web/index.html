@@ -223,12 +223,16 @@
 <div id="inline-compose" hidden style="max-width:680px;margin:0 auto 0.75rem;position:relative">
         <div id="inline-mention-dropdown" class="mention-dropdown" hidden style="top:100%;margin-top:2px"></div>
         <div style="display:flex;gap:0.5rem;align-items:center">
-        <textarea id="inline-compose-body" placeholder="Wazzup?" rows="1"
-          oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';_inlineComposeMentionInput(event)"
-          onkeydown="_inlineComposeKeydown(event)"
-          onfocus="document.getElementById('inline-expand-btn').hidden=false"
-          onblur="setTimeout(()=>{hideMentionDropdown();document.getElementById('inline-expand-btn').hidden=true},200)"
-          style="flex:1;resize:none;overflow:hidden;min-height:2rem;max-height:12rem"></textarea>
+        <div style="position:relative;flex:1">
+          <div id="inline-compose-highlight" aria-hidden="true"></div>
+          <textarea id="inline-compose-body" placeholder="Wazzup?" rows="1"
+            oninput="this.style.height='auto';this.style.height=this.scrollHeight+'px';_inlineComposeMentionInput(event)"
+            onkeydown="_inlineComposeKeydown(event)"
+            onscroll="_updateHighlight()"
+            onfocus="document.getElementById('inline-expand-btn').hidden=false"
+            onblur="setTimeout(()=>{hideMentionDropdown();document.getElementById('inline-expand-btn').hidden=true},200)"
+            style="width:100%;resize:none;overflow:hidden;min-height:2rem;max-height:12rem"></textarea>
+        </div>
         <button id="inline-expand-btn" class="btn btn-muted btn-sm" hidden onclick="openCompose()" title="Full compose panel">⊞</button>
         <button class="btn btn-muted btn-sm" onclick="showInlineEmojiPicker(event,'inline-compose-body')" title="Insert emoji">😊</button>
         <button class="btn btn-primary btn-sm" onclick="submitInlinePost()">Post</button>
