@@ -2218,11 +2218,13 @@ function _expandMentions(text) {
     tagMap.set(tag.toLowerCase(), {label: tag, id, contact: c});
   }
   const toSave = [];
-  const result = text.replace(/@(\w+)/g, (full, word) => {
-    const lower = word.toLowerCase();
+  const result = text.replace(/@\[([^\]]*)\]|@(\w+)/g, (full, bracketContent, word) => {
+    const inner = (bracketContent !== undefined ? bracketContent : word).trim();
+    if (!inner) return full;
+    const lower = inner.toLowerCase();
     // 1. Exact match on saved tag
     const entry = tagMap.get(lower);
-    if (entry) return `[${entry.id}|${entry.label}]`;
+    if (entry) return `[${entry.id}|${inner}]`;
     // 2. Prefix match against known tags or session entries (user extended the label inline)
     let best = null;
     for (const [tag, entry] of tagMap) {
@@ -2239,8 +2241,8 @@ function _expandMentions(text) {
     if (best) {
       const id = best.contact.node_id || (serverProfiles[best.contact.url] || {}).owner_id || best.contact.public_key;
       if (id) {
-        if (word !== _contactTag(best.contact)) toSave.push({contact: best.contact, newTag: word});
-        return `[${id}|${word}]`;
+        if (inner !== _contactTag(best.contact)) toSave.push({contact: best.contact, newTag: inner});
+        return `[${id}|${inner}]`;
       }
     }
     return full;
@@ -2253,7 +2255,8 @@ function _expandMentions(text) {
 function _collapseMentions(text) {
   return text.replace(/\[([^|\]]+)\|([^\]]+)\]/g, (full, id, disptext) => {
     const contact = (CFG?.contacts || []).find(c => c.node_id === id || c.public_key === id);
-    return `@${contact ? _contactTag(contact) : disptext}`;
+    const tag = contact ? _contactTag(contact) : disptext;
+    return /\s/.test(tag) ? `@[${tag}]` : `@${tag}`;
   });
 }
 
@@ -2278,9 +2281,10 @@ function _commitActiveMentionEdit() {
   if (!ta) return;
   const text = ta.value;
   if (atPos >= text.length || text[atPos] !== '@') return;
-  const m = text.slice(atPos).match(/^@(\w+)/);
+  const m = text.slice(atPos).match(/^@\[([^\]]*)\]|^@(\w+)/);
   if (!m) return;
-  const word = m[1];
+  const word = (m[1] !== undefined ? m[1] : m[2]).trim();
+  if (!word) return;
   const currentTag = _contactTag(contact);
   if (word.toLowerCase() !== currentTag.toLowerCase()) {
     _sessionMentionEntries.push({ lowerLabel: word.toLowerCase(), contact });
@@ -2297,8 +2301,13 @@ function onComposeInput() {
     const { atPos } = _activeMentionEdit;
     let still = false;
     if (atPos < text.length && text[atPos] === '@') {
-      const m = text.slice(atPos).match(/^@(\w*)/);
-      if (m && pos >= atPos && pos <= atPos + m[0].length) still = true;
+      const m = text.slice(atPos).match(/^@\[([^\]]*)\]|^@(\w*)/);
+      if (m) {
+        // For bracket form, cursor must be before the closing ]
+        const end = atPos + m[0].length;
+        const max = m[1] !== undefined ? end - 1 : end;
+        if (pos >= atPos && pos <= max) still = true;
+      }
     }
     if (!still) _commitActiveMentionEdit();
   }
@@ -2306,6 +2315,9 @@ function onComposeInput() {
   const ta = document.getElementById(_mentionCtx.taId);
   const pos = ta.selectionStart;
   const before = ta.value.substring(0, pos);
+  // @[... means cursor is inside a bracket mention — no dropdown while freely typing
+  const bracketMatch = before.match(/@\[([^\]]*)$/);
+  if (bracketMatch) { hideMentionDropdown(); return; }
   const match = before.match(/@(\w*)$/);
   if (!match) { hideMentionDropdown(); return; }
   const query = match[1].toLowerCase();
@@ -2399,12 +2411,14 @@ function _updateHighlight() {
   const text = ta.value;
   let html = '';
   let last = 0;
-  const re = /@(\w+)/g;
+  // Matches @[text with spaces] or @word
+  const re = /@\[([^\]]*)\]|@(\w+)/g;
   let m;
   while ((m = re.exec(text)) !== null) {
     const atPos = m.index;
-    const word = m[1];
-    const lower = word.toLowerCase();
+    const isBracket = m[1] !== undefined;
+    const inner = isBracket ? m[1] : m[2];
+    const lower = inner.toLowerCase().trim();
     html += _e(text.slice(last, atPos));
     const lit = (() => {
       if (knownTags.has(lower)) return true;
@@ -2415,11 +2429,17 @@ function _updateHighlight() {
         const el = e.lowerLabel;
         if (el.length >= 2 && lower.length >= 2 && (lower.startsWith(el) || el.startsWith(lower))) return true;
       }
-      // Keep highlight for the word the user is actively rewriting after a dropdown pick
+      // Keep highlight for the mention the user is actively rewriting after a dropdown pick
       if (_activeMentionEdit?.atPos === atPos) return true;
       return false;
     })();
-    html += lit ? `<span class="mention-tag">@${_e(word)}</span>` : _e(m[0]);
+    if (lit) {
+      html += isBracket
+        ? `<span class="mention-bracket">@[</span><span class="mention-tag">${_e(inner)}</span><span class="mention-bracket">]</span>`
+        : `<span class="mention-tag">@${_e(inner)}</span>`;
+    } else {
+      html += _e(m[0]);
+    }
     last = atPos + m[0].length;
   }
   html += _e(text.slice(last));
@@ -2448,8 +2468,31 @@ function composeShowTab(tab) {
   }
 }
 
+// When space is pressed inside an active plain @word mention, convert to @[word ] form
+// so the user can keep typing a label that contains spaces.
+function _handleMentionSpaceKey(e) {
+  if (e.key !== ' ' || !_activeMentionEdit) return false;
+  const ta = document.getElementById(_mentionCtx.taId);
+  if (!ta) return false;
+  const { atPos } = _activeMentionEdit;
+  const text = ta.value;
+  const m = text.slice(atPos).match(/^@(\w+)/);
+  if (!m) return false; // already bracket form or no plain word
+  const wordEnd = atPos + m[0].length;
+  const pos = ta.selectionStart;
+  if (pos < atPos || pos > wordEnd) return false; // cursor not in the mention
+  // Replace @word with @[word ] and place cursor inside before ]
+  const word = m[1];
+  ta.value = text.slice(0, atPos) + '@[' + word + ' ]' + text.slice(wordEnd);
+  ta.selectionStart = ta.selectionEnd = atPos + 2 + word.length + 1;
+  _updateHighlight();
+  e.preventDefault();
+  return true;
+}
+
 function _composeKeydownHandler(e) {
   _mentionCtx = COMPOSE_CTX;
+  if (_handleMentionSpaceKey(e)) return;
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !_mentionState) {
     e.preventDefault();
     submitPost();
@@ -2459,6 +2502,7 @@ function _composeKeydownHandler(e) {
 }
 function _editKeydownHandler(e) {
   _mentionCtx = EDIT_CTX;
+  if (_handleMentionSpaceKey(e)) return;
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !_mentionState) {
     e.preventDefault();
     submitEdit();
@@ -2595,6 +2639,7 @@ function _inlineComposeMentionInput(e) {
 
 function _inlineComposeKeydown(e) {
   _mentionCtx = INLINE_CTX;
+  if (_handleMentionSpaceKey(e)) return;
   if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !_mentionState) {
     e.preventDefault();
     submitInlinePost();

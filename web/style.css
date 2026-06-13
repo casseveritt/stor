@@ -245,6 +245,7 @@
   #compose-body-wrap:focus-within { border-color: var(--accent); }
   #compose-highlight, #edit-highlight { position: absolute; top: 0; left: 0; right: 0; bottom: 0; padding: 0.6rem; font-size: 0.95rem; font-family: inherit; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; overflow: hidden; color: var(--text-1); pointer-events: none; z-index: 2; box-sizing: border-box; }
   .mention-tag { color: var(--mention); font-weight: 500; cursor: default; }
+  .mention-bracket { color: var(--text-4); }
   .mention-popup { position: absolute; z-index: 400; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; box-shadow: 0 4px 16px rgba(0,0,0,0.5); min-width: 160px; max-width: 240px; pointer-events: auto; }
   .mention-dim { background: rgba(0,0,0,0.45); border-radius: 2px; }
   #compose-body { background: transparent; color: transparent; caret-color: var(--text-1); border: none; border-radius: 4px; padding: 0.6rem; width: 100%; font-size: 0.95rem; line-height: 1.5; resize: vertical; min-height: 100px; outline: none; font-family: inherit; position: relative; z-index: 1; box-sizing: border-box; }
