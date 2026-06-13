@@ -2690,6 +2690,9 @@ function closeAllPostMenus() {
 }
 
 function openPostMenu(e, idx, postId, serverUrl) {
+  // data-idx is kept current by prependPost/hidePost; the baked-in idx can be stale.
+  const card = e.currentTarget.closest('.post-card');
+  if (card) idx = parseInt(card.dataset.idx);
   const _norm = u => (u || '').replace(/\/+$/, '');
   const isOwn = IS_OWNER && _norm(serverUrl) === _norm(CFG?.own_server);
   e.stopPropagation();
