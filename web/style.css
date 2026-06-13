@@ -178,9 +178,10 @@
   .tag-chip.active { background: var(--accent-surface); color: var(--accent-light); }
 
   /* ── inline compose ── */
-  #inline-compose-body { background: var(--surface-3); color: var(--text-1); border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.92rem; line-height: 1.5; outline: none; font-family: inherit; position: relative; z-index: 1; }
+  #inline-compose-body { background: var(--surface-3); color: transparent; caret-color: var(--text-1); border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.92rem; line-height: 1.5; outline: none; font-family: inherit; position: relative; z-index: 1; }
   #inline-compose-body:focus { border-color: var(--accent); }
-  #inline-compose-highlight { position: absolute; top: 0; left: 0; right: 0; bottom: 0; padding: 0.4rem 0.6rem; font-size: 0.92rem; font-family: inherit; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; overflow: hidden; color: transparent; pointer-events: none; z-index: 2; box-sizing: border-box; border: 1px solid transparent; border-radius: 4px; }
+  #inline-compose-body::placeholder { color: var(--text-4); }
+  #inline-compose-highlight { position: absolute; top: 0; left: 0; right: 0; bottom: 0; padding: 0.4rem 0.6rem; font-size: 0.92rem; font-family: inherit; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; overflow: hidden; color: var(--text-1); pointer-events: none; z-index: 2; box-sizing: border-box; border: 1px solid transparent; border-radius: 4px; }
   .reply-input { background: var(--surface-3); color: var(--text-1); border: 1px solid var(--border); border-radius: 4px; padding: 0.4rem 0.6rem; font-size: 0.88rem; line-height: 1.5; outline: none; font-family: inherit; resize: vertical; min-height: 4rem; }
   .reply-input:focus { border-color: var(--accent); }
   #compose-reply-banner { font-size: 0.8rem; color: var(--text-4); background: var(--surface-3); border-left: 3px solid var(--accent); padding: 0.3rem 0.6rem; border-radius: 0 4px 4px 0; margin-bottom: 0.5rem; }
@@ -242,11 +243,12 @@
   #compose-modal { min-width: min(90vw, 560px); }
   #compose-body-wrap { position: relative; margin-bottom: 0.75rem; background: var(--surface-3); border: 1px solid var(--border); border-radius: 4px; }
   #compose-body-wrap:focus-within { border-color: var(--accent); }
-  #compose-highlight, #edit-highlight { position: absolute; top: 0; left: 0; right: 0; bottom: 0; padding: 0.6rem; font-size: 0.95rem; font-family: inherit; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; overflow: hidden; color: transparent; pointer-events: none; z-index: 2; box-sizing: border-box; }
+  #compose-highlight, #edit-highlight { position: absolute; top: 0; left: 0; right: 0; bottom: 0; padding: 0.6rem; font-size: 0.95rem; font-family: inherit; line-height: 1.5; white-space: pre-wrap; word-wrap: break-word; overflow: hidden; color: var(--text-1); pointer-events: none; z-index: 2; box-sizing: border-box; }
   .mention-tag { color: var(--mention); font-weight: 500; cursor: default; }
   .mention-popup { position: absolute; z-index: 400; background: var(--surface-2); border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; box-shadow: 0 4px 16px rgba(0,0,0,0.5); min-width: 160px; max-width: 240px; pointer-events: auto; }
   .mention-dim { background: rgba(0,0,0,0.45); border-radius: 2px; }
-  #compose-body { background: transparent; color: var(--text-1); border: none; border-radius: 4px; padding: 0.6rem; width: 100%; font-size: 0.95rem; line-height: 1.5; resize: vertical; min-height: 100px; outline: none; font-family: inherit; position: relative; z-index: 1; caret-color: var(--text-1); box-sizing: border-box; }
+  #compose-body { background: transparent; color: transparent; caret-color: var(--text-1); border: none; border-radius: 4px; padding: 0.6rem; width: 100%; font-size: 0.95rem; line-height: 1.5; resize: vertical; min-height: 100px; outline: none; font-family: inherit; position: relative; z-index: 1; box-sizing: border-box; }
+  #compose-body::placeholder { color: var(--text-4); }
   .mention-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: var(--surface-2); border: 1px solid var(--border-strong); border-radius: 4px; max-height: 180px; overflow-y: auto; z-index: 200; box-shadow: 0 4px 12px rgba(0,0,0,0.5); }
   .mention-item { padding: 0.4rem 0.75rem; cursor: pointer; display: flex; justify-content: space-between; align-items: center; gap: 0.75rem; font-size: 0.88rem; }
   .mention-item:hover, .mention-item.focused { background: var(--accent-surface); }
