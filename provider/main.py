@@ -94,6 +94,11 @@ def create_app(db_path: str) -> FastAPI:
     registry_url = os.environ.get("CONTACC_REGISTRY_URL", "https://strk.xyzw.us:8421").rstrip("/")
     provider_url = os.environ.get("CONTACC_PROVIDER_URL", "").rstrip("/")
     admin_identity = os.environ.get("CONTACC_ADMIN_IDENTITY", "")
+    _raw = os.environ.get("CONTACC_MULTI_NODE_IDENTITIES", "")
+    multi_node_identities = {
+        (i if i.startswith("google:") else "google:" + i)
+        for i in (x.strip() for x in _raw.split(",")) if i
+    }
 
     app = FastAPI(title="contacc provider", docs_url=None, redoc_url=None)
     app.add_middleware(
@@ -165,6 +170,15 @@ def create_app(db_path: str) -> FastAPI:
         if row and time.time_ns() - row[1] <= SESSION_TTL * NS:
             return row[0]
         return None
+
+    def _has_registry_node(google_identity: str) -> bool:
+        """Return True if the registry already has an active node for this identity."""
+        try:
+            r = httpx.get(f"{registry_url}/nodes/by-identity",
+                          params={"google_identity": google_identity}, timeout=5)
+            return r.status_code == 200
+        except Exception:
+            return False
 
     def _claimed_node(identity: str) -> str | None:
         """Return the node_url owned by this identity, or None."""
@@ -527,7 +541,7 @@ def create_app(db_path: str) -> FastAPI:
 
     # ── user invite UI ────────────────────────────────────────────────────────
 
-    def _user_invite_page(s: str, identity: str) -> str:
+    def _user_invite_page(s: str, identity: str, error: str = "") -> str:
         node_url = _claimed_node(identity)
         email = identity.removeprefix("google:")
 
@@ -568,12 +582,14 @@ def create_app(db_path: str) -> FastAPI:
 
         invite_form = ""
         if can_invite:
+            error_html = f'<p class=err>{error}</p>' if error else ''
             invite_form = f"""
   <form method=post action="/invite/friend/add?s={s}">
     <label>Friend's Google email</label>
     <input name=google_identity placeholder="friend@example.com" required autocomplete=off>
     <button type=submit class=btn>Invite Friend</button>
   </form>
+  {error_html}
   <p class=meta>{USER_INVITE_LIMIT - pending_count} invite slot{'s' if USER_INVITE_LIMIT - pending_count != 1 else ''} remaining</p>"""
         else:
             invite_form = f'<p class=err>You have reached the limit of {USER_INVITE_LIMIT} pending invitations.</p>'
@@ -598,14 +614,14 @@ def create_app(db_path: str) -> FastAPI:
 </div></body></html>"""
 
     @app.get("/invite/friend", response_class=HTMLResponse)
-    def invite_friend(s: str = ""):
+    def invite_friend(s: str = "", err: str = ""):
         identity = _check_user_session(s) if s else None
         if not identity:
             return_to = provider_url + "/invite/friend/verify"
             return RedirectResponse(
                 f"{registry_url}/auth/start?return_to={quote(return_to, safe='')}", 302
             )
-        return HTMLResponse(_user_invite_page(s, identity))
+        return HTMLResponse(_user_invite_page(s, identity, error=err))
 
     @app.get("/invite/friend/verify")
     def invite_friend_verify(proxy_token: str = ""):
@@ -646,6 +662,10 @@ def create_app(db_path: str) -> FastAPI:
         if invitee:
             if not invitee.startswith("google:"):
                 invitee = "google:" + invitee
+            if _has_registry_node(invitee):
+                log.info("User %s tried to invite %s who already has a registered node", identity, invitee)
+                err = quote(f"{invitee.removeprefix('google:')} already has a registered node.", safe="")
+                return RedirectResponse(f"/invite/friend?s={s}&err={err}", 302)
             con.execute(
                 "INSERT OR REPLACE INTO invitations(google_identity, created_at, created_by)"
                 " VALUES (?, ?, ?)",
@@ -690,8 +710,8 @@ def create_app(db_path: str) -> FastAPI:
         data = _verify_proxy_token(proxy_token)
         identity = data.get("identity", "")
 
-        # Block if already has a node
-        existing = _claimed_node(identity)
+        # Block if already has a node (unless this identity is explicitly allowed multiple nodes)
+        existing = None if identity in multi_node_identities else _claimed_node(identity)
         if existing:
             log.info("Duplicate node attempt blocked: %s (already has %s)", identity, existing)
             return HTMLResponse(

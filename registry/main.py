@@ -567,6 +567,22 @@ def create_app(db_path: str) -> FastAPI:
         con.commit()
         return {"owner_id": owner_id, "node_id": node_id, "expires_at": expires_at}
 
+    @app.get("/nodes/by-identity")
+    def nodes_by_identity(google_identity: str = ""):
+        if not google_identity:
+            raise HTTPException(400, "google_identity required")
+        if not google_identity.startswith("google:"):
+            google_identity = "google:" + google_identity
+        row = con.execute(
+            "SELECT node_id FROM nodes"
+            " WHERE google_identity = ? AND deleted_at IS NULL AND superseded_at IS NULL"
+            " LIMIT 1",
+            (google_identity,)
+        ).fetchone()
+        if not row:
+            raise HTTPException(404, "No node found for this identity")
+        return {"node_id": row[0]}
+
     @app.get("/nodes/{node_id}")
     def get_node(node_id: str):
         row = con.execute(
