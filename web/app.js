@@ -2470,6 +2470,8 @@ function composeShowTab(tab) {
 
 // When space is pressed inside an active plain @word mention, convert to @[word ] form
 // so the user can keep typing a label that contains spaces.
+// When space is pressed inside (or just after) an active @word mention, convert
+// to @[word ] so the user can keep typing a label that contains spaces.
 function _handleMentionSpaceKey(e) {
   if (e.key !== ' ' || !_activeMentionEdit) return false;
   const ta = document.getElementById(_mentionCtx.taId);
@@ -2478,12 +2480,16 @@ function _handleMentionSpaceKey(e) {
   const text = ta.value;
   const m = text.slice(atPos).match(/^@(\w+)/);
   if (!m) return false; // already bracket form or no plain word
+  const word = m[1];
   const wordEnd = atPos + m[0].length;
   const pos = ta.selectionStart;
-  if (pos < atPos || pos > wordEnd) return false; // cursor not in the mention
-  // Replace @word with @[word ] and place cursor inside before ]
-  const word = m[1];
-  ta.value = text.slice(0, atPos) + '@[' + word + ' ]' + text.slice(wordEnd);
+  // Also allow cursor at wordEnd+1 when that char is the trailing space _selectMention added,
+  // so pressing space immediately after a dropdown pick still triggers the conversion.
+  const onTrailingSpace = pos === wordEnd + 1 && text[wordEnd] === ' ';
+  if (pos < atPos || (pos > wordEnd && !onTrailingSpace)) return false;
+  const before = text.slice(0, atPos);
+  const after = onTrailingSpace ? text.slice(wordEnd + 1) : text.slice(wordEnd);
+  ta.value = `${before}@[${word} ]${after}`;
   ta.selectionStart = ta.selectionEnd = atPos + 2 + word.length + 1;
   _updateHighlight();
   e.preventDefault();
