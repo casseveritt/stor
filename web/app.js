@@ -2220,8 +2220,14 @@ function _expandMentions(text) {
     // 1. Exact match on saved tag
     const entry = tagMap.get(lower);
     if (entry) return `[${entry.id}|${entry.label}]`;
-    // 2. Prefix match against session-selected mentions (user extended the label inline)
+    // 2. Prefix match against known tags or session entries (user extended the label inline)
     let best = null;
+    for (const [tag, entry] of tagMap) {
+      if (lower.startsWith(tag) && tag.length >= 2) {
+        if (!best || tag.length > best.lowerLabel.length)
+          best = {lowerLabel: tag, contact: entry.contact};
+      }
+    }
     for (const e of _sessionMentionEntries) {
       if (lower.startsWith(e.lowerLabel) && e.lowerLabel.length >= 2) {
         if (!best || e.lowerLabel.length > best.lowerLabel.length) best = e;
@@ -2359,7 +2365,11 @@ function _updateHighlight() {
     .replace(/@(\w+)/g, (full, word) => {
       const lower = word.toLowerCase();
       if (knownTags.has(lower)) return `<span class="mention-tag">@${word}</span>`;
-      // Also highlight if word extends a session-selected mention label
+      // Keep highlight when word extends a known tag (typed manually or via dropdown)
+      for (const tag of knownTags) {
+        if (tag.length >= 2 && lower.startsWith(tag))
+          return `<span class="mention-tag">@${word}</span>`;
+      }
       for (const e of _sessionMentionEntries) {
         if (lower.startsWith(e.lowerLabel) && e.lowerLabel.length >= 2)
           return `<span class="mention-tag">@${word}</span>`;
