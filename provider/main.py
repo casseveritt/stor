@@ -449,7 +449,7 @@ def create_app(db_path: str) -> FastAPI:
         claimed_count = con.execute("SELECT count(*) FROM claimed_nodes").fetchone()[0]
 
         return f"""<!doctype html><html><head><meta charset=utf-8>
-<title>Invitations — contacc</title><style>{_CSS}</style></head><body>
+<title>Invitations — contacc</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><style>{_CSS}</style></head><body>
 <div class=card>
   <h2>Invite Someone</h2>
   <form method=post action="/invite/add?s={s}">
@@ -476,6 +476,16 @@ def create_app(db_path: str) -> FastAPI:
 
   <p class=meta style="margin-top:1.5rem">{claimed_count} claimed node{'s' if claimed_count != 1 else ''} total</p>
 </div></body></html>"""
+
+    _FAVICON = open(
+        __import__("pathlib").Path(__file__).parent.parent / "web" / "favicon.svg"
+    ).read().encode()
+
+    @app.get("/favicon.ico")
+    @app.get("/favicon.svg")
+    def favicon():
+        from fastapi.responses import Response
+        return Response(content=_FAVICON, media_type="image/svg+xml")
 
     @app.get("/", response_class=HTMLResponse)
     def root():
@@ -601,7 +611,7 @@ def create_app(db_path: str) -> FastAPI:
 
         accept_url = f"{provider_url}/accept_invitation"
         return f"""<!doctype html><html><head><meta charset=utf-8>
-<title>Invite a Friend — contacc</title><style>{_CSS}</style></head><body>
+<title>Invite a Friend — contacc</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><style>{_CSS}</style></head><body>
 <div class=card>
   <h2>Invite a Friend</h2>
   <p class=meta>Signed in as {email}</p>
