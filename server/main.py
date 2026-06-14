@@ -48,8 +48,8 @@ def _registry_heartbeat(
     web_address: str | None = None,
     delegation_cert: dict | None = None,
     google_identity: str | None = None,
-) -> None:
-    """Sign and push an update to the registry. Runs in the background; failures are logged and ignored."""
+) -> bool:
+    """Sign and push an update to the registry. Returns True on success."""
     try:
         pub_bytes = private_key.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
         timestamp = int(time.time())
@@ -75,10 +75,12 @@ def _registry_heartbeat(
             r = httpx.post(f"{registry_url.rstrip('/')}/register/{handle}", json=reg_payload, timeout=10.0)
         if r.is_success:
             log.info("Registry heartbeat OK: %s → %s", handle, node_address)
-        else:
-            log.warning("Registry heartbeat failed %s: %s", r.status_code, r.text)
+            return True
+        log.warning("Registry heartbeat failed %s: %s", r.status_code, r.text)
+        return False
     except Exception as e:
         log.warning("Registry heartbeat error: %s", e)
+        return False
 
 
 def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
@@ -380,15 +382,16 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
                     except Exception:
                         _dcert = None
                         _gid = None
-                    _registry_heartbeat(pk, addr, hdl, reg_url, nid, dn, web_addr, _dcert, _gid)
+                    return _registry_heartbeat(pk, addr, hdl, reg_url, nid, dn, web_addr, _dcert, _gid)
                 return trigger
 
             def _heartbeat_loop(trigger):
                 import time as _time
+                RETRY_INTERVAL = 60  # retry after 1 minute on failure (e.g. Caddy TLS not yet ready)
                 while True:
-                    trigger()
+                    ok = trigger()
                     _retry_undelivered_dms(app)
-                    _time.sleep(HEARTBEAT_INTERVAL)
+                    _time.sleep(HEARTBEAT_INTERVAL if ok else RETRY_INTERVAL)
 
             trigger_fn = _make_trigger(private_key, node_address, config.registry_handle, registry_url, config.node_id or "", db_con, app.state.web_address, config_path)
             app.state.trigger_heartbeat = trigger_fn
