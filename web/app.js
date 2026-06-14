@@ -162,6 +162,28 @@ let _avatarHideTimer = null;
     clearTimeout(_hoverTimer);
     _avatarHideTimer = setTimeout(() => document.querySelectorAll('.profile-popup').forEach(p => p.remove()), 150);
   });
+
+  // Double-tap on mobile opens the profile popup; tap outside closes it.
+  let _lastTapAv = null, _lastTapTime = 0;
+  document.addEventListener('touchend', e => {
+    const av = e.target.closest('.post-author-avatar');
+    if (!av) {
+      if (!e.target.closest('.profile-popup')) {
+        document.querySelectorAll('.profile-popup').forEach(p => p.remove());
+      }
+      return;
+    }
+    const now = Date.now();
+    if (_lastTapAv === av && now - _lastTapTime < 350) {
+      e.preventDefault();
+      const serverUrl = av.closest('[data-server]')?.dataset.server || '';
+      _showProfilePopup(serverUrl, av);
+      _lastTapAv = null;
+    } else {
+      _lastTapAv = av;
+      _lastTapTime = now;
+    }
+  }, {passive: false});
 })();
 
 // ── emoji hover preview ────────────────────────────────────────────────────
