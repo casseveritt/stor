@@ -1,7 +1,7 @@
-# AWS node host — nodes 0-9 only (no registry, no provider)
+# AWS node host — nodes 0-4 only (no registry, no provider)
 # Port convention: last 3 digits of any port minus 443 = node N.
-#   them (aggregator) external:  8443+N  (8443–8452)
-#   web                external:  6443+N  (6443–6452)
+#   them (aggregator) external:  8443+N  (8443–8447)
+#   web                external:  6443+N  (6443–6447)
 #   them internal:  18443+N
 #   web  internal:  16443+N
 
@@ -20,21 +20,6 @@
 {$CONTACC_DOMAIN}:8447 {
     reverse_proxy node-4-them:18447
 }
-{$CONTACC_DOMAIN}:8448 {
-    reverse_proxy node-5-them:18448
-}
-{$CONTACC_DOMAIN}:8449 {
-    reverse_proxy node-6-them:18449
-}
-{$CONTACC_DOMAIN}:8450 {
-    reverse_proxy node-7-them:18450
-}
-{$CONTACC_DOMAIN}:8451 {
-    reverse_proxy node-8-them:18451
-}
-{$CONTACC_DOMAIN}:8452 {
-    reverse_proxy node-9-them:18452
-}
 
 {$CONTACC_DOMAIN}:6443 {
     reverse_proxy web-0:16443
@@ -50,19 +35,4 @@
 }
 {$CONTACC_DOMAIN}:6447 {
     reverse_proxy web-4:16447
-}
-{$CONTACC_DOMAIN}:6448 {
-    reverse_proxy web-5:16448
-}
-{$CONTACC_DOMAIN}:6449 {
-    reverse_proxy web-6:16449
-}
-{$CONTACC_DOMAIN}:6450 {
-    reverse_proxy web-7:16450
-}
-{$CONTACC_DOMAIN}:6451 {
-    reverse_proxy web-8:16451
-}
-{$CONTACC_DOMAIN}:6452 {
-    reverse_proxy web-9:16452
 }
