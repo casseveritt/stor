@@ -113,7 +113,7 @@
     reverse_proxy node-23-them:18466
 }
 {$CONTACC_DOMAIN}:8467 {
-    reverse_proxy node-24-them:18467
+    reverse_proxy node-24:18467
 }
 
 {$CONTACC_DOMAIN}:6454 {
@@ -156,7 +156,20 @@
     reverse_proxy web-23:16466
 }
 {$CONTACC_DOMAIN}:6467 {
-    reverse_proxy web-24:16467
+    root * /srv/web
+
+    @root path /
+    rewrite @root /index.html
+
+    @callback_html expression `{path} == "/auth/callback" && {query.code} == ""`
+    rewrite @callback_html /callback.html
+
+    @api not file
+    reverse_proxy @api node-24:18467
+
+    file_server {
+        hide .*
+    }
 }
 
 {$CONTACC_DOMAIN}:8420 {

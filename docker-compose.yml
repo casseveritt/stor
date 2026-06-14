@@ -8,6 +8,11 @@ x-them: &them
   restart: unless-stopped
   command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT"
 
+x-node: &node
+  image: contacc
+  restart: unless-stopped
+  command: /app/deploy/start-node.sh
+
 x-web: &web
   image: caddy:2-alpine
   restart: unless-stopped
@@ -858,40 +863,20 @@ services:
       CONTACC_CLIENT_URL: http://node-23-them:18466
     depends_on: [node-23-them]
 
-  # ── node 24 ───────────────────────────────────────────────────────────────────────
-  node-24-me:
-    <<: *me
+  # ── node 24 (consolidated: me + them in one container) ───────────────────────────
+  node-24:
+    <<: *node
     profiles: [node24]
-    expose: ["28467"]
+    expose: ["28467", "18467"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28467"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8467
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6467
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-24-me:/data
-
-  node-24-them:
-    <<: *them
-    profiles: [node24]
-    expose: ["18467"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18467"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8467
-      CONTACC_SERVER_URL: http://node-24-me:28467
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6467
+      CONTACC_SERVER_URL: http://localhost:28467
     volumes:
-      - ${CONTACC_DATA_DIR}/node-24-them:/data
-    depends_on: [node-24-me]
-
-  web-24:
-    <<: *web
-    profiles: [node24]
-    expose: ["16467"]
-    environment:
-      CONTACC_WEB_PORT: "16467"
-      CONTACC_CLIENT_URL: http://node-24-them:18467
-    depends_on: [node-24-them]
+      - ${CONTACC_DATA_DIR}/node-24:/data
 
 
   # ── provider (opt-in) ────────────────────────────────────────────────────
@@ -987,6 +972,7 @@ services:
       - ${CADDY_CONFIG:-./deploy/Caddyfile}:/etc/caddy/Caddyfile:ro
       - ${CONTACC_DATA_DIR}/caddy:/data
       - ${CONTACC_DATA_DIR}/caddy-config:/config
+      - ./web:/srv/web:ro
     depends_on:
       - web-0
       - web-1
