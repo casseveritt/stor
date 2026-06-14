@@ -163,27 +163,28 @@ let _avatarHideTimer = null;
     _avatarHideTimer = setTimeout(() => document.querySelectorAll('.profile-popup').forEach(p => p.remove()), 150);
   });
 
-  // Double-tap on mobile opens the profile popup; tap outside closes it.
-  let _lastTapAv = null, _lastTapTime = 0;
-  document.addEventListener('touchend', e => {
-    const av = e.target.closest('.post-author-avatar');
-    if (!av) {
-      if (!e.target.closest('.profile-popup')) {
-        document.querySelectorAll('.profile-popup').forEach(p => p.remove());
-      }
-      return;
-    }
-    const now = Date.now();
-    if (_lastTapAv === av && now - _lastTapTime < 350) {
-      e.preventDefault();
+  // Drag over avatar on mobile shows the profile popup (mirrors desktop hover).
+  // Popup stays open after lift so the user can tap its buttons.
+  // Tap outside dismisses it.
+  let _touchAv = null;
+  document.addEventListener('touchmove', e => {
+    const t = e.touches[0];
+    const el = document.elementFromPoint(t.clientX, t.clientY);
+    const av = el?.closest('.post-author-avatar');
+    if (av === _touchAv) return;
+    _touchAv = av;
+    if (av) {
+      clearTimeout(_avatarHideTimer);
       const serverUrl = av.closest('[data-server]')?.dataset.server || '';
       _showProfilePopup(serverUrl, av);
-      _lastTapAv = null;
-    } else {
-      _lastTapAv = av;
-      _lastTapTime = now;
     }
-  }, {passive: false});
+  }, {passive: true});
+  document.addEventListener('touchend', e => {
+    _touchAv = null;
+    if (!e.target.closest('.post-author-avatar') && !e.target.closest('.profile-popup')) {
+      document.querySelectorAll('.profile-popup').forEach(p => p.remove());
+    }
+  });
 })();
 
 // ── emoji hover preview ────────────────────────────────────────────────────
