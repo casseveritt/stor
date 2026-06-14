@@ -2672,6 +2672,8 @@ async function submitInlinePost() {
     const post = await r.json();
     ta.value = "";
     ta.style.height = "auto";
+    _mentionCtx = INLINE_CTX;
+    _updateHighlight();
     prependPost(post);
   } else {
     ta.value = savedText;
