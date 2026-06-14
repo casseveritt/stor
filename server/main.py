@@ -393,10 +393,12 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
                         _cfg = NodeConfig.load(cfg_path)
                         _dcert = _j.loads(_cfg.identity_delegation) if _cfg.identity_delegation else None
                         _gid = _cfg.sso_owner_identity
+                        _hdl = _cfg.registry_handle or hdl
                     except Exception:
                         _dcert = None
                         _gid = None
-                    return _registry_heartbeat(pk, addr, hdl, reg_url, nid, dn, web_addr, _dcert, _gid)
+                        _hdl = hdl
+                    return _registry_heartbeat(pk, addr, _hdl, reg_url, nid, dn, web_addr, _dcert, _gid)
                 return trigger
 
             def _heartbeat_loop(trigger):

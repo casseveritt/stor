@@ -474,6 +474,7 @@ async function loadProfileAvatar() {
       avatarImg.hidden = true;
     }
     document.getElementById("profile-display-name").value = p.display_name || "";
+    document.getElementById("profile-handle").value = p.handle || "";
     if (p.display_name) {
       document.getElementById("handle-display").textContent = p.display_name;
       document.title = p.display_name;
@@ -3724,19 +3725,23 @@ async function uploadEscrowFromSettings() {
 
 async function saveProfileName() {
   const name = document.getElementById("profile-display-name").value.trim();
+  const handle = document.getElementById("profile-handle").value.trim().toLowerCase().replace(/^@/, "");
   const status = document.getElementById("profile-status");
   if (!name) { status.style.color = "#e06c6c"; status.textContent = "Name required."; return; }
   status.style.color = "#888"; status.textContent = "Saving…";
+  const body = {display_name: name};
+  if (handle) body.handle = handle;
   const r = await apiFetch("/api/profile", {
     method: "PUT",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({display_name: name}),
+    body: JSON.stringify(body),
   });
   if (r.ok) {
     loadProfileAvatar();
     closeProfile();
   } else {
-    status.style.color = "#e06c6c"; status.textContent = "Failed to save.";
+    const d = await r.json().catch(() => ({}));
+    status.style.color = "#e06c6c"; status.textContent = d.detail || "Failed to save.";
   }
 }
 

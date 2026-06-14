@@ -53,10 +53,25 @@ def get_profile(request: Request):
 
 class _ProfileBody(BaseModel):
     display_name: str
+    handle: str | None = None
 
 
 @router.put("")
 def update_profile(body: _ProfileBody, request: Request, identity: OwnerDep):
+    import json as _json
+    from pathlib import Path as _Path
+    from .setup import _validate_handle_format
+
+    if body.handle is not None:
+        h = body.handle.strip().lower()
+        _validate_handle_format(h)
+        config_path = _Path(request.app.state.config_path)
+        cfg_data = _json.loads(config_path.read_text())
+        cfg_data["registry_handle"] = h
+        config_path.write_text(_json.dumps(cfg_data, indent=2))
+        from . import node as _node
+        _node._registry_handle = h
+
     db = request.app.state.db
     row = _get_row(db)
     _save(db, body.display_name, row[1] if row else None, row[2] if row else None)
