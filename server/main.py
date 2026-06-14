@@ -83,6 +83,20 @@ def _registry_heartbeat(
         return False
 
 
+def _trim_idle_memory(db_con) -> None:
+    """Release SQLite page cache and unused malloc'd pages back to the OS."""
+    try:
+        db_con.execute("PRAGMA shrink_memory")
+        db_con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    except Exception:
+        pass
+    try:
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
+
+
 def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
     """Load keys, open DB, and populate app.state. Raises WrongPassphraseError on bad passphrase."""
     config = NodeConfig.load(config_path)
@@ -392,6 +406,7 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
                     ok = trigger()
                     _retry_undelivered_dms(app)
                     _time.sleep(HEARTBEAT_INTERVAL if ok else RETRY_INTERVAL)
+                    _trim_idle_memory(db_con)
 
             trigger_fn = _make_trigger(private_key, node_address, config.registry_handle, registry_url, config.node_id or "", db_con, app.state.web_address, config_path)
             app.state.trigger_heartbeat = trigger_fn
