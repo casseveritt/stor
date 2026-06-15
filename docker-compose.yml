@@ -1,25 +1,7 @@
-x-me: &me
-  image: contacc
-  restart: unless-stopped
-  command: sh -c "python -m server.main /data/node_config.json --host 0.0.0.0 --port $$CONTACC_ME_PORT"
-
-x-them: &them
-  image: contacc
-  restart: unless-stopped
-  command: sh -c "python -m client.main /data/client_config.json --host 0.0.0.0 --port $$CONTACC_THEM_PORT"
-
 x-node: &node
   image: contacc
   restart: unless-stopped
   command: /app/deploy/start-node.sh
-
-x-web: &web
-  image: caddy:2-alpine
-  restart: unless-stopped
-  command: caddy run --config /etc/caddy/WebCaddyfile --adapter caddyfile
-  volumes:
-    - ${CONTACC_WEB_CONFIG:-./deploy/WebCaddyfile}:/etc/caddy/WebCaddyfile:ro
-    - ./web:/srv/web:ro
 
 x-env: &proxy-env
   CONTACC_IDENTITY_PROXY_URL: ${CONTACC_IDENTITY_PROXY_URL:-https://strk.xyzw.us:8421}
@@ -28,845 +10,345 @@ x-env: &proxy-env
   CONTACC_DEV: "${CONTACC_DEV:-1}"
 
 services:
-  # ── node 0 ────────────────────────────────────────────────────────────────────────
-  node-0-me:
-    <<: *me
-    expose: ["28443"]
+  # ── node 0 ───────────────────────────────────────────────────────────────────
+  node-0:
+    <<: *node
+    expose: ["28443", "18443"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28443"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6443
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-0-me:/data
-
-  node-0-them:
-    <<: *them
-    expose: ["18443"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18443"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
-      CONTACC_SERVER_URL: http://node-0-me:28443
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6443
+      CONTACC_SERVER_URL: http://localhost:28443
     volumes:
-      - ${CONTACC_DATA_DIR}/node-0-them:/data
-    depends_on: [node-0-me]
+      - ${CONTACC_DATA_DIR}/node-0:/data
 
-  web-0:
-    <<: *web
-    expose: ["16443"]
-    environment:
-      CONTACC_WEB_PORT: "16443"
-      CONTACC_CLIENT_URL: http://node-0-them:18443
-    depends_on: [node-0-them]
-
-  # ── node 1 ────────────────────────────────────────────────────────────────────────
-  node-1-me:
-    <<: *me
-    build: .
-    expose: ["28444"]
+  # ── node 1 ───────────────────────────────────────────────────────────────────
+  node-1:
+    <<: *node
+    expose: ["28444", "18444"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28444"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8444
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6444
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-1-me:/data
-
-  node-1-them:
-    <<: *them
-    expose: ["18444"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18444"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8444
-      CONTACC_SERVER_URL: http://node-1-me:28444
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6444
+      CONTACC_SERVER_URL: http://localhost:28444
     volumes:
-      - ${CONTACC_DATA_DIR}/node-1-them:/data
-    depends_on: [node-1-me]
+      - ${CONTACC_DATA_DIR}/node-1:/data
 
-  web-1:
-    <<: *web
-    expose: ["16444"]
-    environment:
-      CONTACC_WEB_PORT: "16444"
-      CONTACC_CLIENT_URL: http://node-1-them:18444
-    depends_on: [node-1-them]
-
-  # ── node 2 ────────────────────────────────────────────────────────────────────────
-  node-2-me:
-    <<: *me
-    profiles: [node2]
-    expose: ["28445"]
+  # ── node 2 ───────────────────────────────────────────────────────────────────
+  node-2:
+    <<: *node
+    expose: ["28445", "18445"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28445"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8445
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6445
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-2-me:/data
-
-  node-2-them:
-    <<: *them
-    profiles: [node2]
-    expose: ["18445"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18445"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8445
-      CONTACC_SERVER_URL: http://node-2-me:28445
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6445
+      CONTACC_SERVER_URL: http://localhost:28445
     volumes:
-      - ${CONTACC_DATA_DIR}/node-2-them:/data
-    depends_on: [node-2-me]
+      - ${CONTACC_DATA_DIR}/node-2:/data
 
-  web-2:
-    <<: *web
-    profiles: [node2]
-    expose: ["16445"]
-    environment:
-      CONTACC_WEB_PORT: "16445"
-      CONTACC_CLIENT_URL: http://node-2-them:18445
-    depends_on: [node-2-them]
-
-  # ── node 3 ────────────────────────────────────────────────────────────────────────
-  node-3-me:
-    <<: *me
-    profiles: [node3]
-    expose: ["28446"]
+  # ── node 3 ───────────────────────────────────────────────────────────────────
+  node-3:
+    <<: *node
+    expose: ["28446", "18446"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28446"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8446
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6446
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-3-me:/data
-
-  node-3-them:
-    <<: *them
-    profiles: [node3]
-    expose: ["18446"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18446"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8446
-      CONTACC_SERVER_URL: http://node-3-me:28446
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6446
+      CONTACC_SERVER_URL: http://localhost:28446
     volumes:
-      - ${CONTACC_DATA_DIR}/node-3-them:/data
-    depends_on: [node-3-me]
+      - ${CONTACC_DATA_DIR}/node-3:/data
 
-  web-3:
-    <<: *web
-    profiles: [node3]
-    expose: ["16446"]
-    environment:
-      CONTACC_WEB_PORT: "16446"
-      CONTACC_CLIENT_URL: http://node-3-them:18446
-    depends_on: [node-3-them]
-
-  # ── node 4 ────────────────────────────────────────────────────────────────────────
-  node-4-me:
-    <<: *me
-    profiles: [node4]
-    expose: ["28447"]
+  # ── node 4 ───────────────────────────────────────────────────────────────────
+  node-4:
+    <<: *node
+    expose: ["28447", "18447"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28447"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8447
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6447
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-4-me:/data
-
-  node-4-them:
-    <<: *them
-    profiles: [node4]
-    expose: ["18447"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18447"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8447
-      CONTACC_SERVER_URL: http://node-4-me:28447
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6447
+      CONTACC_SERVER_URL: http://localhost:28447
     volumes:
-      - ${CONTACC_DATA_DIR}/node-4-them:/data
-    depends_on: [node-4-me]
+      - ${CONTACC_DATA_DIR}/node-4:/data
 
-  web-4:
-    <<: *web
-    profiles: [node4]
-    expose: ["16447"]
-    environment:
-      CONTACC_WEB_PORT: "16447"
-      CONTACC_CLIENT_URL: http://node-4-them:18447
-    depends_on: [node-4-them]
-
-  # ── node 5 ────────────────────────────────────────────────────────────────────────
-  node-5-me:
-    <<: *me
-    profiles: [node5]
-    expose: ["28448"]
+  # ── node 5 ───────────────────────────────────────────────────────────────────
+  node-5:
+    <<: *node
+    expose: ["28448", "18448"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28448"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8448
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6448
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-5-me:/data
-
-  node-5-them:
-    <<: *them
-    profiles: [node5]
-    expose: ["18448"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18448"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8448
-      CONTACC_SERVER_URL: http://node-5-me:28448
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6448
+      CONTACC_SERVER_URL: http://localhost:28448
     volumes:
-      - ${CONTACC_DATA_DIR}/node-5-them:/data
-    depends_on: [node-5-me]
+      - ${CONTACC_DATA_DIR}/node-5:/data
 
-  web-5:
-    <<: *web
-    profiles: [node5]
-    expose: ["16448"]
-    environment:
-      CONTACC_WEB_PORT: "16448"
-      CONTACC_CLIENT_URL: http://node-5-them:18448
-    depends_on: [node-5-them]
-
-  # ── node 6 ────────────────────────────────────────────────────────────────────────
-  node-6-me:
-    <<: *me
-    profiles: [node6]
-    expose: ["28449"]
+  # ── node 6 ───────────────────────────────────────────────────────────────────
+  node-6:
+    <<: *node
+    expose: ["28449", "18449"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28449"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8449
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6449
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-6-me:/data
-
-  node-6-them:
-    <<: *them
-    profiles: [node6]
-    expose: ["18449"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18449"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8449
-      CONTACC_SERVER_URL: http://node-6-me:28449
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6449
+      CONTACC_SERVER_URL: http://localhost:28449
     volumes:
-      - ${CONTACC_DATA_DIR}/node-6-them:/data
-    depends_on: [node-6-me]
+      - ${CONTACC_DATA_DIR}/node-6:/data
 
-  web-6:
-    <<: *web
-    profiles: [node6]
-    expose: ["16449"]
-    environment:
-      CONTACC_WEB_PORT: "16449"
-      CONTACC_CLIENT_URL: http://node-6-them:18449
-    depends_on: [node-6-them]
-
-  # ── node 7 ────────────────────────────────────────────────────────────────────────
-  node-7-me:
-    <<: *me
-    profiles: [node7]
-    expose: ["28450"]
+  # ── node 7 ───────────────────────────────────────────────────────────────────
+  node-7:
+    <<: *node
+    expose: ["28450", "18450"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28450"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8450
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6450
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-7-me:/data
-
-  node-7-them:
-    <<: *them
-    profiles: [node7]
-    expose: ["18450"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18450"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8450
-      CONTACC_SERVER_URL: http://node-7-me:28450
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6450
+      CONTACC_SERVER_URL: http://localhost:28450
     volumes:
-      - ${CONTACC_DATA_DIR}/node-7-them:/data
-    depends_on: [node-7-me]
+      - ${CONTACC_DATA_DIR}/node-7:/data
 
-  web-7:
-    <<: *web
-    profiles: [node7]
-    expose: ["16450"]
-    environment:
-      CONTACC_WEB_PORT: "16450"
-      CONTACC_CLIENT_URL: http://node-7-them:18450
-    depends_on: [node-7-them]
-
-  # ── node 8 ────────────────────────────────────────────────────────────────────────
-  node-8-me:
-    <<: *me
-    profiles: [node8]
-    expose: ["28451"]
+  # ── node 8 ───────────────────────────────────────────────────────────────────
+  node-8:
+    <<: *node
+    expose: ["28451", "18451"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28451"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8451
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6451
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-8-me:/data
-
-  node-8-them:
-    <<: *them
-    profiles: [node8]
-    expose: ["18451"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18451"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8451
-      CONTACC_SERVER_URL: http://node-8-me:28451
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6451
+      CONTACC_SERVER_URL: http://localhost:28451
     volumes:
-      - ${CONTACC_DATA_DIR}/node-8-them:/data
-    depends_on: [node-8-me]
+      - ${CONTACC_DATA_DIR}/node-8:/data
 
-  web-8:
-    <<: *web
-    profiles: [node8]
-    expose: ["16451"]
-    environment:
-      CONTACC_WEB_PORT: "16451"
-      CONTACC_CLIENT_URL: http://node-8-them:18451
-    depends_on: [node-8-them]
-
-  # ── node 9 ────────────────────────────────────────────────────────────────────────
-  node-9-me:
-    <<: *me
-    profiles: [node9]
-    expose: ["28452"]
+  # ── node 9 ───────────────────────────────────────────────────────────────────
+  node-9:
+    <<: *node
+    expose: ["28452", "18452"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28452"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8452
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6452
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-9-me:/data
-
-  node-9-them:
-    <<: *them
-    profiles: [node9]
-    expose: ["18452"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18452"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8452
-      CONTACC_SERVER_URL: http://node-9-me:28452
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6452
+      CONTACC_SERVER_URL: http://localhost:28452
     volumes:
-      - ${CONTACC_DATA_DIR}/node-9-them:/data
-    depends_on: [node-9-me]
+      - ${CONTACC_DATA_DIR}/node-9:/data
 
-  web-9:
-    <<: *web
-    profiles: [node9]
-    expose: ["16452"]
-    environment:
-      CONTACC_WEB_PORT: "16452"
-      CONTACC_CLIENT_URL: http://node-9-them:18452
-    depends_on: [node-9-them]
-
-  # ── node 10 ───────────────────────────────────────────────────────────────────────
-  node-10-me:
-    <<: *me
-    profiles: [node10]
-    expose: ["28453"]
+  # ── node 10 ──────────────────────────────────────────────────────────────────
+  node-10:
+    <<: *node
+    expose: ["28453", "18453"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28453"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8453
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6453
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-10-me:/data
-
-  node-10-them:
-    <<: *them
-    profiles: [node10]
-    expose: ["18453"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18453"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8453
-      CONTACC_SERVER_URL: http://node-10-me:28453
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6453
+      CONTACC_SERVER_URL: http://localhost:28453
     volumes:
-      - ${CONTACC_DATA_DIR}/node-10-them:/data
-    depends_on: [node-10-me]
+      - ${CONTACC_DATA_DIR}/node-10:/data
 
-  web-10:
-    <<: *web
-    profiles: [node10]
-    expose: ["16453"]
-    environment:
-      CONTACC_WEB_PORT: "16453"
-      CONTACC_CLIENT_URL: http://node-10-them:18453
-    depends_on: [node-10-them]
-
-  # ── node 11 ───────────────────────────────────────────────────────────────────────
-  node-11-me:
-    <<: *me
-    profiles: [node11]
-    expose: ["28454"]
+  # ── node 11 ──────────────────────────────────────────────────────────────────
+  node-11:
+    <<: *node
+    expose: ["28454", "18454"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28454"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8454
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6454
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-11-me:/data
-
-  node-11-them:
-    <<: *them
-    profiles: [node11]
-    expose: ["18454"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18454"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8454
-      CONTACC_SERVER_URL: http://node-11-me:28454
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6454
+      CONTACC_SERVER_URL: http://localhost:28454
     volumes:
-      - ${CONTACC_DATA_DIR}/node-11-them:/data
-    depends_on: [node-11-me]
+      - ${CONTACC_DATA_DIR}/node-11:/data
 
-  web-11:
-    <<: *web
-    profiles: [node11]
-    expose: ["16454"]
-    environment:
-      CONTACC_WEB_PORT: "16454"
-      CONTACC_CLIENT_URL: http://node-11-them:18454
-    depends_on: [node-11-them]
-
-  # ── node 12 ───────────────────────────────────────────────────────────────────────
-  node-12-me:
-    <<: *me
-    profiles: [node12]
-    expose: ["28455"]
+  # ── node 12 ──────────────────────────────────────────────────────────────────
+  node-12:
+    <<: *node
+    expose: ["28455", "18455"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28455"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8455
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6455
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-12-me:/data
-
-  node-12-them:
-    <<: *them
-    profiles: [node12]
-    expose: ["18455"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18455"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8455
-      CONTACC_SERVER_URL: http://node-12-me:28455
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6455
+      CONTACC_SERVER_URL: http://localhost:28455
     volumes:
-      - ${CONTACC_DATA_DIR}/node-12-them:/data
-    depends_on: [node-12-me]
+      - ${CONTACC_DATA_DIR}/node-12:/data
 
-  web-12:
-    <<: *web
-    profiles: [node12]
-    expose: ["16455"]
-    environment:
-      CONTACC_WEB_PORT: "16455"
-      CONTACC_CLIENT_URL: http://node-12-them:18455
-    depends_on: [node-12-them]
-
-  # ── node 13 ───────────────────────────────────────────────────────────────────────
-  node-13-me:
-    <<: *me
-    profiles: [node13]
-    expose: ["28456"]
+  # ── node 13 ──────────────────────────────────────────────────────────────────
+  node-13:
+    <<: *node
+    expose: ["28456", "18456"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28456"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8456
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6456
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-13-me:/data
-
-  node-13-them:
-    <<: *them
-    profiles: [node13]
-    expose: ["18456"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18456"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8456
-      CONTACC_SERVER_URL: http://node-13-me:28456
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6456
+      CONTACC_SERVER_URL: http://localhost:28456
     volumes:
-      - ${CONTACC_DATA_DIR}/node-13-them:/data
-    depends_on: [node-13-me]
+      - ${CONTACC_DATA_DIR}/node-13:/data
 
-  web-13:
-    <<: *web
-    profiles: [node13]
-    expose: ["16456"]
-    environment:
-      CONTACC_WEB_PORT: "16456"
-      CONTACC_CLIENT_URL: http://node-13-them:18456
-    depends_on: [node-13-them]
-
-  # ── node 14 ───────────────────────────────────────────────────────────────────────
-  node-14-me:
-    <<: *me
-    profiles: [node14]
-    expose: ["28457"]
+  # ── node 14 ──────────────────────────────────────────────────────────────────
+  node-14:
+    <<: *node
+    expose: ["28457", "18457"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28457"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8457
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6457
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-14-me:/data
-
-  node-14-them:
-    <<: *them
-    profiles: [node14]
-    expose: ["18457"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18457"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8457
-      CONTACC_SERVER_URL: http://node-14-me:28457
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6457
+      CONTACC_SERVER_URL: http://localhost:28457
     volumes:
-      - ${CONTACC_DATA_DIR}/node-14-them:/data
-    depends_on: [node-14-me]
+      - ${CONTACC_DATA_DIR}/node-14:/data
 
-  web-14:
-    <<: *web
-    profiles: [node14]
-    expose: ["16457"]
-    environment:
-      CONTACC_WEB_PORT: "16457"
-      CONTACC_CLIENT_URL: http://node-14-them:18457
-    depends_on: [node-14-them]
-
-  # ── node 15 ───────────────────────────────────────────────────────────────────────
-  node-15-me:
-    <<: *me
-    profiles: [node15]
-    expose: ["28458"]
+  # ── node 15 ──────────────────────────────────────────────────────────────────
+  node-15:
+    <<: *node
+    expose: ["28458", "18458"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28458"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8458
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6458
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-15-me:/data
-
-  node-15-them:
-    <<: *them
-    profiles: [node15]
-    expose: ["18458"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18458"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8458
-      CONTACC_SERVER_URL: http://node-15-me:28458
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6458
+      CONTACC_SERVER_URL: http://localhost:28458
     volumes:
-      - ${CONTACC_DATA_DIR}/node-15-them:/data
-    depends_on: [node-15-me]
+      - ${CONTACC_DATA_DIR}/node-15:/data
 
-  web-15:
-    <<: *web
-    profiles: [node15]
-    expose: ["16458"]
-    environment:
-      CONTACC_WEB_PORT: "16458"
-      CONTACC_CLIENT_URL: http://node-15-them:18458
-    depends_on: [node-15-them]
-
-  # ── node 16 ───────────────────────────────────────────────────────────────────────
-  node-16-me:
-    <<: *me
-    profiles: [node16]
-    expose: ["28459"]
+  # ── node 16 ──────────────────────────────────────────────────────────────────
+  node-16:
+    <<: *node
+    expose: ["28459", "18459"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28459"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8459
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6459
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-16-me:/data
-
-  node-16-them:
-    <<: *them
-    profiles: [node16]
-    expose: ["18459"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18459"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8459
-      CONTACC_SERVER_URL: http://node-16-me:28459
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6459
+      CONTACC_SERVER_URL: http://localhost:28459
     volumes:
-      - ${CONTACC_DATA_DIR}/node-16-them:/data
-    depends_on: [node-16-me]
+      - ${CONTACC_DATA_DIR}/node-16:/data
 
-  web-16:
-    <<: *web
-    profiles: [node16]
-    expose: ["16459"]
-    environment:
-      CONTACC_WEB_PORT: "16459"
-      CONTACC_CLIENT_URL: http://node-16-them:18459
-    depends_on: [node-16-them]
-
-  # ── node 17 ───────────────────────────────────────────────────────────────────────
-  node-17-me:
-    <<: *me
-    profiles: [node17]
-    expose: ["28460"]
+  # ── node 17 ──────────────────────────────────────────────────────────────────
+  node-17:
+    <<: *node
+    expose: ["28460", "18460"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28460"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8460
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6460
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-17-me:/data
-
-  node-17-them:
-    <<: *them
-    profiles: [node17]
-    expose: ["18460"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18460"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8460
-      CONTACC_SERVER_URL: http://node-17-me:28460
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6460
+      CONTACC_SERVER_URL: http://localhost:28460
     volumes:
-      - ${CONTACC_DATA_DIR}/node-17-them:/data
-    depends_on: [node-17-me]
+      - ${CONTACC_DATA_DIR}/node-17:/data
 
-  web-17:
-    <<: *web
-    profiles: [node17]
-    expose: ["16460"]
-    environment:
-      CONTACC_WEB_PORT: "16460"
-      CONTACC_CLIENT_URL: http://node-17-them:18460
-    depends_on: [node-17-them]
-
-  # ── node 18 ───────────────────────────────────────────────────────────────────────
-  node-18-me:
-    <<: *me
-    profiles: [node18]
-    expose: ["28461"]
+  # ── node 18 ──────────────────────────────────────────────────────────────────
+  node-18:
+    <<: *node
+    expose: ["28461", "18461"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28461"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8461
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6461
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-18-me:/data
-
-  node-18-them:
-    <<: *them
-    profiles: [node18]
-    expose: ["18461"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18461"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8461
-      CONTACC_SERVER_URL: http://node-18-me:28461
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6461
+      CONTACC_SERVER_URL: http://localhost:28461
     volumes:
-      - ${CONTACC_DATA_DIR}/node-18-them:/data
-    depends_on: [node-18-me]
+      - ${CONTACC_DATA_DIR}/node-18:/data
 
-  web-18:
-    <<: *web
-    profiles: [node18]
-    expose: ["16461"]
-    environment:
-      CONTACC_WEB_PORT: "16461"
-      CONTACC_CLIENT_URL: http://node-18-them:18461
-    depends_on: [node-18-them]
-
-  # ── node 19 ───────────────────────────────────────────────────────────────────────
-  node-19-me:
-    <<: *me
-    profiles: [node19]
-    expose: ["28462"]
+  # ── node 19 ──────────────────────────────────────────────────────────────────
+  node-19:
+    <<: *node
+    expose: ["28462", "18462"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28462"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8462
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6462
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-19-me:/data
-
-  node-19-them:
-    <<: *them
-    profiles: [node19]
-    expose: ["18462"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18462"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8462
-      CONTACC_SERVER_URL: http://node-19-me:28462
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6462
+      CONTACC_SERVER_URL: http://localhost:28462
     volumes:
-      - ${CONTACC_DATA_DIR}/node-19-them:/data
-    depends_on: [node-19-me]
+      - ${CONTACC_DATA_DIR}/node-19:/data
 
-  web-19:
-    <<: *web
-    profiles: [node19]
-    expose: ["16462"]
-    environment:
-      CONTACC_WEB_PORT: "16462"
-      CONTACC_CLIENT_URL: http://node-19-them:18462
-    depends_on: [node-19-them]
-
-  # ── node 20 ───────────────────────────────────────────────────────────────────────
-  node-20-me:
-    <<: *me
-    profiles: [node20]
-    expose: ["28463"]
+  # ── node 20 ──────────────────────────────────────────────────────────────────
+  node-20:
+    <<: *node
+    expose: ["28463", "18463"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28463"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8463
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6463
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-20-me:/data
-
-  node-20-them:
-    <<: *them
-    profiles: [node20]
-    expose: ["18463"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18463"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8463
-      CONTACC_SERVER_URL: http://node-20-me:28463
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6463
+      CONTACC_SERVER_URL: http://localhost:28463
     volumes:
-      - ${CONTACC_DATA_DIR}/node-20-them:/data
-    depends_on: [node-20-me]
+      - ${CONTACC_DATA_DIR}/node-20:/data
 
-  web-20:
-    <<: *web
-    profiles: [node20]
-    expose: ["16463"]
-    environment:
-      CONTACC_WEB_PORT: "16463"
-      CONTACC_CLIENT_URL: http://node-20-them:18463
-    depends_on: [node-20-them]
-
-  # ── node 21 ───────────────────────────────────────────────────────────────────────
-  node-21-me:
-    <<: *me
-    profiles: [node21]
-    expose: ["28464"]
+  # ── node 21 ──────────────────────────────────────────────────────────────────
+  node-21:
+    <<: *node
+    expose: ["28464", "18464"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28464"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8464
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6464
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-21-me:/data
-
-  node-21-them:
-    <<: *them
-    profiles: [node21]
-    expose: ["18464"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18464"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8464
-      CONTACC_SERVER_URL: http://node-21-me:28464
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6464
+      CONTACC_SERVER_URL: http://localhost:28464
     volumes:
-      - ${CONTACC_DATA_DIR}/node-21-them:/data
-    depends_on: [node-21-me]
+      - ${CONTACC_DATA_DIR}/node-21:/data
 
-  web-21:
-    <<: *web
-    profiles: [node21]
-    expose: ["16464"]
-    environment:
-      CONTACC_WEB_PORT: "16464"
-      CONTACC_CLIENT_URL: http://node-21-them:18464
-    depends_on: [node-21-them]
-
-  # ── node 22 ───────────────────────────────────────────────────────────────────────
-  node-22-me:
-    <<: *me
-    profiles: [node22]
-    expose: ["28465"]
+  # ── node 22 ──────────────────────────────────────────────────────────────────
+  node-22:
+    <<: *node
+    expose: ["28465", "18465"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28465"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8465
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6465
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-22-me:/data
-
-  node-22-them:
-    <<: *them
-    profiles: [node22]
-    expose: ["18465"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18465"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8465
-      CONTACC_SERVER_URL: http://node-22-me:28465
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6465
+      CONTACC_SERVER_URL: http://localhost:28465
     volumes:
-      - ${CONTACC_DATA_DIR}/node-22-them:/data
-    depends_on: [node-22-me]
+      - ${CONTACC_DATA_DIR}/node-22:/data
 
-  web-22:
-    <<: *web
-    profiles: [node22]
-    expose: ["16465"]
-    environment:
-      CONTACC_WEB_PORT: "16465"
-      CONTACC_CLIENT_URL: http://node-22-them:18465
-    depends_on: [node-22-them]
-
-  # ── node 23 ───────────────────────────────────────────────────────────────────────
-  node-23-me:
-    <<: *me
-    profiles: [node23]
-    expose: ["28466"]
+  # ── node 23 ──────────────────────────────────────────────────────────────────
+  node-23:
+    <<: *node
+    expose: ["28466", "18466"]
     environment:
       <<: *proxy-env
       CONTACC_ME_PORT: "28466"
-      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8466
-      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6466
-    volumes:
-      - ${CONTACC_DATA_DIR}/node-23-me:/data
-
-  node-23-them:
-    <<: *them
-    profiles: [node23]
-    expose: ["18466"]
-    environment:
-      <<: *proxy-env
       CONTACC_THEM_PORT: "18466"
       CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8466
-      CONTACC_SERVER_URL: http://node-23-me:28466
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6466
+      CONTACC_SERVER_URL: http://localhost:28466
     volumes:
-      - ${CONTACC_DATA_DIR}/node-23-them:/data
-    depends_on: [node-23-me]
+      - ${CONTACC_DATA_DIR}/node-23:/data
 
-  web-23:
-    <<: *web
-    profiles: [node23]
-    expose: ["16466"]
-    environment:
-      CONTACC_WEB_PORT: "16466"
-      CONTACC_CLIENT_URL: http://node-23-them:18466
-    depends_on: [node-23-them]
-
-  # ── node 24 (consolidated: me + them in one container) ───────────────────────────
+  # ── node 24 ──────────────────────────────────────────────────────────────────
   node-24:
     <<: *node
-    profiles: [node24]
     expose: ["28467", "18467"]
     environment:
       <<: *proxy-env
@@ -878,8 +360,77 @@ services:
     volumes:
       - ${CONTACC_DATA_DIR}/node-24:/data
 
+  # ── node 25 ──────────────────────────────────────────────────────────────────
+  node-25:
+    <<: *node
+    expose: ["28468", "18468"]
+    environment:
+      <<: *proxy-env
+      CONTACC_ME_PORT: "28468"
+      CONTACC_THEM_PORT: "18468"
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8468
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6468
+      CONTACC_SERVER_URL: http://localhost:28468
+    volumes:
+      - ${CONTACC_DATA_DIR}/node-25:/data
 
-  # ── provider (opt-in) ────────────────────────────────────────────────────
+  # ── node 26 ──────────────────────────────────────────────────────────────────
+  node-26:
+    <<: *node
+    expose: ["28469", "18469"]
+    environment:
+      <<: *proxy-env
+      CONTACC_ME_PORT: "28469"
+      CONTACC_THEM_PORT: "18469"
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8469
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6469
+      CONTACC_SERVER_URL: http://localhost:28469
+    volumes:
+      - ${CONTACC_DATA_DIR}/node-26:/data
+
+  # ── node 27 ──────────────────────────────────────────────────────────────────
+  node-27:
+    <<: *node
+    expose: ["28470", "18470"]
+    environment:
+      <<: *proxy-env
+      CONTACC_ME_PORT: "28470"
+      CONTACC_THEM_PORT: "18470"
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8470
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6470
+      CONTACC_SERVER_URL: http://localhost:28470
+    volumes:
+      - ${CONTACC_DATA_DIR}/node-27:/data
+
+  # ── node 28 ──────────────────────────────────────────────────────────────────
+  node-28:
+    <<: *node
+    expose: ["28471", "18471"]
+    environment:
+      <<: *proxy-env
+      CONTACC_ME_PORT: "28471"
+      CONTACC_THEM_PORT: "18471"
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8471
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6471
+      CONTACC_SERVER_URL: http://localhost:28471
+    volumes:
+      - ${CONTACC_DATA_DIR}/node-28:/data
+
+  # ── node 29 ──────────────────────────────────────────────────────────────────
+  node-29:
+    <<: *node
+    expose: ["28472", "18472"]
+    environment:
+      <<: *proxy-env
+      CONTACC_ME_PORT: "28472"
+      CONTACC_THEM_PORT: "18472"
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8472
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6472
+      CONTACC_SERVER_URL: http://localhost:28472
+    volumes:
+      - ${CONTACC_DATA_DIR}/node-29:/data
+
+  # ── provider (opt-in) ────────────────────────────────────────────────────────
   provider:
     image: contacc
     restart: unless-stopped
@@ -894,7 +445,7 @@ services:
       - ${CONTACC_DATA_DIR}/provider:/data
     expose: ["9520"]
 
-  # ── registry (opt-in) ─────────────────────────────────────────────────────
+  # ── registry (opt-in) ────────────────────────────────────────────────────────
   registry:
     image: contacc
     restart: unless-stopped
@@ -908,7 +459,7 @@ services:
       - ${CONTACC_DATA_DIR}/registry:/data
     expose: ["9532"]
 
-  # ── caddy ─────────────────────────────────────────────────────────────────
+  # ── caddy ────────────────────────────────────────────────────────────────────
   caddy:
     image: caddy:2
     restart: unless-stopped
@@ -925,17 +476,6 @@ services:
       - "6451:6451"
       - "6452:6452"
       - "6453:6453"
-      - "8443:8443"
-      - "8444:8444"
-      - "8445:8445"
-      - "8446:8446"
-      - "8447:8447"
-      - "8448:8448"
-      - "8449:8449"
-      - "8450:8450"
-      - "8451:8451"
-      - "8452:8452"
-      - "8453:8453"
       - "6454:6454"
       - "6455:6455"
       - "6456:6456"
@@ -950,6 +490,22 @@ services:
       - "6465:6465"
       - "6466:6466"
       - "6467:6467"
+      - "6468:6468"
+      - "6469:6469"
+      - "6470:6470"
+      - "6471:6471"
+      - "6472:6472"
+      - "8443:8443"
+      - "8444:8444"
+      - "8445:8445"
+      - "8446:8446"
+      - "8447:8447"
+      - "8448:8448"
+      - "8449:8449"
+      - "8450:8450"
+      - "8451:8451"
+      - "8452:8452"
+      - "8453:8453"
       - "8454:8454"
       - "8455:8455"
       - "8456:8456"
@@ -964,6 +520,11 @@ services:
       - "8465:8465"
       - "8466:8466"
       - "8467:8467"
+      - "8468:8468"
+      - "8469:8469"
+      - "8470:8470"
+      - "8471:8471"
+      - "8472:8472"
       - "8420:8420"
       - "8421:8421"
     environment:
@@ -973,6 +534,3 @@ services:
       - ${CONTACC_DATA_DIR}/caddy:/data
       - ${CONTACC_DATA_DIR}/caddy-config:/config
       - ./web:/srv/web:ro
-    depends_on:
-      - web-0
-      - web-1
