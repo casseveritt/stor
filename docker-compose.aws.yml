@@ -88,8 +88,19 @@ services:
     restart: unless-stopped
     command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
     ports:
-      - 6443-6447:6443-6447
-      - 8443-8447:8443-8447
+      - "80:80"
+      - "6443:6443"
+      - "6444:6444"
+      - "6445:6445"
+      - "6446:6446"
+      - "6447:6447"
+      - "8443:8443"
+      - "8444:8444"
+      - "8445:8445"
+      - "8446:8446"
+      - "8447:8447"
+    environment:
+      CONTACC_DOMAIN: ${CONTACC_DOMAIN}
     volumes:
       - ${CONTACC_CADDYFILE:-./deploy/Caddyfile.aws}:/etc/caddy/Caddyfile:ro
       - ${CONTACC_DATA_DIR}/caddy:/data
