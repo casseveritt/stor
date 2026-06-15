@@ -4,6 +4,10 @@
 # Safe to re-run: skips nodes already migrated.
 
 set -euo pipefail
+# Load .env from repo root if DATA_DIR not already set
+if [ -z "${CONTACC_DATA_DIR:-}" ] && [ -f "$(dirname "$0")/../.env" ]; then
+    source "$(dirname "$0")/../.env"
+fi
 DATA="${CONTACC_DATA_DIR:-/home/cass/src/stor/data}"
 
 for n in $(seq 0 29); do
