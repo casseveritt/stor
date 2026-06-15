@@ -547,6 +547,14 @@ def create_app(db_path: str) -> FastAPI:
                 (body.owner_id, body.identity_public_key)
             ).fetchone()
             if not match:
+                # Also accept keys recorded in key_history — escrow may reference a
+                # key that was rotated out of active nodes but is still legitimately
+                # associated with this owner.
+                match = con.execute(
+                    "SELECT 1 FROM key_history WHERE subject_id = ? AND key_type = 'identity' AND public_key = ? LIMIT 1",
+                    (body.owner_id, body.identity_public_key)
+                ).fetchone()
+            if not match:
                 exists = con.execute(
                     "SELECT 1 FROM nodes WHERE owner_id = ? AND identity_public_key IS NOT NULL LIMIT 1",
                     (body.owner_id,)
