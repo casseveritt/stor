@@ -1,0 +1,98 @@
+x-node: &node
+  image: contacc
+  restart: unless-stopped
+  command: /app/deploy/start-node.sh
+
+x-env: &proxy-env
+  CONTACC_IDENTITY_PROXY_URL: ${CONTACC_IDENTITY_PROXY_URL:-https://strk.xyzw.us:8421}
+  CONTACC_PROVIDER_URL: ${CONTACC_PROVIDER_URL:-}
+  CONTACC_PROVIDER_NOTIFY_URL: ${CONTACC_PROVIDER_NOTIFY_URL:-}
+  CONTACC_DEV: "${CONTACC_DEV:-1}"
+
+services:
+  # ── node 0 ───────────────────────────────────────────────────────────────────
+  node-0:
+    <<: *node
+    expose: ["28443", "18443"]
+    environment:
+      <<: *proxy-env
+      CONTACC_ME_PORT: "28443"
+      CONTACC_THEM_PORT: "18443"
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6443
+      CONTACC_SERVER_URL: http://localhost:28443
+    volumes:
+      - ${CONTACC_DATA_DIR}/node-0:/data
+
+  # ── node 1 ───────────────────────────────────────────────────────────────────
+  node-1:
+    <<: *node
+    expose: ["28444", "18444"]
+    environment:
+      <<: *proxy-env
+      CONTACC_ME_PORT: "28444"
+      CONTACC_THEM_PORT: "18444"
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8444
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6444
+      CONTACC_SERVER_URL: http://localhost:28444
+    volumes:
+      - ${CONTACC_DATA_DIR}/node-1:/data
+
+  # ── node 2 ───────────────────────────────────────────────────────────────────
+  node-2:
+    <<: *node
+    profiles: [node2]
+    expose: ["28445", "18445"]
+    environment:
+      <<: *proxy-env
+      CONTACC_ME_PORT: "28445"
+      CONTACC_THEM_PORT: "18445"
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8445
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6445
+      CONTACC_SERVER_URL: http://localhost:28445
+    volumes:
+      - ${CONTACC_DATA_DIR}/node-2:/data
+
+  # ── node 3 ───────────────────────────────────────────────────────────────────
+  node-3:
+    <<: *node
+    profiles: [node3]
+    expose: ["28446", "18446"]
+    environment:
+      <<: *proxy-env
+      CONTACC_ME_PORT: "28446"
+      CONTACC_THEM_PORT: "18446"
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8446
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6446
+      CONTACC_SERVER_URL: http://localhost:28446
+    volumes:
+      - ${CONTACC_DATA_DIR}/node-3:/data
+
+  # ── node 4 ───────────────────────────────────────────────────────────────────
+  node-4:
+    <<: *node
+    profiles: [node4]
+    expose: ["28447", "18447"]
+    environment:
+      <<: *proxy-env
+      CONTACC_ME_PORT: "28447"
+      CONTACC_THEM_PORT: "18447"
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8447
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6447
+      CONTACC_SERVER_URL: http://localhost:28447
+    volumes:
+      - ${CONTACC_DATA_DIR}/node-4:/data
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    ports:
+      - 6443-6447:6443-6447
+      - 8443-8447:8443-8447
+    volumes:
+      - ${CONTACC_CADDYFILE:-./deploy/Caddyfile.aws}:/etc/caddy/Caddyfile:ro
+      - ${CONTACC_DATA_DIR}/caddy:/data
+      - ${CONTACC_DATA_DIR}/caddy-config:/config
+      - ./web:/srv/web:ro
+    depends_on: [node-0, node-1]

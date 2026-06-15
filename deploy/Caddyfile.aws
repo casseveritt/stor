@@ -1,38 +1,53 @@
 # AWS node host — nodes 0-4 only (no registry, no provider)
-# Port convention: last 3 digits of any port minus 443 = node N.
-#   them (aggregator) external:  8443+N  (8443–8447)
-#   web                external:  6443+N  (6443–6447)
-#   them internal:  18443+N
-#   web  internal:  16443+N
+# Port convention: base port = 443 + N
+#   API (them aggregator) external:  8443+N  → node-N:18443+N
+#   web (static files)    external:  6443+N  → /srv/web (served by this Caddy)
 
-{$CONTACC_DOMAIN}:8443 {
-    reverse_proxy node-0-them:18443
-}
-{$CONTACC_DOMAIN}:8444 {
-    reverse_proxy node-1-them:18444
-}
-{$CONTACC_DOMAIN}:8445 {
-    reverse_proxy node-2-them:18445
-}
-{$CONTACC_DOMAIN}:8446 {
-    reverse_proxy node-3-them:18446
-}
-{$CONTACC_DOMAIN}:8447 {
-    reverse_proxy node-4-them:18447
+(node_web) {
+    root * /srv/web
+
+    @root path /
+    rewrite @root /index.html
+
+    @callback_html expression `{path} == "/auth/callback" && {query.code} == ""`
+    rewrite @callback_html /callback.html
+
+    @api not file
+    reverse_proxy @api {args[0]}
+
+    file_server {
+        hide .*
+    }
 }
 
 {$CONTACC_DOMAIN}:6443 {
-    reverse_proxy web-0:16443
+    import node_web node-0:18443
 }
 {$CONTACC_DOMAIN}:6444 {
-    reverse_proxy web-1:16444
+    import node_web node-1:18444
 }
 {$CONTACC_DOMAIN}:6445 {
-    reverse_proxy web-2:16445
+    import node_web node-2:18445
 }
 {$CONTACC_DOMAIN}:6446 {
-    reverse_proxy web-3:16446
+    import node_web node-3:18446
 }
 {$CONTACC_DOMAIN}:6447 {
-    reverse_proxy web-4:16447
+    import node_web node-4:18447
+}
+
+{$CONTACC_DOMAIN}:8443 {
+    reverse_proxy node-0:18443
+}
+{$CONTACC_DOMAIN}:8444 {
+    reverse_proxy node-1:18444
+}
+{$CONTACC_DOMAIN}:8445 {
+    reverse_proxy node-2:18445
+}
+{$CONTACC_DOMAIN}:8446 {
+    reverse_proxy node-3:18446
+}
+{$CONTACC_DOMAIN}:8447 {
+    reverse_proxy node-4:18447
 }
