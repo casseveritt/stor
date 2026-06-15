@@ -542,13 +542,17 @@ def create_app(db_path: str) -> FastAPI:
             raise HTTPException(500, "Could not allocate a unique identifier — try again")
 
         if body.owner_id:
-            row = con.execute(
-                "SELECT identity_public_key FROM nodes WHERE owner_id = ? AND identity_public_key IS NOT NULL LIMIT 1",
-                (body.owner_id,)
+            match = con.execute(
+                "SELECT 1 FROM nodes WHERE owner_id = ? AND identity_public_key = ? LIMIT 1",
+                (body.owner_id, body.identity_public_key)
             ).fetchone()
-            if not row:
-                raise HTTPException(404, "Unknown owner_id")
-            if row[0] != body.identity_public_key:
+            if not match:
+                exists = con.execute(
+                    "SELECT 1 FROM nodes WHERE owner_id = ? AND identity_public_key IS NOT NULL LIMIT 1",
+                    (body.owner_id,)
+                ).fetchone()
+                if not exists:
+                    raise HTTPException(404, "Unknown owner_id")
                 raise HTTPException(403, "identity_public_key does not match the identity on file for this owner_id")
             owner_id = body.owner_id
         else:
