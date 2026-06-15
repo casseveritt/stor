@@ -1,0 +1,59 @@
+x-node: &node
+  image: contacc-dev
+  restart: unless-stopped
+  command: /app/deploy/start-node.sh
+
+x-env: &proxy-env
+  CONTACC_IDENTITY_PROXY_URL: ${CONTACC_IDENTITY_PROXY_URL:-https://strk.xyzw.us:8421}
+  CONTACC_PROVIDER_URL: ${CONTACC_PROVIDER_URL:-}
+  CONTACC_PROVIDER_NOTIFY_URL: ${CONTACC_PROVIDER_NOTIFY_URL:-}
+  CONTACC_DEV: "${CONTACC_DEV:-1}"
+
+services:
+  # ── node 0 ───────────────────────────────────────────────────────────────────
+  node-0:
+    <<: *node
+    expose: ["28443", "18443"]
+    environment:
+      <<: *proxy-env
+      CONTACC_ME_PORT: "28443"
+      CONTACC_THEM_PORT: "18443"
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8443
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6443
+      CONTACC_SERVER_URL: http://localhost:28443
+    volumes:
+      - ${CONTACC_DATA_DIR}/node-0:/data
+
+  # ── node 1 ───────────────────────────────────────────────────────────────────
+  node-1:
+    <<: *node
+    expose: ["28444", "18444"]
+    environment:
+      <<: *proxy-env
+      CONTACC_ME_PORT: "28444"
+      CONTACC_THEM_PORT: "18444"
+      CONTACC_NODE_ADDRESS: https://${CONTACC_DOMAIN}:8444
+      CONTACC_WEB_ADDRESS: https://${CONTACC_DOMAIN}:6444
+      CONTACC_SERVER_URL: http://localhost:28444
+    volumes:
+      - ${CONTACC_DATA_DIR}/node-1:/data
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    command: caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+    ports:
+      - "80:80"
+      - "6443:6443"
+      - "6444:6444"
+      - "8443:8443"
+      - "8444:8444"
+    environment:
+      CONTACC_DOMAIN: ${CONTACC_DOMAIN}
+    volumes:
+      - ${CONTACC_CADDYFILE:-./deploy/Caddyfile.aws}:/etc/caddy/Caddyfile:ro
+      # Reuse prod TLS cert storage so Caddy doesn't need to reacquire certs
+      - ${CONTACC_CADDY_DATA_DIR:-/home/ubuntu/contacc/caddy}:/data
+      - ${CONTACC_CADDY_CONFIG_DIR:-/home/ubuntu/contacc/caddy-config}:/config
+      - ./web:/srv/web:ro
+    depends_on: [node-0, node-1]
