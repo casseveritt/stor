@@ -10,7 +10,7 @@ Personal content-addressed data store and social feed. Own your data; share inte
 - **Docker** — `curl -fsSL https://get.docker.com | sh`
 - **A domain name** pointed at your server's public IP
   - [DuckDNS](https://www.duckdns.org) is free and works well on a Pi
-- **Ports open** in your router: **80** (TLS), **8443–8452** (node APIs), **6443–6452** (web UIs)
+- **Ports open** in your router: **80** (TLS), **8443–8472** (node APIs), **6443–6472** (web UIs)
 - Access to a **registry** — the registry operator gives you a setup token and a web URL
 
 No Google Cloud Console setup required. Google OAuth is handled by the registry.
@@ -33,10 +33,10 @@ escrowed — all automatically.
 ### Day-to-day operations
 
 ```bash
-docker compose logs -f                        # tail all logs
-docker compose restart stor-node-0-me-1       # restart one container
-docker compose up -d                          # start everything
-docker compose down                           # stop everything
+docker compose logs -f                    # tail all logs
+docker compose restart stor-node-0-1      # restart one container
+docker compose up -d                      # start everything
+docker compose down                       # stop everything
 ```
 
 ### Backup and restore
@@ -49,25 +49,25 @@ wizard on a fresh node.
 
 ## Architecture
 
-Each node slot runs several containers:
+Each node slot runs as a single container:
 
-| Container | Directory | Internal port | Role |
-|-----------|-----------|--------------|------|
-| `node-N-me` | `server/` | 28443+N | Owns identity, posts, assets. Encrypted SQLCipher DB + AES-256-GCM files. |
-| `node-N-them` | `client/` | 18443+N | Aggregates contacts' feeds. Proxies API calls to `me`. |
-| `web-N` | `web/` | 16443+N | Static UI + reverse proxy to `them`. |
-| `registry` | `registry/` | 9532 | Shared handle→URL directory. Run by the host operator. |
-| `caddy` | — | — | TLS termination. Routes 8443+N → `them`, 6443+N → `web`. |
+| Container | Internal ports | Role |
+|-----------|---------------|------|
+| `node-N` | 28443+N (me), 18443+N (them) | Single process running both the me (biographer) server and the them (aggregator) client. Encrypted SQLCipher DB + AES-256-GCM files. |
+| `registry` | 8421 | Shared handle→URL directory. Run by the host operator. |
+| `caddy` | — | TLS termination + static file serving. Routes 8443+N → node-N, 6443+N → static web UI + proxy. |
 
-External port convention:
+The me and them components run as two uvicorn servers on the same asyncio event loop
+inside `node-N`, sharing the Python interpreter and all loaded modules. They communicate
+via internal HTTP (them → me) using a shared secret token; all external traffic enters
+through the them port.
+
+External port convention (N = 0–29 on a full host):
 
 | Port range | Role |
 |------------|------|
-| 8443–8452 | Node API (external) → `them` |
-| 6443–6452 | Web UI (external) → `web` |
-
-All external traffic enters through `them`, which proxies to `me` via an internal token.
-Caddy has no path-based routing rules — routing decisions live entirely in `them`.
+| 8443–8472 | Node API (external) → them |
+| 6443–6472 | Web UI (external) → static files + proxy |
 
 ## Identity and security
 
@@ -96,7 +96,8 @@ if it's actually running at its registered location. No passphrase entry needed 
 | `CONTACC_IDENTITY_PROXY_URL` | Registry URL (default `https://strk.xyzw.us:8421`) |
 | `CONTACC_NODE_ADDRESS` | Public `https://` URL for this node slot |
 | `CONTACC_WEB_ADDRESS` | Public `https://` URL for the web UI |
-| `CONTACC_ME_PORT` | Internal port for the `me` server |
+| `CONTACC_ME_PORT` | Internal port for the me server (default 28443+N) |
+| `CONTACC_THEM_PORT` | Internal port for the them aggregator (default 18443+N) |
 | `CONTACC_PASSPHRASE_UNSECURE` | Passphrase for dev/testing (never use in production) |
 | `CONTACC_DEV` | Set to `1` to enable dev mode (uses "foobar" as default passphrase) |
 

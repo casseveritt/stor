@@ -27,7 +27,7 @@ and push on every merge to `main`, tagging with both `latest` and the commit
 SHA for pinned rollbacks.
 
 `docker-compose.yml` changes:
-- `node-0-me` keeps `build: .` for local development
+- `node-0` keeps `build: .` for local development
 - All other services switch to `image: ghcr.io/casseveritt/stor:latest`
 - The setup script drops `docker compose build` and does `docker compose pull`
 

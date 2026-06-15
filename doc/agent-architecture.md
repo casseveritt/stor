@@ -61,7 +61,11 @@ This data stays on the client. It informs what the client contributes to the sha
 
 ## The Process Boundary
 
-The server and client run in separate processes — potentially on separate hardware. They communicate through a defined interface, not shared state. The guiding principle for what crosses the boundary:
+The server and client are logically separate agents with a defined interface between them.
+In the current implementation they run as two uvicorn servers in the same OS process
+(`node/main.py`), communicating via internal HTTP over a shared secret token — the same
+interface they would use if running on separate hardware. The guiding principle for what
+crosses the boundary:
 
 > Share what helps the agents make good, consistent decisions. Err on the side of limiting what is shared.
 

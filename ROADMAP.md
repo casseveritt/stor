@@ -128,9 +128,18 @@ model.
 - **Inline mention editing**: `[pubkey|disptext]` format, shared compose/edit overlay.
 
 **Infrastructure**
-- **Multi-slot deployment**: up to 10 node slots per host (ports 8443–8452 / 6443–6452).
-- **Web layer**: independent Caddy container per slot; static files + proxy to `them`.
+- **Multi-slot deployment**: up to 30 node slots per host (ports 8443–8472 / 6443–6472).
+- **Single-container node**: me (server) and them (client) run in one `node-N` container
+  as two uvicorn servers on the same asyncio event loop (`node/main.py`). Shares the
+  Python interpreter and all loaded modules — ~42% RSS reduction vs the prior split-
+  container model (~110 MB per node vs ~190 MB).
+- **Web layer**: Caddy serves static files directly and proxies API calls to `them`.
+  No separate web container per slot.
 - **Routing**: Caddy routes all external traffic to `them`; `them` proxies to `me` via
   catch-all with internal token. No path-based Caddy rules.
 - **Registry landing page**: Google auth, node list, identity recovery, change owner
   passphrase.
+- **Mention autocomplete**: profile photo (with initials fallback) and account age
+  disambiguation (shown when two contacts share the same name and handle).
+- **registered_at in registry**: `/nodes/{node_id}` now returns `registered_at`
+  (nanosecond timestamp); used by the mention dropdown for account age display.
