@@ -598,13 +598,13 @@ def create_app(db_path: str) -> FastAPI:
     @app.get("/nodes/{node_id}")
     def get_node(node_id: str):
         row = con.execute(
-            "SELECT server_url, web_url, username, display_name, owner_id FROM nodes WHERE node_id = ?",
+            "SELECT server_url, web_url, username, display_name, owner_id, registered_at FROM nodes WHERE node_id = ?",
             (node_id,)
         ).fetchone()
         if not row:
             # Try owner_id lookup — return primary node for this owner
             row2 = con.execute(
-                "SELECT server_url, web_url, username, display_name, owner_id, node_id "
+                "SELECT server_url, web_url, username, display_name, owner_id, node_id, registered_at "
                 "FROM nodes WHERE owner_id = ? ORDER BY is_primary DESC, updated_at DESC LIMIT 1",
                 (node_id,)
             ).fetchone()
@@ -614,11 +614,15 @@ def create_app(db_path: str) -> FastAPI:
                 raise HTTPException(410, "Node is suspended")
             rec = {"node_id": row2[5], "owner_id": row2[4], "user_id": row2[4],
                    "server_url": row2[0], "web_url": row2[1], "handle": row2[2], "display_name": row2[3]}
+            if row2[6]:
+                rec["registered_at"] = row2[6]
             return _sign_record(rec)
         if not row[0]:
             raise HTTPException(410, "Node is suspended")
         rec = {"node_id": node_id, "owner_id": row[4], "user_id": row[4],
                "server_url": row[0], "web_url": row[1], "handle": row[2], "display_name": row[3]}
+        if row[5]:
+            rec["registered_at"] = row[5]
         return _sign_record(rec)
 
     @app.patch("/nodes/{node_id}", status_code=204)

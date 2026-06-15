@@ -729,6 +729,8 @@ async function fetchServerProfiles() {
         photo_url: c.node_id && cachedPhotos.has(c.node_id) ? "/api/contacts/photo?node_id=" + encodeURIComponent(c.node_id) : null,
       };
     }
+    // Warm the registry node cache for registered_at (used in mention disambiguation)
+    if (c.node_id) _lookupNodeFromRegistry(c.node_id);
   }
 
   await Promise.all(servers.map(async url => {
@@ -2359,13 +2361,37 @@ function onComposeInput() {
   const dd = document.getElementById(_mentionCtx.ddId);
   if (!dd) return;
   dd.innerHTML = '';
+  // Pre-compute which name+handle combos are ambiguous so we can show account age for those
+  const _nameHandleCount = {};
+  contacts.forEach(c => {
+    const prof = serverProfiles[c.url] || {};
+    const key = (prof.display_name || c.name) + '\0' + _contactTag(c);
+    _nameHandleCount[key] = (_nameHandleCount[key] || 0) + 1;
+  });
   contacts.forEach((c, i) => {
     const prof = serverProfiles[c.url] || {};
     const displayName = prof.display_name || c.name;
     const tagLabel = _contactTag(c);
     const el = document.createElement('div');
     el.className = 'mention-item' + (i === 0 ? ' focused' : '');
-    el.innerHTML = `<span class="mention-item-name">${esc(displayName)}</span><span class="mention-item-handle">@${esc(tagLabel)}</span>`;
+    const initial = (displayName[0] || '?').toUpperCase();
+    const avatarHtml = prof.photo_url
+      ? `<img class="mention-item-avatar" src="${esc(prof.photo_url)}" alt="" onerror="this.hidden=true;this.nextElementSibling.hidden=false"><span class="mention-item-avatar mention-item-initials" hidden>${esc(initial)}</span>`
+      : `<span class="mention-item-avatar mention-item-initials">${esc(initial)}</span>`;
+    let ageHtml = '';
+    if (_nameHandleCount[displayName + '\0' + tagLabel] > 1 && c.node_id) {
+      const regNs = _nodeIdToProfile[c.node_id]?.registered_at;
+      if (regNs) {
+        const ms = regNs / 1e6;
+        const years = (Date.now() - ms) / (365.25 * 24 * 3600 * 1000);
+        const ageStr = years >= 2 ? `joined ${Math.floor(years)}y ago`
+          : years >= 1 ? 'joined 1y ago'
+          : years >= 1/12 ? `joined ${Math.round(years * 12)}mo ago`
+          : 'joined recently';
+        ageHtml = `<span class="mention-item-age">${esc(ageStr)}</span>`;
+      }
+    }
+    el.innerHTML = `${avatarHtml}<span class="mention-item-name">${esc(displayName)}</span><span class="mention-item-handle">@${esc(tagLabel)}</span>${ageHtml}`;
     el.onmousedown = e => { e.preventDefault(); _selectMention(c); };
     dd.appendChild(el);
   });
