@@ -163,27 +163,26 @@ let _avatarHideTimer = null;
     _avatarHideTimer = setTimeout(() => document.querySelectorAll('.profile-popup').forEach(p => p.remove()), 150);
   });
 
-  // Drag over avatar on mobile shows the profile popup (mirrors desktop hover).
-  // Popup stays open after lift so the user can tap its buttons.
-  // Tap outside dismisses it.
-  let _touchAv = null;
+})();
+
+// Synthesize mouseover/mouseout on the element under the finger while dragging,
+// so all existing hover handlers (profile popup, emoji preview, etc.) work on mobile.
+(function() {
+  let _touchEl = null;
+  function _fire(type, el, t) {
+    el.dispatchEvent(new MouseEvent(type, {bubbles: true, cancelable: true, clientX: t.clientX, clientY: t.clientY}));
+  }
   document.addEventListener('touchmove', e => {
     const t = e.touches[0];
     const el = document.elementFromPoint(t.clientX, t.clientY);
-    const av = el?.closest('.post-author-avatar');
-    if (av === _touchAv) return;
-    _touchAv = av;
-    if (av) {
-      clearTimeout(_avatarHideTimer);
-      const serverUrl = av.closest('[data-server]')?.dataset.server || '';
-      _showProfilePopup(serverUrl, av);
-    }
+    if (el === _touchEl) return;
+    if (_touchEl) _fire('mouseout', _touchEl, t);
+    if (el)       _fire('mouseover', el, t);
+    _touchEl = el;
   }, {passive: true});
   document.addEventListener('touchend', e => {
-    _touchAv = null;
-    if (!e.target.closest('.post-author-avatar') && !e.target.closest('.profile-popup')) {
-      document.querySelectorAll('.profile-popup').forEach(p => p.remove());
-    }
+    const t = e.changedTouches[0];
+    if (_touchEl) { _fire('mouseout', _touchEl, t); _touchEl = null; }
   });
 })();
 
