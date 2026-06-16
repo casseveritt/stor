@@ -532,6 +532,7 @@ services:
       CONTACC_DOMAIN: ${CONTACC_DOMAIN}
     volumes:
       - ${CADDY_CONFIG:-./deploy/Caddyfile}:/etc/caddy/Caddyfile:ro
+      - ${CONTACC_CADDY_CONFD_DIR:-/etc/caddy/conf.d}:/etc/caddy/conf.d:ro
       - ${CONTACC_DATA_DIR}/caddy:/data
       - ${CONTACC_DATA_DIR}/caddy-config:/config
       - ./web:/srv/web:ro

@@ -208,7 +208,4 @@
     reverse_proxy registry:9532
 }
 
-# Immich photo server (rpi.local)
-{$CONTACC_DOMAIN}:5926 {
-    reverse_proxy rpi.local:2283
-}
+import /etc/caddy/conf.d/*.caddy
