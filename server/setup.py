@@ -488,6 +488,53 @@ async def setup_restore(request: Request, bundle: UploadFile = File(...), passph
     except (InvalidTag, KeyError, ValueError):
         raise HTTPException(403, "Wrong passphrase or invalid bundle")
 
+    # Reject backups that lack a stable node identity.  A backup made from any live
+    # node will have owner_id + node_id (migration runs at startup).  Old backups only
+    # have user_id — if so, try to recover the correct node_id from the registry using
+    # the owner_id fallback (/nodes/{user_id} resolves via owner_id).  These values are
+    # tracked in _restore_owner_id / _restore_node_id and applied after extraction because
+    # the zip extraction overwrites the on-disk config before we can patch it.
+    _zip_owner_id = config_data.get("owner_id")
+    _zip_node_id  = config_data.get("node_id")
+    _zip_user_id  = config_data.get("user_id")
+
+    if not _zip_owner_id and not _zip_node_id and not _zip_user_id:
+        raise HTTPException(
+            400,
+            "Backup is missing identity fields (owner_id / node_id). "
+            "This backup predates the identity system and cannot be restored safely.",
+        )
+
+    # _restore_* hold the values we will write to disk after extraction.
+    _restore_owner_id = _zip_owner_id or _zip_user_id
+    _restore_node_id  = _zip_node_id
+
+    if not _restore_node_id:
+        # Old backup: has user_id but no owner_id/node_id.  Try to recover the
+        # current node_id from the registry (owner_id fallback on /nodes/{id}).
+        _reg_url = (config_data.get("registry_url") or config_data.get("identity_proxy_url") or "").rstrip("/")
+        if _reg_url and _restore_owner_id:
+            try:
+                _r = httpx.get(f"{_reg_url}/nodes/{_restore_owner_id}", timeout=5.0)
+                if _r.is_success:
+                    _restore_node_id = _r.json().get("node_id")
+            except Exception:
+                pass
+
+        if not _restore_node_id:
+            raise HTTPException(
+                400,
+                f"Backup for owner {_restore_owner_id!r} is missing node_id and the registry "
+                f"did not return a current node_id for this owner. "
+                f"Take a fresh backup from the running instance, or manually add "
+                f"owner_id and node_id to node_config.json inside the zip.",
+            )
+
+        log.info(
+            "Restore: old backup — recovering owner_id=%s node_id=%s from registry",
+            _restore_owner_id, _restore_node_id,
+        )
+
     # Extract to data directory
     store_path = Path(app.state.config_path).parent
     for name in names:
@@ -496,7 +543,7 @@ async def setup_restore(request: Request, bundle: UploadFile = File(...), passph
         dest.write_bytes(zf.read(name))
 
     # Patch the extracted config to match this node's address and store path,
-    # and ensure internal_token exists (may be absent in older backups).
+    # and ensure internal_token and identity fields are correct.
     store_path = Path(app.state.config_path).parent
     config_path = store_path / "node_config.json"
     config_data = json.loads(config_path.read_text())
@@ -510,6 +557,13 @@ async def setup_restore(request: Request, bundle: UploadFile = File(...), passph
         _patched = True
     if "internal_token" not in config_data:
         config_data["internal_token"] = secrets.token_urlsafe(32)
+        _patched = True
+    # Apply recovered identity if the extracted config still lacks these fields.
+    if not config_data.get("owner_id"):
+        config_data["owner_id"] = _restore_owner_id
+        _patched = True
+    if not config_data.get("node_id"):
+        config_data["node_id"] = _restore_node_id
         _patched = True
     if _patched:
         config_path.write_text(json.dumps(config_data, indent=2))

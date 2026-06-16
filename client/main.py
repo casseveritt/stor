@@ -1508,10 +1508,9 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     class ContactPatchBody(BaseModel):
         url: str = ""
-        node_id: str | None = None  # lookup key; falls back to url
+        node_id: str | None = None  # lookup key when set; also used to backfill missing node_id
         tag: str | None = None
         description: str | None = None
-        node_id: str | None = None
         family: float | None = None
         close_friends: float | None = None
         friends: float | None = None

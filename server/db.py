@@ -496,6 +496,21 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             PRIMARY KEY (group_id, member_node_id)
         )
     """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS node_lists (
+            id           TEXT PRIMARY KEY,
+            name         TEXT NOT NULL,
+            expression   TEXT,
+            evaluated_at INTEGER
+        )
+    """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS node_list_members (
+            list_id  TEXT NOT NULL,
+            node_id  TEXT NOT NULL,
+            PRIMARY KEY (list_id, node_id)
+        )
+    """)
     con.commit()
 
     # Purge anonymous reactions — only attributed reactions are kept.
