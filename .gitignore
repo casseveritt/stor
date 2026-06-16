@@ -175,3 +175,5 @@ cython_debug/
 
 # Runtime data (Docker volumes)
 data/
+deploy/registry.db
+provider/provider.db
