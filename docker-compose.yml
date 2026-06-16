@@ -527,6 +527,7 @@ services:
       - "8472:8472"
       - "8420:8420"
       - "8421:8421"
+      - "5926:5926"
     environment:
       CONTACC_DOMAIN: ${CONTACC_DOMAIN}
     volumes:

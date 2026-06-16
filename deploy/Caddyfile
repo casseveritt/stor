@@ -207,3 +207,8 @@
 {$CONTACC_DOMAIN}:8421 {
     reverse_proxy registry:9532
 }
+
+# Immich photo server (rpi.local)
+{$CONTACC_DOMAIN}:5926 {
+    reverse_proxy rpi.local:2283
+}
