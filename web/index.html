@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>contacc</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/style.css?v=702515c-28">
+  <link rel="stylesheet" href="/style.css?v=702515c-29">
   <script>(function(){var t=localStorage.getItem('theme')||'dark';document.documentElement.setAttribute('data-theme',t)})();</script>
 </head>
 <body>
@@ -199,28 +199,35 @@
   <div id="body-wrap">
     <nav id="sidebar">
       <div id="sidebar-toggle" onclick="_toggleSidebar()">
-        <span>Contacts &amp; Tags</span>
+        <span>Lists &amp; Tags</span>
         <span id="sidebar-toggle-arrow">▸</span>
       </div>
       <div id="sidebar-body">
         <div class="sidebar-section">
-          <div class="sidebar-head" style="display:flex;justify-content:space-between;align-items:center">
-            Contacts
-            <button class="btn btn-muted btn-sm" onclick="openAddContact()" style="font-size:0.7rem;padding:0.15rem 0.5rem" title="Add contact">+👤</button>
+          <div class="sidebar-head" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="_nlToggleListsSection(event)">
+            <span>Lists <span id="nl-sidebar-arrow" style="font-size:0.7rem">▾</span></span>
+            <button class="btn btn-muted btn-sm" onclick="event.stopPropagation();nlNewList()" style="font-size:0.7rem;padding:0.15rem 0.5rem" title="New list">+ List</button>
           </div>
-          <div id="server-list"></div>
+          <div id="nl-sidebar-body">
+            <!-- Contacts: special built-in list, always first -->
+            <div class="nl-sidebar-item">
+              <div style="display:flex;align-items:center;gap:0.2rem;padding:0.1rem 0">
+                <button onclick="_nlToggleSidebarItem('contacts')" id="nl-toggle-contacts" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:0.65rem;padding:0.1rem 0.2rem;line-height:1;flex-shrink:0">▾</button>
+                <button class="server-btn" id="nl-select-contacts" onclick="setActiveList('contacts')" style="flex:1;text-align:left;font-weight:500;padding:0.25rem 0.35rem">Contacts</button>
+                <button class="btn btn-muted btn-sm" onclick="nlEditContacts()" style="font-size:0.65rem;padding:0.1rem 0.35rem;flex-shrink:0">Edit</button>
+              </div>
+              <div id="nl-body-contacts">
+                <div id="server-list"></div>
+              </div>
+            </div>
+            <!-- Named lists -->
+            <div id="node-lists-sidebar"></div>
+          </div>
         </div>
         <div class="sidebar-section">
           <div class="sidebar-head">Tags</div>
           <div id="tag-list"></div>
           <button id="clear-tags-btn" onclick="clearTagFilter()" hidden>Clear filter</button>
-        </div>
-        <div class="sidebar-section">
-          <div class="sidebar-head" style="display:flex;justify-content:space-between;align-items:center">
-            Lists
-            <button class="btn btn-muted btn-sm" onclick="openNodeLists()" style="font-size:0.7rem;padding:0.15rem 0.5rem" title="Manage lists">⊞</button>
-          </div>
-          <div id="node-lists-sidebar" style="font-size:0.82rem;color:var(--text-dim)"></div>
         </div>
       </div>
     </nav>
@@ -602,6 +609,17 @@
       <div id="nl-list-body" style="display:flex;flex-direction:column;gap:0.3rem;overflow-y:auto;flex:1"></div>
       <div id="nl-list-status" style="font-size:0.82rem;color:var(--text-dim);min-height:1.2em;padding-top:0.5rem"></div>
     </div>
+    <!-- contacts editor view -->
+    <div id="nl-contacts-view" hidden style="display:flex;flex-direction:column;flex:1;min-height:0">
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.9rem">
+        <button onclick="nlBackToList()" style="background:none;border:none;color:var(--text-4);cursor:pointer;font-size:1.1rem;padding:0.1rem 0.3rem;line-height:1">‹</button>
+        <h3 style="margin:0;flex:1">Contacts</h3>
+        <button class="btn btn-muted btn-sm" onclick="openAddContact()" style="font-size:0.78rem">+ Add contact</button>
+      </div>
+      <div id="nl-contacts-members" style="display:flex;flex-direction:column;gap:0.3rem;overflow-y:auto;flex:1"></div>
+      <div id="nl-contacts-status" style="font-size:0.82rem;color:var(--error);min-height:1em;padding-top:0.5rem"></div>
+    </div>
+
     <!-- edit view (hidden until creating/editing) -->
     <div id="nl-edit-view" hidden style="display:flex;flex-direction:column;flex:1;min-height:0">
       <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.9rem">
@@ -661,6 +679,6 @@
 
   <script src="/marked.min.js?v=2"></script>
   <script src="/purify.min.js?v=2"></script>
-  <script src="/app.js?v=702515c-28"></script>
+  <script src="/app.js?v=702515c-29"></script>
 </body>
 </html>

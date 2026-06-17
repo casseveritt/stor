@@ -769,6 +769,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         q: str = "",
         tags: list[str] = Query(default=[]),
         limit: int = 20,
+        node_ids: str = "",  # comma-separated node_ids to filter aggregate feed
     ):
         if server:
             # single-server fetch
@@ -822,6 +823,12 @@ def create_app(config_path: str | Path) -> FastAPI:
                     all_posts.extend(own_posts)
             except Exception:
                 pass
+
+        if node_ids:
+            _nid_set = set(node_ids.split(","))
+            _url_set = {c.url for c in config.contacts if c.node_id in _nid_set}
+            _url_set.add(config.own_server)  # always include own posts
+            all_posts = [p for p in all_posts if p.get("_server_url") in _url_set]
 
         if cursor:
             try:

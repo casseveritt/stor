@@ -5,7 +5,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from .auth import OwnerDep
+from .auth import InternalOrOwnerDep as OwnerDep
 from .db import now_ns
 
 router = APIRouter(prefix="/node-lists")
