@@ -845,7 +845,7 @@ function setActiveServer(i) {
     const url = CFG.servers[i].url;
     activeServer = (activeServer === url) ? null : url;
   }
-  activeListId = 'contacts';
+  activeListIds = new Set();
   _activeListNodeIds = null;
   renderServerList();
   resetFeed();
@@ -1088,7 +1088,7 @@ async function resetFeed(allowLoginRedirect = false) {
 async function loadMore(allowLoginRedirect = false) {
   let url = "/api/feed?limit=20";
   if (activeServer) url += "&server=" + encodeURIComponent(activeServer);
-  if (!activeServer && _activeListNodeIds && activeListId !== 'contacts') {
+  if (!activeServer && _activeListNodeIds) {
     url += "&node_ids=" + encodeURIComponent([..._activeListNodeIds].join(","));
   }
   if (nextCursor) url += "&cursor=" + encodeURIComponent(nextCursor);
@@ -4036,8 +4036,9 @@ async function doUnlock() {
 
 let _nlAllLists = [];     // cache of all lists from server
 let _nlCurrentId = null;  // null = creating new, '__contacts__' = contacts, string uuid = existing list
-let activeListId = 'contacts';  // currently selected list id (for feed filtering)
-let _activeListNodeIds = null; // Set of node_ids when a list is active
+let activeListIds = new Set();   // selected list ids (empty = no filter = show all)
+let _activeListNodeIds = null;   // union of member node_ids for selected lists
+let _listMemberSets = new Map(); // cache: list id → Set of node_ids
 
 async function _nlLoadLists() {
   try {
@@ -4045,11 +4046,23 @@ async function _nlLoadLists() {
     if (!r.ok) return;
     const d = await r.json();
     _nlAllLists = d.lists || [];
+    _listMemberSets = new Map(); // invalidate member cache
     // Clear cached member content so expanded bodies reload on next open
     for (const l of _nlAllLists) {
       const body = document.getElementById(`nl-body-${_nlSafeId(l.id)}`);
       if (body) body._loaded = false;
     }
+    // Re-fetch members for any currently selected lists and recompute filter
+    for (const id of activeListIds) {
+      try {
+        const r2 = await apiFetch(`/node-lists/${encodeURIComponent(id)}`);
+        if (r2.ok) {
+          const list = await r2.json();
+          _listMemberSets.set(id, new Set((list.members || []).map(m => m.node_id)));
+        }
+      } catch {}
+    }
+    _recomputeActiveNodeIds();
     _nlRenderSidebar();
   } catch {}
 }
@@ -4107,7 +4120,7 @@ function _nlRenderSidebar() {
   if (!el) return;
   el.innerHTML = _nlAllLists.map(l => {
     const sid = _nlSafeId(l.id);
-    const isActive = activeListId === l.id;
+    const isActive = activeListIds.has(l.id);
     const typeTag = l.expression ? ' <span style="color:var(--text-dim);font-size:0.7rem">expr</span>' : '';
     return `<div class="nl-sidebar-item">
       <div style="display:flex;align-items:center;gap:0.2rem;padding:0.1rem 0">
@@ -4127,47 +4140,46 @@ function _nlRenderSidebar() {
     if (body) { body.hidden = false; }
     if (toggle) toggle.textContent = '▾';
   }
-  _nlUpdateContactsActiveState();
-}
-
-function _nlUpdateContactsActiveState() {
-  const btn = document.getElementById('nl-select-contacts');
-  if (!btn) return;
-  btn.classList.toggle('active', activeListId === 'contacts');
 }
 
 // Called by renderServerList after re-rendering
 function _nlUpdateActiveState() {
-  _nlUpdateContactsActiveState();
   for (const l of _nlAllLists) {
     const sid = _nlSafeId(l.id);
     const btn = document.getElementById(`nl-select-${sid}`);
-    if (btn) btn.classList.toggle('active', activeListId === l.id);
+    if (btn) btn.classList.toggle('active', activeListIds.has(l.id));
   }
 }
 
 // ── list-based feed filtering ───────────────────────────────────────────────
 
-async function setActiveList(id) {
-  if (activeListId === id) {
-    // toggle off — fall back to Contacts
-    id = 'contacts';
+function _recomputeActiveNodeIds() {
+  if (activeListIds.size === 0) { _activeListNodeIds = null; return; }
+  const union = new Set();
+  for (const id of activeListIds) {
+    const members = _listMemberSets.get(id);
+    if (members) members.forEach(nid => union.add(nid));
   }
-  if (true) {
-    activeListId = id;
-    if (id === 'contacts') {
-      _activeListNodeIds = null; // contacts = all = no filter
-    } else {
+  _activeListNodeIds = union.size > 0 ? union : null;
+}
+
+async function setActiveList(id) {
+  if (activeListIds.has(id)) {
+    activeListIds.delete(id);
+  } else {
+    activeListIds.add(id);
+    if (!_listMemberSets.has(id)) {
       try {
         const r = await apiFetch(`/node-lists/${encodeURIComponent(id)}`);
         if (r.ok) {
           const list = await r.json();
-          _activeListNodeIds = new Set((list.members || []).map(m => m.node_id));
+          _listMemberSets.set(id, new Set((list.members || []).map(m => m.node_id)));
         }
       } catch {}
     }
   }
-  activeServer = null; // clear single-server filter when switching to list
+  _recomputeActiveNodeIds();
+  activeServer = null;
   _nlUpdateActiveState();
   renderServerList();
   resetFeed();
@@ -4529,7 +4541,7 @@ async function nlDeleteList() {
       document.getElementById('nl-edit-status').textContent = d.detail || 'Delete failed.';
       return;
     }
-    if (activeListId === _nlCurrentId) { activeListId = 'contacts'; _activeListNodeIds = null; resetFeed(); }
+    if (activeListIds.has(_nlCurrentId)) { activeListIds.delete(_nlCurrentId); _recomputeActiveNodeIds(); resetFeed(); }
     await _nlLoadLists();
     nlBackToList();
   } catch { document.getElementById('nl-edit-status').textContent = 'Network error.'; }
