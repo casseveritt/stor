@@ -212,11 +212,11 @@
             <!-- Contacts: special built-in list, always first -->
             <div class="nl-sidebar-item">
               <div style="display:flex;align-items:center;gap:0.2rem;padding:0.1rem 0">
-                <button onclick="_nlToggleSidebarItem('contacts')" id="nl-toggle-contacts" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:0.65rem;padding:0.1rem 0.2rem;line-height:1;flex-shrink:0">▾</button>
-                <button class="server-btn" id="nl-select-contacts" onclick="setActiveList('contacts')" style="flex:1;text-align:left;font-weight:500;padding:0.25rem 0.35rem">Contacts</button>
+                <button onclick="_nlToggleSidebarItem('contacts')" id="nl-toggle-contacts" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:0.65rem;padding:0.1rem 0.2rem;line-height:1;flex-shrink:0">▸</button>
+                <button class="server-btn active" id="nl-select-contacts" onclick="setActiveList('contacts')" style="flex:1;text-align:left;font-weight:500;padding:0.25rem 0.35rem">Contacts</button>
                 <button class="btn btn-muted btn-sm" onclick="nlEditContacts()" style="font-size:0.65rem;padding:0.1rem 0.35rem;flex-shrink:0">Edit</button>
               </div>
-              <div id="nl-body-contacts">
+              <div id="nl-body-contacts" hidden>
                 <div id="server-list"></div>
               </div>
             </div>

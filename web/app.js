@@ -845,7 +845,7 @@ function setActiveServer(i) {
     const url = CFG.servers[i].url;
     activeServer = (activeServer === url) ? null : url;
   }
-  activeListId = null;
+  activeListId = 'contacts';
   _activeListNodeIds = null;
   renderServerList();
   resetFeed();
@@ -4036,7 +4036,7 @@ async function doUnlock() {
 
 let _nlAllLists = [];     // cache of all lists from server
 let _nlCurrentId = null;  // null = creating new, '__contacts__' = contacts, string uuid = existing list
-let activeListId = null;  // currently selected list id (for feed filtering)
+let activeListId = 'contacts';  // currently selected list id (for feed filtering)
 let _activeListNodeIds = null; // Set of node_ids when a list is active
 
 async function _nlLoadLists() {
@@ -4120,6 +4120,13 @@ function _nlRenderSidebar() {
       <div id="nl-body-${sid}" hidden style="padding-left:1.1rem;display:flex;flex-direction:column;gap:0.15rem"></div>
     </div>`;
   }).join('');
+  // Expand Contacts if there are no other lists; keep it collapsed otherwise
+  if (_nlAllLists.length === 0) {
+    const body = document.getElementById('nl-body-contacts');
+    const toggle = document.getElementById('nl-toggle-contacts');
+    if (body) { body.hidden = false; }
+    if (toggle) toggle.textContent = '▾';
+  }
   _nlUpdateContactsActiveState();
 }
 
@@ -4143,10 +4150,10 @@ function _nlUpdateActiveState() {
 
 async function setActiveList(id) {
   if (activeListId === id) {
-    // toggle off
-    activeListId = null;
-    _activeListNodeIds = null;
-  } else {
+    // toggle off — fall back to Contacts
+    id = 'contacts';
+  }
+  if (true) {
     activeListId = id;
     if (id === 'contacts') {
       _activeListNodeIds = null; // contacts = all = no filter
@@ -4522,7 +4529,7 @@ async function nlDeleteList() {
       document.getElementById('nl-edit-status').textContent = d.detail || 'Delete failed.';
       return;
     }
-    if (activeListId === _nlCurrentId) { activeListId = null; _activeListNodeIds = null; resetFeed(); }
+    if (activeListId === _nlCurrentId) { activeListId = 'contacts'; _activeListNodeIds = null; resetFeed(); }
     await _nlLoadLists();
     nlBackToList();
   } catch { document.getElementById('nl-edit-status').textContent = 'Network error.'; }
