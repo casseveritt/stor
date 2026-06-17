@@ -535,7 +535,7 @@ function showView(name) {
 // ── server sidebar ─────────────────────────────────────────────────────────
 function renderServerList() {
   const list = document.getElementById("server-list");
-  const allBtn = '<button class="server-btn' + (activeServer === null ? " active" : "") + '" onclick="setActiveServer(-1)"><span>All</span></button>';
+  const allBtn = '<button class="server-btn' + (activeServer === null && activeListIds.size === 0 ? " active" : "") + '" onclick="setActiveServer(-1)"><span>All</span></button>';
   const contacts = (CFG.servers || []).filter(s => s.url !== CFG.own_server);
   const serverBtns = contacts.map((s, i) => {
     const globalIdx = (CFG.servers || []).indexOf(s);
@@ -847,14 +847,32 @@ function setActiveServer(i) {
   }
   activeListIds = new Set();
   _activeListNodeIds = null;
+  _updateSelfHighlight();
   renderServerList();
   resetFeed();
 }
 
 function filterOwnPosts() {
-  activeServer = (activeServer === CFG.own_server) ? null : CFG.own_server;
+  const selfId = '__self__';
+  if (activeListIds.has(selfId)) {
+    activeListIds.delete(selfId);
+    _listMemberSets.delete(selfId);
+  } else {
+    activeListIds.add(selfId);
+    _listMemberSets.set(selfId, new Set([CFG.own_node_id]));
+  }
+  _recomputeActiveNodeIds();
+  activeServer = null;
+  _updateSelfHighlight();
+  _nlUpdateActiveState();
   renderServerList();
   resetFeed();
+  loadTagSidebar();
+}
+
+function _updateSelfHighlight() {
+  const el = document.getElementById('handle-display');
+  if (el) el.classList.toggle('active', activeListIds.has('__self__'));
 }
 
 // ── add contact ────────────────────────────────────────────────────────────
@@ -4044,6 +4062,10 @@ async function _nlLoadLists() {
     }
     // Re-fetch members for any currently selected lists and recompute filter
     for (const id of activeListIds) {
+      if (id === '__self__') {
+        _listMemberSets.set('__self__', new Set([CFG.own_node_id]));
+        continue;
+      }
       try {
         const r2 = await apiFetch(`/node-lists/${encodeURIComponent(id)}`);
         if (r2.ok) {
