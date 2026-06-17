@@ -21,17 +21,30 @@ async def _reactor(identity, request: Request) -> str | None:
         return None
     db = request.app.state.db
     row = db.execute("SELECT node_id, server_url FROM users WHERE public_key = ?", (pub_key_header,)).fetchone()
+    origin = request.headers.get("X-Origin-Server", "")
     if not row:
-        return None
+        # Unknown key — only allow if signature was verified
+        if not getattr(request.state, "sig_verified", False):
+            return None
+        if origin:
+            try:
+                import httpx as _httpx
+                nr = await _httpx.AsyncClient().get(origin.rstrip("/") + "/node", timeout=3.0)
+                if nr.is_success:
+                    nid = nr.json().get("node_id") or nr.json().get("user_id")
+                    if nid:
+                        return nid
+            except Exception:
+                pass
+        return pub_key_header  # verified signature, use public key as fallback identity
     node_id, server_url = row
     if node_id:
         return node_id
     # Known contact but node_id not yet stored — fetch it on the fly.
-    origin = server_url or request.headers.get("X-Origin-Server", "")
-    if origin:
+    if server_url or origin:
         try:
             import httpx as _httpx
-            nr = await _httpx.AsyncClient().get(origin.rstrip("/") + "/node", timeout=3.0)
+            nr = await _httpx.AsyncClient().get((server_url or origin).rstrip("/") + "/node", timeout=3.0)
             if nr.is_success:
                 nid = nr.json().get("node_id") or nr.json().get("user_id")
                 if nid:
