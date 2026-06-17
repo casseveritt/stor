@@ -1082,6 +1082,22 @@ def create_app(config_path: str | Path) -> FastAPI:
             raise HTTPException(status_code=r.status_code)
         return r.json()
 
+    @api.get("/feed/tags")
+    async def api_feed_tags(node_ids: str = ""):
+        """Tag counts across the full cached post set, filtered by node_ids if given."""
+        own_poll_id = config.own_node_id or hashlib.sha256(config.own_server.encode()).hexdigest()[:16]
+        poll_ids = [own_poll_id] + _all_contact_node_ids()
+        nid_set = set(node_ids.split(",")) if node_ids else None
+        freq: dict[str, int] = {}
+        for nid in poll_ids:
+            if nid_set and nid not in nid_set:
+                continue
+            posts = _read_cached_posts(nid) or _read_cached_posts(nid, allow_expired=True)
+            for p in posts:
+                for tag in (p.get("tags") or []):
+                    freq[tag] = freq.get(tag, 0) + 1
+        return {"tags": [{"tag": t, "count": c} for t, c in sorted(freq.items(), key=lambda x: -x[1])]}
+
     # ── contacts ──────────────────────────────────────────────────────────
     _CAT_FIELDS = ["family", "close_friends", "friends", "colleagues", "acquaintances"]
 

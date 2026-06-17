@@ -969,32 +969,22 @@ async function confirmAddContact() {
 
 // ── tag sidebar ────────────────────────────────────────────────────────────
 async function loadTagSidebar() {
-  const freq = {};
+  const nodeIds = _activeListNodeIds ? [..._activeListNodeIds].join(",") : "";
+  const url = "/api/feed/tags" + (nodeIds ? "?node_ids=" + encodeURIComponent(nodeIds) : "");
+  const r = await apiFetch(url);
+  if (!r.ok) return;
+  const tags = (await r.json()).tags || [];
 
-  // Count tags from contact-server posts already loaded in memory
-  for (const post of allPosts) {
-    if ((post._server_url || CFG.own_server) === CFG.own_server) continue;
-    for (const tag of (post.tags || [])) freq[tag] = (freq[tag] || 0) + 1;
-  }
-
-  // Add complete own-server tag counts from API (not limited to loaded posts)
-  const r = await apiFetch("/api/tags");
-  if (r.ok) {
-    for (const {tag, count} of (await r.json()).tags || []) {
-      freq[tag] = (freq[tag] || 0) + count;
-    }
-  }
-
-  const sorted = Object.entries(freq).sort(([a, ca], [b, cb]) => {
-    const aActive = activeTags.has(a) ? 1 : 0;
-    const bActive = activeTags.has(b) ? 1 : 0;
+  const sorted = tags.slice().sort((a, b) => {
+    const aActive = activeTags.has(a.tag) ? 1 : 0;
+    const bActive = activeTags.has(b.tag) ? 1 : 0;
     if (aActive !== bActive) return bActive - aActive;
-    if (cb !== ca) return cb - ca;
-    return a.localeCompare(b);
+    if (b.count !== a.count) return b.count - a.count;
+    return a.tag.localeCompare(b.tag);
   });
 
   const list = document.getElementById("tag-list");
-  list.innerHTML = sorted.map(([tag, count]) =>
+  list.innerHTML = sorted.map(({tag, count}) =>
     `<button class="tag-btn${activeTags.has(tag) ? " active" : ""}" onclick="toggleTag('${esc(tag)}')">`
     + `<span>${esc(tag)}</span><span class="tc">${count}</span></button>`
   ).join("");
@@ -4183,6 +4173,7 @@ async function setActiveList(id) {
   _nlUpdateActiveState();
   renderServerList();
   resetFeed();
+  loadTagSidebar();
 }
 
 // ── overlay open/close ──────────────────────────────────────────────────────
