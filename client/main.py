@@ -806,9 +806,8 @@ def create_app(config_path: str | Path) -> FastAPI:
 
         # If own server has no cached posts, do a synchronous live fetch so the
         # feed isn't empty on first load or after posting (before the bg poller runs).
-        if not any(p.get("_server_url") == config.own_server for p in all_posts):
+        if not any(p.get("_server_node_id") == own_poll_id for p in all_posts):
             try:
-                own_key = hashlib.sha256(config.own_server.encode()).hexdigest()
                 fetch_hdrs = {**_headers(config.own_server), **await _sign_federated("GET", "/posts", b"")}
                 async with httpx.AsyncClient() as hc:
                     r = await hc.get(_call_url(config.own_server) + "/posts",
@@ -820,7 +819,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                         p["_server_url"] = config.own_server
                         p["_server_name"] = name
                         p["_server_node_id"] = own_poll_id
-                    _cache_posts(own_key, own_posts)
+                    _cache_posts(own_poll_id, own_posts)
                     all_posts.extend(own_posts)
             except Exception:
                 pass
