@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>contacc</title>
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/style.css?v=702515c-27">
+  <link rel="stylesheet" href="/style.css?v=702515c-29">
   <script>(function(){var t=localStorage.getItem('theme')||'dark';document.documentElement.setAttribute('data-theme',t)})();</script>
 </head>
 <body>
@@ -199,16 +199,30 @@
   <div id="body-wrap">
     <nav id="sidebar">
       <div id="sidebar-toggle" onclick="_toggleSidebar()">
-        <span>Contacts &amp; Tags</span>
+        <span>Lists &amp; Tags</span>
         <span id="sidebar-toggle-arrow">▸</span>
       </div>
       <div id="sidebar-body">
         <div class="sidebar-section">
-          <div class="sidebar-head" style="display:flex;justify-content:space-between;align-items:center">
-            Contacts
-            <button class="btn btn-muted btn-sm" onclick="openAddContact()" style="font-size:0.7rem;padding:0.15rem 0.5rem" title="Add contact">+👤</button>
+          <div class="sidebar-head" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="_nlToggleListsSection(event)">
+            <span>Lists <span id="nl-sidebar-arrow" style="font-size:0.7rem">▾</span></span>
+            <button class="btn btn-muted btn-sm" onclick="event.stopPropagation();nlNewList()" style="font-size:0.7rem;padding:0.15rem 0.5rem" title="New list">+ List</button>
           </div>
-          <div id="server-list"></div>
+          <div id="nl-sidebar-body">
+            <!-- Contacts: special built-in list, always first -->
+            <div class="nl-sidebar-item">
+              <div style="display:flex;align-items:center;gap:0.2rem;padding:0.1rem 0">
+                <button onclick="_nlToggleSidebarItem('contacts')" id="nl-toggle-contacts" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:0.65rem;padding:0.1rem 0.2rem;line-height:1;flex-shrink:0">▾</button>
+                <button class="server-btn" id="nl-select-contacts" onclick="setActiveList('contacts')" style="flex:1;text-align:left;font-weight:500;padding:0.25rem 0.35rem">Contacts</button>
+                <button class="btn btn-muted btn-sm" onclick="nlEditContacts()" style="font-size:0.65rem;padding:0.1rem 0.35rem;flex-shrink:0">Edit</button>
+              </div>
+              <div id="nl-body-contacts">
+                <div id="server-list"></div>
+              </div>
+            </div>
+            <!-- Named lists -->
+            <div id="node-lists-sidebar"></div>
+          </div>
         </div>
         <div class="sidebar-section">
           <div class="sidebar-head">Tags</div>
@@ -582,8 +596,83 @@
   </div>
 </div>
 
+<!-- ── node lists overlay ─────────────────────────────────────────────────── -->
+<div id="node-lists-overlay" class="overlay" hidden onclick="maybeClose('node-lists-overlay',event)">
+  <div class="modal" style="min-width:min(92vw,520px);max-width:560px;max-height:82svh;display:flex;flex-direction:column">
+    <!-- list-of-lists view -->
+    <div id="nl-list-view" style="display:flex;flex-direction:column;flex:1;min-height:0">
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.9rem">
+        <h3 style="margin:0;flex:1">Node Lists</h3>
+        <button class="btn btn-primary btn-sm" onclick="nlNewList()">+ New list</button>
+        <button onclick="closeNodeLists()" style="background:none;border:none;color:var(--text-3);font-size:1.4rem;cursor:pointer;line-height:1;padding:0 0.15rem">&#x2715;</button>
+      </div>
+      <div id="nl-list-body" style="display:flex;flex-direction:column;gap:0.3rem;overflow-y:auto;flex:1"></div>
+      <div id="nl-list-status" style="font-size:0.82rem;color:var(--text-dim);min-height:1.2em;padding-top:0.5rem"></div>
+    </div>
+    <!-- edit view (hidden until creating/editing) -->
+    <div id="nl-edit-view" hidden style="display:flex;flex-direction:column;flex:1;min-height:0">
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.9rem">
+        <button onclick="nlBackToList()" style="background:none;border:none;color:var(--text-4);cursor:pointer;font-size:1.1rem;padding:0.1rem 0.3rem;line-height:1">‹</button>
+        <h3 style="margin:0;flex:1" id="nl-edit-title">Edit list</h3>
+        <button id="nl-delete-btn" class="btn btn-sm" style="background:var(--error);color:#fff;display:none" onclick="nlDeleteList()">Delete</button>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:0.75rem;overflow-y:auto;flex:1">
+        <div id="nl-name-row">
+          <label style="font-size:0.72rem;color:var(--text-5);text-transform:uppercase;letter-spacing:0.06em">Name</label>
+          <input type="text" id="nl-edit-name" placeholder="List name" style="width:100%;margin-top:0.3rem;box-sizing:border-box">
+        </div>
+        <div id="nl-type-row" style="display:flex;gap:1.25rem">
+          <label style="display:flex;align-items:center;gap:0.35rem;cursor:pointer;font-size:0.88rem;color:var(--text-2)">
+            <input type="radio" name="nl-type" value="manual" onchange="nlTypeChanged('manual')" checked> Manual
+          </label>
+          <label style="display:flex;align-items:center;gap:0.35rem;cursor:pointer;font-size:0.88rem;color:var(--text-2)">
+            <input type="radio" name="nl-type" value="expression" onchange="nlTypeChanged('expression')"> Expression
+          </label>
+        </div>
+        <!-- manual members section -->
+        <div id="nl-manual-section">
+          <div style="font-size:0.72rem;color:var(--text-5);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.4rem">Members</div>
+          <div id="nl-member-list" style="display:flex;flex-direction:column;gap:0.2rem;max-height:160px;overflow-y:auto"></div>
+          <div style="margin-top:0.5rem">
+            <input id="nl-member-search" type="text" placeholder="Search to add…"
+                   style="width:100%;box-sizing:border-box;margin-bottom:0.25rem"
+                   oninput="nlScheduleMemberSearch(this.value)">
+            <div id="nl-member-search-results" style="display:flex;flex-direction:column;gap:0.15rem;max-height:150px;overflow-y:auto"></div>
+          </div>
+        </div>
+        <!-- expression section -->
+        <div id="nl-expression-section" hidden style="display:flex;flex-direction:column;gap:0.5rem">
+          <div>
+            <div style="font-size:0.72rem;color:var(--text-5);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.35rem">Operation</div>
+            <select id="nl-op" style="background:var(--surface-input);color:var(--text-1);border:1px solid var(--border);border-radius:4px;padding:0.28rem 0.4rem;font-size:0.88rem">
+              <option value="union">Union (A ∪ B — everything in any list)</option>
+              <option value="subtract">Subtract (A − B — in first, not in second)</option>
+              <option value="intersect">Intersect (A ∩ B — in all lists)</option>
+            </select>
+          </div>
+          <div>
+            <div style="font-size:0.72rem;color:var(--text-5);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.4rem">Source lists</div>
+            <div id="nl-expr-args" style="display:flex;flex-direction:column;gap:0.3rem"></div>
+            <button class="btn btn-muted btn-sm" onclick="nlAddExprArg()" style="margin-top:0.4rem;font-size:0.78rem">+ Add list</button>
+          </div>
+        </div>
+        <!-- members preview -->
+        <div id="nl-members-preview" style="display:none">
+          <div style="font-size:0.72rem;color:var(--text-5);text-transform:uppercase;letter-spacing:0.06em;margin-bottom:0.3rem">Members — <span id="nl-members-count">0</span></div>
+          <div id="nl-members-preview-list" style="font-size:0.82rem;color:var(--text-3);max-height:120px;overflow-y:auto;line-height:1.7"></div>
+        </div>
+        <div id="nl-edit-status" style="font-size:0.82rem;color:var(--error);min-height:1em"></div>
+        <div style="display:flex;gap:0.5rem;justify-content:flex-end;padding-top:0.25rem">
+          <button class="btn btn-muted" onclick="nlBackToList()">Cancel</button>
+          <button class="btn btn-primary" onclick="nlSaveList()">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
   <script src="/marked.min.js?v=2"></script>
   <script src="/purify.min.js?v=2"></script>
-  <script src="/app.js?v=702515c-27"></script>
+  <script src="/app.js?v=702515c-30"></script>
 </body>
 </html>

@@ -560,6 +560,7 @@ function renderServerList() {
       + '</div>';
   });
   list.innerHTML = allBtn + serverBtns.join("");
+  _nlUpdateActiveState();
 }
 
 const _CONTACT_CATS = [
@@ -741,12 +742,38 @@ async function fetchServerProfiles() {
       if (r.ok) {
         const profile = await r.json();
         if (url !== CFG.own_server) {
-          const nid = urlToNodeId[url];
+          const serverPhotoUrl = profile.photo_url; // save before we may overwrite
+          let nid = urlToNodeId[url];
+          // Backfill node_id from /node when it isn't stored yet — happens the
+          // first time a contact whose record predates node_id tracking is seen.
+          if (!profile.node_id && !nid) {
+            try {
+              const nr = await fetch(url + "/node");
+              if (nr.ok) {
+                const nd = await nr.json();
+                const liveNid = nd.node_id || nd.user_id;
+                if (liveNid) {
+                  profile.node_id = liveNid;
+                  nid = liveNid;
+                  const c = (CFG.contacts || []).find(c => c.url === url);
+                  if (c && !c.node_id) {
+                    c.node_id = liveNid;
+                    // Persist so future page loads skip this fetch
+                    apiFetch('/api/contacts', {
+                      method: 'PATCH',
+                      headers: {'Content-Type': 'application/json'},
+                      body: JSON.stringify({url, node_id: liveNid}),
+                    }).catch(() => {});
+                  }
+                }
+              }
+            } catch {}
+          }
           const proxyUrl = nid ? "/api/contacts/photo?node_id=" + encodeURIComponent(nid) : null;
-          if (profile.photo_url && proxyUrl) {
+          if (serverPhotoUrl && proxyUrl) {
             fetch(proxyUrl).catch(() => {}); // warm the cache
             profile.photo_url = proxyUrl;
-            if (nid && !cachedPhotos.has(nid)) {
+            if (!cachedPhotos.has(nid)) {
               cachedPhotos.add(nid);
               localStorage.setItem('cachedContactPhotos', JSON.stringify([...cachedPhotos]));
             }
@@ -757,21 +784,6 @@ async function fetchServerProfiles() {
             }
             profile.photo_url = null;
           }
-        }
-        // Populate user_id from /node if not already in profile or contact entry
-        if (!profile.node_id && url !== CFG.own_server) {
-          try {
-            const nr = await fetch(url + "/node");
-            if (nr.ok) {
-              const nd = await nr.json();
-              if (nd.user_id) {
-                profile.node_id = nd.node_id || nd.user_id;
-                // Also backfill the contact entry so mentions work without re-add
-                const c = (CFG.contacts || []).find(c => c.url === url);
-                if (c && !c.node_id) c.node_id = nd.user_id;
-              }
-            }
-          } catch {}
         }
         serverProfiles[url] = profile;
         serverStatuses[url] = "ok";
@@ -833,6 +845,8 @@ function setActiveServer(i) {
     const url = CFG.servers[i].url;
     activeServer = (activeServer === url) ? null : url;
   }
+  activeListId = null;
+  _activeListNodeIds = null;
   renderServerList();
   resetFeed();
 }
@@ -1038,6 +1052,7 @@ async function loadFeed() {
 
   loadIdentity();
   loadTagSidebar();
+  _nlLoadLists();
   fetchServerHandles().then(() => _startBgFetch());
   fetchServerProfiles();
   _openSSE();
@@ -1073,6 +1088,9 @@ async function resetFeed(allowLoginRedirect = false) {
 async function loadMore(allowLoginRedirect = false) {
   let url = "/api/feed?limit=20";
   if (activeServer) url += "&server=" + encodeURIComponent(activeServer);
+  if (!activeServer && _activeListNodeIds && activeListId !== 'contacts') {
+    url += "&node_ids=" + encodeURIComponent([..._activeListNodeIds].join(","));
+  }
   if (nextCursor) url += "&cursor=" + encodeURIComponent(nextCursor);
   if (currentSearch) url += "&q=" + encodeURIComponent(currentSearch);
   for (const t of activeTags) url += "&tags=" + encodeURIComponent(t);
@@ -2795,6 +2813,11 @@ function openPostMenu(e, idx, postId, serverUrl) {
   // data-idx is kept current by prependPost/hidePost; the baked-in idx can be stale.
   const card = e.currentTarget.closest('.post-card');
   if (card) idx = parseInt(card.dataset.idx);
+  // When opened from the detail overlay (idx=-1), the post may be in allPosts — find it by id.
+  if (idx === -1) {
+    const found = allPosts.findIndex(p => p.id === postId);
+    if (found >= 0) idx = found;
+  }
   const _norm = u => (u || '').replace(/\/+$/, '');
   const isOwn = IS_OWNER && _norm(serverUrl) === _norm(CFG?.own_server);
   e.stopPropagation();
@@ -4008,3 +4031,473 @@ async function doUnlock() {
   } catch { err.textContent = "Network error."; }
 }
 
+
+// ── node lists ─────────────────────────────────────────────────────────────
+
+let _nlAllLists = [];     // cache of all lists from server
+let _nlCurrentId = null;  // null = creating new, '__contacts__' = contacts, string uuid = existing list
+let activeListId = null;  // currently selected list id (for feed filtering)
+let _activeListNodeIds = null; // Set of node_ids when a list is active
+
+async function _nlLoadLists() {
+  try {
+    const r = await apiFetch("/node-lists");
+    if (!r.ok) return;
+    const d = await r.json();
+    _nlAllLists = d.lists || [];
+    _nlRenderSidebar();
+  } catch {}
+}
+
+// ── sidebar rendering ───────────────────────────────────────────────────────
+
+function _nlToggleListsSection(e) {
+  if (e) e.stopPropagation();
+  const body = document.getElementById('nl-sidebar-body');
+  const arrow = document.getElementById('nl-sidebar-arrow');
+  if (!body) return;
+  body.hidden = !body.hidden;
+  if (arrow) arrow.textContent = body.hidden ? '▸' : '▾';
+}
+
+function _nlToggleSidebarItem(itemId) {
+  const safeId = _nlSafeId(itemId);
+  const body = document.getElementById(`nl-body-${safeId}`);
+  const toggle = document.getElementById(`nl-toggle-${safeId}`);
+  if (!body) return;
+  body.hidden = !body.hidden;
+  if (toggle) toggle.textContent = body.hidden ? '▸' : '▾';
+}
+
+function _nlSafeId(id) {
+  // 'contacts' stays as-is; UUIDs use first 8 chars for DOM ids
+  return id === 'contacts' ? 'contacts' : id.replace(/-/g, '').slice(0, 12);
+}
+
+function _nlRenderSidebar() {
+  const el = document.getElementById('node-lists-sidebar');
+  if (!el) return;
+  el.innerHTML = _nlAllLists.map(l => {
+    const sid = _nlSafeId(l.id);
+    const isActive = activeListId === l.id;
+    const typeTag = l.expression ? ' <span style="color:var(--text-dim);font-size:0.7rem">expr</span>' : '';
+    return `<div class="nl-sidebar-item">
+      <div style="display:flex;align-items:center;gap:0.2rem;padding:0.1rem 0">
+        <button onclick="_nlToggleSidebarItem(${JSON.stringify(l.id)})" id="nl-toggle-${sid}" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:0.65rem;padding:0.1rem 0.2rem;line-height:1;flex-shrink:0">▸</button>
+        <button class="server-btn${isActive ? ' active' : ''}" id="nl-select-${sid}" onclick="setActiveList(${JSON.stringify(l.id)})" style="flex:1;text-align:left;padding:0.25rem 0.35rem;font-size:0.88rem">
+          ${_esc(l.name)}${typeTag} <span style="color:var(--text-dim);font-size:0.72rem">(${l.member_count})</span>
+        </button>
+        <button class="btn btn-muted btn-sm" onclick="openNodeLists(${JSON.stringify(l.id)})" style="font-size:0.65rem;padding:0.1rem 0.35rem;flex-shrink:0">Edit</button>
+      </div>
+      <div id="nl-body-${sid}" hidden style="padding-left:1.1rem;display:flex;flex-direction:column;gap:0.15rem"></div>
+    </div>`;
+  }).join('');
+  _nlUpdateContactsActiveState();
+}
+
+function _nlUpdateContactsActiveState() {
+  const btn = document.getElementById('nl-select-contacts');
+  if (!btn) return;
+  btn.classList.toggle('active', activeListId === 'contacts');
+}
+
+// Called by renderServerList after re-rendering
+function _nlUpdateActiveState() {
+  _nlUpdateContactsActiveState();
+  for (const l of _nlAllLists) {
+    const sid = _nlSafeId(l.id);
+    const btn = document.getElementById(`nl-select-${sid}`);
+    if (btn) btn.classList.toggle('active', activeListId === l.id);
+  }
+}
+
+// ── list-based feed filtering ───────────────────────────────────────────────
+
+async function setActiveList(id) {
+  if (activeListId === id) {
+    // toggle off
+    activeListId = null;
+    _activeListNodeIds = null;
+  } else {
+    activeListId = id;
+    if (id === 'contacts') {
+      _activeListNodeIds = null; // contacts = all = no filter
+    } else {
+      try {
+        const r = await apiFetch(`/node-lists/${encodeURIComponent(id)}`);
+        if (r.ok) {
+          const list = await r.json();
+          _activeListNodeIds = new Set((list.members || []).map(m => m.node_id));
+        }
+      } catch {}
+    }
+  }
+  activeServer = null; // clear single-server filter when switching to list
+  _nlUpdateActiveState();
+  renderServerList();
+  resetFeed();
+}
+
+// ── overlay open/close ──────────────────────────────────────────────────────
+
+async function openNodeLists(editId) {
+  await _nlLoadLists();
+  document.getElementById('node-lists-overlay').hidden = false;
+  document.getElementById('nl-list-view').style.display = '';
+  document.getElementById('nl-edit-view').hidden = true;
+  if (editId) {
+    await nlEditList(editId);
+  } else {
+    _nlShowListView();
+  }
+}
+
+function closeNodeLists() {
+  document.getElementById('node-lists-overlay').hidden = true;
+}
+
+function _nlShowListView() {
+  document.getElementById('nl-list-view').style.display = '';
+  document.getElementById('nl-edit-view').hidden = true;
+  _nlRenderListBody();
+}
+
+function _nlRenderListBody() {
+  const body = document.getElementById('nl-list-body');
+  if (!_nlAllLists.length) {
+    body.innerHTML = `<div style="color:var(--text-dim);font-size:0.88rem;padding:0.5rem 0">No lists yet. Create one to get started.</div>`;
+    return;
+  }
+  body.innerHTML = _nlAllLists.map(l => {
+    const typeLabel = l.expression ? 'expression' : 'manual';
+    const staleTag = l.stale ? ` <span style="color:var(--text-dim);font-size:0.72rem">stale</span>` : '';
+    return `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.4rem 0.6rem;border:1px solid var(--surface-3);border-radius:6px;background:var(--surface-1)">
+      <span style="flex:1;font-size:0.9rem;color:var(--text-1);font-weight:500">${_esc(l.name)}</span>
+      <span style="font-size:0.75rem;color:var(--text-dim)">${typeLabel}</span>
+      <span style="font-size:0.75rem;color:var(--text-3)">${l.member_count} members${staleTag}</span>
+      <button class="btn btn-muted btn-sm" style="font-size:0.75rem;padding:0.15rem 0.5rem" onclick="nlEditList(${JSON.stringify(l.id)})">Edit</button>
+    </div>`;
+  }).join('');
+}
+
+// ── contacts editor (opens unified edit view for the built-in contacts list) ─
+
+async function nlEditContacts() {
+  document.getElementById('node-lists-overlay').hidden = false;
+  await _nlLoadLists();
+  _nlCurrentId = '__contacts__';
+  document.getElementById('nl-edit-title').textContent = 'Contacts';
+  document.getElementById('nl-delete-btn').style.display = 'none';
+  document.getElementById('nl-edit-status').textContent = '';
+  document.getElementById('nl-name-row').hidden = true;
+  document.getElementById('nl-type-row').hidden = true;
+  _nlSetType('manual');
+  _nlManualMembers = (CFG?.contacts || []).filter(c => c.node_id).map(c => ({
+    node_id: c.node_id,
+    display_name: c.name || c.handle || c.url || c.node_id,
+    server_url: c.url,
+    public_key: c.public_key || null,
+  }));
+  _nlRenderMemberList();
+  document.getElementById('nl-member-search').value = '';
+  document.getElementById('nl-member-search-results').innerHTML = '';
+  document.getElementById('nl-list-view').style.display = 'none';
+  document.getElementById('nl-edit-view').hidden = false;
+}
+
+// ── list editor ─────────────────────────────────────────────────────────────
+
+async function nlNewList() {
+  document.getElementById('node-lists-overlay').hidden = false;
+  await _nlLoadLists();
+  _nlCurrentId = null;
+  document.getElementById('nl-edit-title').textContent = 'New list';
+  document.getElementById('nl-delete-btn').style.display = 'none';
+  document.getElementById('nl-edit-name').value = '';
+  document.getElementById('nl-edit-status').textContent = '';
+  document.getElementById('nl-name-row').hidden = false;
+  document.getElementById('nl-type-row').hidden = false;
+  _nlManualMembers = [];
+  _nlSetType('manual');
+  _nlShowMembersPreview([]);
+  document.getElementById('nl-list-view').style.display = 'none';
+  document.getElementById('nl-edit-view').hidden = false;
+}
+
+async function nlEditList(id) {
+  _nlCurrentId = id;
+  document.getElementById('nl-edit-title').textContent = 'Edit list';
+  document.getElementById('nl-delete-btn').style.display = '';
+  document.getElementById('nl-edit-status').textContent = '';
+  document.getElementById('nl-name-row').hidden = false;
+  document.getElementById('nl-type-row').hidden = false;
+  document.getElementById('nl-list-view').style.display = 'none';
+  document.getElementById('nl-edit-view').hidden = false;
+
+  try {
+    const r = await apiFetch(`/node-lists/${encodeURIComponent(id)}`);
+    if (!r.ok) { document.getElementById('nl-edit-status').textContent = 'Failed to load list.'; return; }
+    const list = await r.json();
+    document.getElementById('nl-edit-name').value = list.name;
+    if (list.expression) {
+      _nlSetType('expression');
+      document.getElementById('nl-op').value = list.expression.op || 'union';
+      _nlRenderExprArgs(list.expression.args || []);
+    } else {
+      _nlSetType('manual');
+      _nlManualMembers = (list.members || []).map(m => ({
+        node_id: m.node_id,
+        display_name: m.display_name || m.node_id,
+      }));
+      _nlRenderMemberList();
+      document.getElementById('nl-member-search').value = '';
+      document.getElementById('nl-member-search-results').innerHTML = '';
+    }
+    _nlShowMembersPreview(list.members || []);
+  } catch { document.getElementById('nl-edit-status').textContent = 'Network error.'; }
+}
+
+function nlBackToList() {
+  _nlCurrentId = null;
+  _nlManualMembers = [];
+  document.getElementById('nl-name-row').hidden = false;
+  document.getElementById('nl-type-row').hidden = false;
+  _nlShowListView();
+}
+
+function nlTypeChanged(type) { _nlSetType(type); }
+
+function _nlSetType(type) {
+  const radios = document.querySelectorAll('input[name="nl-type"]');
+  radios.forEach(r => { r.checked = r.value === type; });
+  document.getElementById('nl-manual-section').hidden = type !== 'manual';
+  document.getElementById('nl-expression-section').hidden = type !== 'expression';
+  if (type === 'manual') {
+    _nlRenderMemberList();
+  } else if (!document.getElementById('nl-expr-args').children.length) {
+    _nlRenderExprArgs([]);
+  }
+}
+
+function _nlCurrentType() {
+  const r = document.querySelector('input[name="nl-type"]:checked');
+  return r ? r.value : 'manual';
+}
+
+let _nlManualMembers = [];
+
+function _nlRenderMemberList() {
+  const el = document.getElementById('nl-member-list');
+  if (!_nlManualMembers.length) {
+    el.innerHTML = `<div style="color:var(--text-dim);font-size:0.82rem;padding:0.3rem 0">No members yet.</div>`;
+    return;
+  }
+  el.innerHTML = _nlManualMembers.map(m => {
+    const label = m.display_name || m.node_id;
+    return `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.2rem 0.5rem;border:1px solid var(--surface-3);border-radius:4px">
+      <span style="flex:1;font-size:0.85rem;color:var(--text-1)">${_esc(label)}</span>
+      <button style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:1.1rem;padding:0.1rem 0.3rem;line-height:1" onclick="_nlRemoveMember(${JSON.stringify(m.node_id)})" title="Remove">×</button>
+    </div>`;
+  }).join('');
+}
+
+function _nlRemoveMember(nodeId) {
+  _nlManualMembers = _nlManualMembers.filter(m => m.node_id !== nodeId);
+  _nlRenderMemberList();
+}
+
+let _nlMemberSearchTimer = null;
+function nlScheduleMemberSearch(val) {
+  clearTimeout(_nlMemberSearchTimer);
+  _nlMemberSearchTimer = setTimeout(() => _nlSearchMembers(val), 300);
+}
+
+async function _nlSearchMembers(val) {
+  const results = document.getElementById('nl-member-search-results');
+  results.innerHTML = '';
+  if (!val || val.length < 2) return;
+  const r = await apiFetch('/api/contacts/search?q=' + encodeURIComponent(val));
+  if (!r.ok) { results.innerHTML = `<div style="color:var(--error);font-size:0.82rem">Search failed.</div>`; return; }
+  const data = await r.json();
+  const existing = new Set(_nlManualMembers.map(m => m.node_id));
+  const items = (data.results || []).filter(d => {
+    const nid = d.node_id || d.user_id;
+    return nid && !existing.has(nid) && d.server_url !== CFG?.own_server;
+  });
+  if (!items.length) { results.innerHTML = `<div style="color:var(--text-dim);font-size:0.82rem">No results.</div>`; return; }
+  results._results = items;
+  results.innerHTML = items.slice(0, 8).map((d, i) => {
+    const name = d.display_name || (d.username ? '@' + d.username : d.server_url);
+    return `<div style="display:flex;align-items:center;gap:0.5rem;padding:0.2rem 0.5rem;border:1px solid var(--surface-3);border-radius:4px;cursor:pointer">
+      <span style="flex:1;font-size:0.85rem;color:var(--text-1)">${_esc(name)}</span>
+      <button class="btn btn-muted btn-sm" style="font-size:0.75rem;padding:0.1rem 0.4rem;flex-shrink:0" onclick="event.stopPropagation();_nlPickSearchResult(${i})">Add</button>
+    </div>`;
+  }).join('');
+}
+
+function _nlPickSearchResult(idx) {
+  const results = document.getElementById('nl-member-search-results');
+  const d = results._results && results._results[idx];
+  if (!d) return;
+  const node_id = d.node_id || d.user_id;
+  if (!node_id) return;
+  const display_name = d.display_name || (d.username ? '@' + d.username : d.server_url);
+  _nlManualMembers.push({node_id, display_name, server_url: d.server_url, public_key: d.public_key || null});
+  _nlRenderMemberList();
+  document.getElementById('nl-member-search').value = '';
+  results.innerHTML = '';
+}
+
+function _nlRenderExprArgs(argIds) {
+  const container = document.getElementById('nl-expr-args');
+  container.innerHTML = '';
+  const toShow = argIds.length ? argIds : ['', ''];
+  for (const id of toShow) _nlAddExprArgRow(id);
+}
+
+function nlAddExprArg() { _nlAddExprArgRow(''); }
+
+function _nlAddExprArgRow(selectedId) {
+  const container = document.getElementById('nl-expr-args');
+  const row = document.createElement('div');
+  row.style.cssText = 'display:flex;align-items:center;gap:0.4rem';
+  const sel = document.createElement('select');
+  sel.style.cssText = 'flex:1;background:var(--surface-input);color:var(--text-1);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem';
+  const lists = _nlAllLists.filter(l => l.id !== _nlCurrentId);
+  const contacts = (CFG?.contacts || []).filter(c => c.node_id);
+  sel.innerHTML = `<option value="">— choose list or contact —</option>` +
+    (lists.length ? `<optgroup label="Lists">` +
+      lists.map(l => `<option value="${_esc(l.id)}" ${l.id === selectedId ? 'selected' : ''}>${_esc(l.name)}</option>`).join('') +
+      `</optgroup>` : '') +
+    (contacts.length ? `<optgroup label="Contacts">` +
+      contacts.map(c => {
+        const label = c.name || c.handle || c.node_id;
+        return `<option value="${_esc(c.node_id)}" ${c.node_id === selectedId ? 'selected' : ''}>${_esc(label)}</option>`;
+      }).join('') +
+      `</optgroup>` : '');
+  const rm = document.createElement('button');
+  rm.className = 'btn btn-muted btn-sm';
+  rm.style.cssText = 'padding:0.15rem 0.4rem;font-size:0.85rem;flex-shrink:0';
+  rm.textContent = '×';
+  rm.onclick = () => row.remove();
+  row.appendChild(sel);
+  row.appendChild(rm);
+  container.appendChild(row);
+}
+
+function _nlShowMembersPreview(members) {
+  const wrap = document.getElementById('nl-members-preview');
+  const list = document.getElementById('nl-members-preview-list');
+  const count = document.getElementById('nl-members-count');
+  if (!members.length) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  count.textContent = members.length;
+  list.innerHTML = members.map(m => `<span style="margin-right:0.5rem">${_esc(m.display_name || m.node_id)}</span>`).join('');
+}
+
+async function nlSaveList() {
+  const status = document.getElementById('nl-edit-status');
+  status.textContent = '';
+  status.style.color = 'var(--error)';
+
+  // Special case: saving Contacts syncs the contacts list
+  if (_nlCurrentId === '__contacts__') {
+    try {
+      const currentMap = new Map((CFG?.contacts || []).filter(c => c.node_id).map(c => [c.node_id, c]));
+      const newSet = new Set(_nlManualMembers.map(m => m.node_id));
+      // Remove contacts deleted from the list
+      for (const [nid, c] of currentMap) {
+        if (!newSet.has(nid)) {
+          await apiFetch('/api/contacts?' + new URLSearchParams({url: c.url}), {method: 'DELETE'});
+        }
+      }
+      // Add new contacts
+      for (const m of _nlManualMembers) {
+        if (!currentMap.has(m.node_id)) {
+          await apiFetch('/api/contacts', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({name: m.display_name, url: m.server_url, node_id: m.node_id, public_key: m.public_key || null}),
+          });
+        }
+      }
+      const cfg = await (await apiFetch('/api/config')).json();
+      _setCFG(cfg);
+      renderServerList();
+      fetchServerHandles();
+      fetchServerProfiles();
+      await _nlLoadLists();
+      status.style.color = 'var(--ok)';
+      status.textContent = 'Saved.';
+      setTimeout(() => { if (status.textContent === 'Saved.') { status.textContent = ''; status.style.color = 'var(--error)'; } }, 2000);
+    } catch { status.textContent = 'Network error.'; }
+    return;
+  }
+
+  const name = document.getElementById('nl-edit-name').value.trim();
+  if (!name) { status.textContent = 'Name is required.'; return; }
+
+  const type = _nlCurrentType();
+  let body;
+  if (type === 'manual') {
+    body = {name, members: _nlManualMembers.map(m => m.node_id)};
+  } else {
+    const op = document.getElementById('nl-op').value;
+    const args = Array.from(document.querySelectorAll('#nl-expr-args select'))
+      .map(s => s.value).filter(Boolean);
+    if (!args.length) { status.textContent = 'Add at least one source list.'; return; }
+    body = {name, expression: {op, args}};
+  }
+
+  try {
+    let r;
+    if (_nlCurrentId) {
+      r = await apiFetch(`/node-lists/${encodeURIComponent(_nlCurrentId)}`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+    } else {
+      r = await apiFetch('/node-lists', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body),
+      });
+    }
+    if (!r.ok) {
+      const d = await r.json().catch(() => ({}));
+      status.textContent = d.detail || 'Save failed.';
+      return;
+    }
+    const saved = await r.json();
+    await _nlLoadLists();
+    _nlShowMembersPreview(saved.members || []);
+    if (!_nlCurrentId) {
+      _nlCurrentId = saved.id;
+      document.getElementById('nl-edit-title').textContent = 'Edit list';
+      document.getElementById('nl-delete-btn').style.display = '';
+    }
+    status.style.color = 'var(--ok)';
+    status.textContent = 'Saved.';
+    setTimeout(() => { if (status.textContent === 'Saved.') { status.textContent = ''; status.style.color = 'var(--error)'; } }, 2000);
+  } catch { status.textContent = 'Network error.'; }
+}
+
+async function nlDeleteList() {
+  if (!_nlCurrentId) return;
+  const name = document.getElementById('nl-edit-name').value || 'this list';
+  if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+  try {
+    const r = await apiFetch(`/node-lists/${encodeURIComponent(_nlCurrentId)}`, {method: 'DELETE'});
+    if (!r.ok && r.status !== 204) {
+      const d = await r.json().catch(() => ({}));
+      document.getElementById('nl-edit-status').textContent = d.detail || 'Delete failed.';
+      return;
+    }
+    if (activeListId === _nlCurrentId) { activeListId = null; _activeListNodeIds = null; resetFeed(); }
+    await _nlLoadLists();
+    nlBackToList();
+  } catch { document.getElementById('nl-edit-status').textContent = 'Network error.'; }
+}
+
+function _esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }

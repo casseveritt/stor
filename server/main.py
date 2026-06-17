@@ -33,6 +33,7 @@ from . import contacts as contacts_module
 from . import reactions as reactions_module
 from . import debug as debug_module
 from . import dm as dm_module
+from . import node_lists as node_lists_module
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("contacc")
@@ -332,6 +333,44 @@ def _initialize(app: FastAPI, config_path: Path, passphrase: str) -> None:
     app.state.user_id = config.owner_id or config.user_id or ""
     app.state.node_id = config.node_id or ""
 
+    # Guard: refuse to start if this node_id is actively serving from a different URL.
+    # This catches the case where a backup is restored without first shutting down the
+    # original instance, which would cause two nodes to share the same identity.
+    if config.node_id and node_address:
+        _guard_registry_url = (config.registry_url or config.identity_proxy_url or "").rstrip("/")
+        if _guard_registry_url:
+            try:
+                _reg_resp = httpx.get(
+                    f"{_guard_registry_url}/nodes/{config.node_id}", timeout=5.0
+                )
+                if _reg_resp.is_success:
+                    _reg_data = _reg_resp.json()
+                    _reg_server_url = (_reg_data.get("server_url") or "").rstrip("/")
+                    _our_url = node_address.rstrip("/")
+                    if _reg_server_url and _reg_server_url != _our_url:
+                        # Registry shows this node_id at a different address — probe it.
+                        try:
+                            _probe = httpx.get(
+                                _reg_server_url + "/node", timeout=3.0
+                            )
+                            if _probe.is_success:
+                                _live_nid = _probe.json().get("node_id")
+                                if _live_nid == config.node_id:
+                                    raise RuntimeError(
+                                        f"node_id {config.node_id} is already active at "
+                                        f"{_reg_server_url}. "
+                                        f"Shut down the existing instance before restoring "
+                                        f"a backup, or this node will have a split identity."
+                                    )
+                        except RuntimeError:
+                            raise
+                        except Exception:
+                            pass  # other server not reachable — safe to proceed
+            except RuntimeError:
+                raise
+            except Exception:
+                pass  # registry unreachable — proceed; heartbeat will reconcile
+
     node_module.setup(node_address, private_key, config.watermark_enabled, config.registry_handle,
                       user_id=config.owner_id or config.user_id,
                       owner_id=config.owner_id or config.user_id,
@@ -497,6 +536,7 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
     app.include_router(reactions_module.router)
     app.include_router(debug_module.router)
     app.include_router(dm_module.router)
+    app.include_router(node_lists_module.router)
 
     @app.post("/notifications/mention", status_code=204)
     async def receive_mention(request: Request):

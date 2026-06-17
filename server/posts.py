@@ -502,9 +502,12 @@ def get_posts(
                 params.extend(identity.share_post_ids)
         elif identity.node_id is not None:
             conditions.append(
-                "(p.visibility = 'public' OR EXISTS (SELECT 1 FROM post_acl WHERE post_id = p.id AND node_id = ?))"
+                "(p.visibility = 'public' OR "
+                "EXISTS (SELECT 1 FROM post_acl WHERE post_id = p.id AND node_id = ?) OR "
+                "(p.visibility_list_id IS NOT NULL AND "
+                " EXISTS (SELECT 1 FROM node_list_members WHERE list_id = p.visibility_list_id AND node_id = ?)))"
             )
-            params.append(identity.node_id)
+            params.extend([identity.node_id, identity.node_id])
         elif is_contact:
             conditions.append("p.visibility IN ('contacts', 'authenticated', 'public')")
         elif getattr(request.state, 'sig_verified', False):
@@ -771,9 +774,14 @@ def _check_post_access(db, post_id: str, identity) -> bool:
             return True  # node-wide share
         return post_id in identity.share_post_ids
     if identity.node_id:
-        return db.execute(
+        if db.execute(
             "SELECT 1 FROM post_acl WHERE post_id = ? AND node_id = ?", (post_id, identity.node_id)
-        ).fetchone() is not None
+        ).fetchone() is not None:
+            return True
+        row = db.execute("SELECT visibility_list_id FROM posts WHERE id = ?", (post_id,)).fetchone()
+        if row and row[0]:
+            from .node_lists import get_list_members_set
+            return identity.node_id in get_list_members_set(db, row[0])
     return False
 
 

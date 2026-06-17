@@ -769,6 +769,7 @@ def create_app(config_path: str | Path) -> FastAPI:
         q: str = "",
         tags: list[str] = Query(default=[]),
         limit: int = 20,
+        node_ids: str = "",
     ):
         if server:
             # single-server fetch
@@ -835,6 +836,11 @@ def create_app(config_path: str | Path) -> FastAPI:
         if tags:
             tag_set = set(tags)
             all_posts = [p for p in all_posts if tag_set.intersection(p.get("tags") or [])]
+        if node_ids:
+            _nid_set = set(node_ids.split(","))
+            _url_set = {c.url for c in config.contacts if c.node_id in _nid_set}
+            _url_set.add(config.own_server)  # always include own posts
+            all_posts = [p for p in all_posts if p.get("_server_url") in _url_set]
 
         seen_ids: set[str] = set()
         deduped: list[dict] = []
@@ -1508,10 +1514,9 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     class ContactPatchBody(BaseModel):
         url: str = ""
-        node_id: str | None = None  # lookup key; falls back to url
+        node_id: str | None = None
         tag: str | None = None
         description: str | None = None
-        node_id: str | None = None
         family: float | None = None
         close_friends: float | None = None
         friends: float | None = None
