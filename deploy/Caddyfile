@@ -207,3 +207,5 @@
 {$CONTACC_DOMAIN}:8421 {
     reverse_proxy registry:9532
 }
+
+import /etc/caddy/conf.d/*.caddy

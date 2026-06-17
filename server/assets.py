@@ -6,7 +6,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 
-from .auth import AuthDep, OptionalAuthDep, check_acl
+from .auth import AuthDep, FederatedOrTokenDep, check_acl
 from .crypto import decrypt_bytes
 from . import watermark as watermark_module
 from .watermark import WatermarkError
@@ -93,12 +93,7 @@ def _read_content(store_path: Path, content_hash: str, file_key: bytes) -> bytes
 def _require_acl(db, asset_id: str, identity, request: Request | None = None):
     if check_acl(db, asset_id, identity):
         return
-    # Federation: check X-Public-Key against post visibility, same logic as posts.py
-    pub_key = request.headers.get("X-Public-Key", "") if request else ""
-    if pub_key:
-        is_contact = bool(db.execute(
-            "SELECT 1 FROM users WHERE public_key = ?", (pub_key,)
-        ).fetchone())
+    if identity.node_id is not None:
         row = db.execute(
             "SELECT p.visibility FROM posts p JOIN post_assets pa ON p.id = pa.post_id "
             "WHERE pa.asset_id = ? "
@@ -112,7 +107,7 @@ def _require_acl(db, asset_id: str, identity, request: Request | None = None):
                 return
             if vis == "authenticated":
                 return
-            if vis == "contacts" and is_contact:
+            if vis == "contacts" and identity.is_contact:
                 return
     raise HTTPException(status_code=403, detail="Access denied")
 
@@ -133,7 +128,7 @@ def _apply_watermark_if_needed(content: bytes, media_type: str, request: Request
 
 
 @router.get("/{asset_id}/meta")
-def fetch_asset_meta(asset_id: str, request: Request, identity: OptionalAuthDep):
+async def fetch_asset_meta(asset_id: str, request: Request, identity: FederatedOrTokenDep):
     db = request.app.state.db
     asset = _get_asset_row(db, asset_id)
     if asset is None:
@@ -145,7 +140,7 @@ def fetch_asset_meta(asset_id: str, request: Request, identity: OptionalAuthDep)
 
 
 @router.get("/{asset_id}/thumb")
-def fetch_thumbnail(asset_id: str, request: Request, identity: OptionalAuthDep):
+async def fetch_thumbnail(asset_id: str, request: Request, identity: FederatedOrTokenDep):
     db = request.app.state.db
     asset = _get_asset_row(db, asset_id)
     if asset is None:
@@ -182,7 +177,7 @@ def fetch_thumbnail(asset_id: str, request: Request, identity: OptionalAuthDep):
 
 
 @router.get("/{asset_id}")
-def fetch_asset(asset_id: str, request: Request, identity: OptionalAuthDep):
+async def fetch_asset(asset_id: str, request: Request, identity: FederatedOrTokenDep):
     db = request.app.state.db
     asset = _get_asset_row(db, asset_id)
     if asset is None:
@@ -209,7 +204,7 @@ def fetch_asset(asset_id: str, request: Request, identity: OptionalAuthDep):
 
 
 @router.get("/{asset_id}/history")
-def fetch_asset_history(asset_id: str, request: Request, identity: OptionalAuthDep):
+async def fetch_asset_history(asset_id: str, request: Request, identity: FederatedOrTokenDep):
     db = request.app.state.db
     asset = _get_asset_row(db, asset_id)
     if asset is None:

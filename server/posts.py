@@ -10,7 +10,7 @@ from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Query, Request, UploadFile
 from pydantic import BaseModel
 
-from .auth import AuthDep, FederatedOrTokenDep, FederatedSigDep, OptionalAuthDep, OwnerDep
+from .auth import AuthDep, FederatedOrTokenDep, OwnerDep
 from .crypto import encrypt_bytes
 from .db import now_ns
 
@@ -468,10 +468,9 @@ def _notify_parent_of_reply(parent_node_id: str, parent_post_id: str,
 # ── post feed ─────────────────────────────────────────────────────────────────
 
 @router.get("/posts")
-def get_posts(
+async def get_posts(
     request: Request,
-    identity: OptionalAuthDep,
-    _sig: FederatedSigDep = None,
+    identity: FederatedOrTokenDep,
     limit: int = Query(default=20, ge=1, le=100),
     cursor: str = Query(default=""),
     tags: list[str] = Query(default=[]),
@@ -492,9 +491,6 @@ def get_posts(
         conditions.append("p.post_type = 'post'")
 
     if not identity.is_owner:
-        origin_server = request.headers.get("X-Origin-Server", "")
-        origin_pub_key = request.headers.get("X-Public-Key", "")
-        is_contact = _is_known_contact(db, origin_server, origin_pub_key)
         if identity.is_share:
             if identity.share_post_ids is not None:
                 placeholders = ",".join("?" * len(identity.share_post_ids))
@@ -563,7 +559,7 @@ def get_posts(
 # ── get / update / delete post ────────────────────────────────────────────────
 
 @router.get("/posts/{post_id}")
-def get_post(post_id: str, request: Request, identity: OptionalAuthDep, _sig: FederatedSigDep = None):
+async def get_post(post_id: str, request: Request, identity: FederatedOrTokenDep):
     db = request.app.state.db
     row = db.execute(
         f"SELECT {_POST_COLS_NO_ALIAS} FROM posts WHERE id = ? AND deleted = 0", (post_id,)
@@ -572,16 +568,14 @@ def get_post(post_id: str, request: Request, identity: OptionalAuthDep, _sig: Fe
         raise HTTPException(status_code=404, detail="Post not found")
     visibility, post_type = row[4], row[6]
     if not identity.is_owner:
-        origin_server = request.headers.get("X-Origin-Server", "")
         if post_type == "inner_monologue":
             raise HTTPException(status_code=404, detail="Post not found")
         if visibility == "private":
             raise HTTPException(status_code=403, detail="Access denied")
         if visibility in ("contacts", "authenticated"):
-            origin_pub_key = request.headers.get("X-Public-Key", "")
-            is_contact = _is_known_contact(db, origin_server, origin_pub_key)
-            is_authenticated = getattr(request.state, 'sig_verified', False)
-            passes = is_authenticated if visibility == "authenticated" else is_contact
+            passes = identity.node_id is not None and (
+                visibility == "authenticated" or identity.is_contact
+            )
             if not passes and not _check_post_access(db, post_id, identity):
                 raise HTTPException(status_code=403, detail="Access denied")
     viewer = "" if identity.is_owner else (request.headers.get("X-Origin-Server", "") or "__anon__")
@@ -731,8 +725,7 @@ def _propagate_reply_up(start_post_id: str, reply_post_id: str, reply_node_id: s
 
 
 @router.get("/posts/{post_id}/replies")
-def get_replies(post_id: str, request: Request, identity: OptionalAuthDep,
-                _sig: FederatedSigDep = None):
+def get_replies(post_id: str, request: Request):
     db = request.app.state.db
     row = db.execute(
         "SELECT visibility FROM posts WHERE id = ? AND deleted = 0", (post_id,)
@@ -784,19 +777,6 @@ def _check_post_access(db, post_id: str, identity) -> bool:
             return identity.node_id in get_list_members_set(db, row[0])
     return False
 
-
-def _is_known_contact(db, server_url: str, public_key: str | None = None) -> bool:
-    if not public_key:
-        return False
-    row = db.execute(
-        "SELECT id, server_url FROM users WHERE public_key = ? AND relationship = 'contact'", (public_key,)
-    ).fetchone()
-    if not row:
-        return False
-    if server_url and row[1] != server_url:
-        db.execute("UPDATE users SET server_url = ? WHERE id = ?", (server_url, row[0]))
-        db.commit()
-    return True
 
 
 # ── post ACL ──────────────────────────────────────────────────────────────────

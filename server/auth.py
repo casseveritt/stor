@@ -39,6 +39,7 @@ OWNER_TOKEN_LEN = ID_LEN + EXPIRY_LEN + SIG_LEN  # 104 bytes raw
 class TokenIdentity:
     is_owner: bool
     node_id: str | None = None            # set for non-owner tokens
+    is_contact: bool = False              # True when the federated caller is a stored contact
     share_identity: str | None = None     # set for share tokens (watermark label)
     share_asset_ids: list[str] | None = None  # None = node-wide; list = scoped
     share_post_ids: list[str] | None = None   # None = not present; list = scoped
@@ -245,6 +246,14 @@ async def get_identity_or_federated(
     if token:
         return _identity_from_token(request, token)
 
+    # 1b. Internal inter-container token — client proxy calls arrive this way.
+    import secrets as _sec
+    _internal = getattr(request.app.state, "internal_token", None)
+    if _internal:
+        _provided = request.headers.get("x-contacc-internal", "")
+        if _provided and _sec.compare_digest(_provided, _internal):
+            return TokenIdentity(is_owner=True)
+
     # 2. Try federated signature.
     pub_key_header = request.headers.get("X-Public-Key", "")
     if not pub_key_header:
@@ -252,7 +261,7 @@ async def get_identity_or_federated(
 
     db = request.app.state.db
     row = db.execute(
-        "SELECT public_key, server_url, node_id FROM users WHERE public_key = ?", (pub_key_header,)
+        "SELECT public_key, server_url, node_id, relationship FROM users WHERE public_key = ?", (pub_key_header,)
     ).fetchone()
     if not row:
         # Unknown key — try to verify it against the origin server on the fly.
@@ -274,7 +283,7 @@ async def get_identity_or_federated(
                 (origin, node_data.get("handle") or origin, node_data.get("handle") or "", pub_key_header, node_id),
             )
             db.commit()
-            row = (pub_key_header, origin, node_id)
+            row = (pub_key_header, origin, node_id, 'external')
         except Exception:
             return _GUEST
 
@@ -297,11 +306,26 @@ async def get_identity_or_federated(
     except Exception:
         return _GUEST  # invalid signature — treat as guest
 
-    # Signature is valid. Only proceed if we have a node_id — it is the sole identity.
+    # Signature valid. Resolve node_id — it is the sole immutable identity.
     node_id = row[2]
+    relationship = row[3] or 'external'
+    if not node_id:
+        origin = request.headers.get("X-Origin-Server", "") or row[1]
+        if origin:
+            try:
+                import httpx as _httpx
+                nr = await _httpx.AsyncClient().get(origin.rstrip("/") + "/node", timeout=5.0)
+                if nr.is_success:
+                    nd = nr.json()
+                    node_id = nd.get("node_id") or nd.get("user_id")
+                    if node_id:
+                        db.execute("UPDATE users SET node_id = ? WHERE public_key = ?", (node_id, pub_key_header))
+                        db.commit()
+            except Exception:
+                pass
     if not node_id:
         return _GUEST
-    return TokenIdentity(is_owner=False, node_id=node_id)
+    return TokenIdentity(is_owner=False, node_id=node_id, is_contact=(relationship == 'contact'))
 
 
 FederatedOrTokenDep = Annotated[TokenIdentity, Depends(get_identity_or_federated)]

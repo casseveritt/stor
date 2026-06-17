@@ -26,6 +26,20 @@ fetched/cached cross-node and what a cheap "has this changed" check would look l
 ## 8. Plaintext metadata in node_config.json
 `node_config.json` stores `sso_owner_identity` (e.g. `"google:cass.everitt@gmail.com"`), `node_address`, and `registry_handle` in plaintext — readable by anyone with filesystem access, no passphrase required. The email is only used to verify incoming SSO tokens. Future hardening: consider encrypting or omitting it from the config (look it up from the encrypted DB at unlock time instead). The handle and node_address are less sensitive but still worth considering.
 
+## 11. DM message requests from non-contacts
+
+Incoming DMs from nodes not in the contact list should be accepted and stored but
+surfaced in a separate "message requests" bucket rather than the main DM inbox.
+This prevents unsolicited messages from cluttering the primary view while still
+ensuring they are not silently dropped.
+
+## 10. DM panel: initiate DM to a single person
+
+The DM panel currently only supports creating group threads. It should also support
+initiating a direct message to a single contact without having to go through the group
+creation flow — e.g. a "Message" button on a contact's profile or a single-contact
+shortcut in the new-thread dialog.
+
 ---
 
 ## Done (removed from active list)
