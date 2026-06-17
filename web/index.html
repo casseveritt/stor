@@ -225,9 +225,13 @@
           </div>
         </div>
         <div class="sidebar-section">
-          <div class="sidebar-head">Tags</div>
-          <div id="tag-list" style="max-height:19rem;overflow-y:auto"></div>
-          <button id="clear-tags-btn" onclick="clearTagFilter()" hidden>Clear filter</button>
+          <div class="sidebar-head" style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="_toggleTagsSection()">
+            <span>Tags <span id="tags-sidebar-arrow" style="font-size:0.7rem">▾</span></span>
+          </div>
+          <div id="tags-sidebar-body">
+            <div id="tag-list" style="max-height:19rem;overflow-y:auto"></div>
+            <button id="clear-tags-btn" onclick="clearTagFilter()" hidden>Clear filter</button>
+          </div>
         </div>
       </div>
     </nav>
@@ -673,6 +677,6 @@
 
   <script src="/marked.min.js?v=2"></script>
   <script src="/purify.min.js?v=2"></script>
-  <script src="/app.js?v=702515c-30"></script>
+  <script src="/app.js?v=702515c-31"></script>
 </body>
 </html>

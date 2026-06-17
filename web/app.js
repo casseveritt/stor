@@ -4045,11 +4045,24 @@ async function _nlLoadLists() {
     if (!r.ok) return;
     const d = await r.json();
     _nlAllLists = d.lists || [];
+    // Clear cached member content so expanded bodies reload on next open
+    for (const l of _nlAllLists) {
+      const body = document.getElementById(`nl-body-${_nlSafeId(l.id)}`);
+      if (body) body._loaded = false;
+    }
     _nlRenderSidebar();
   } catch {}
 }
 
 // ── sidebar rendering ───────────────────────────────────────────────────────
+
+function _toggleTagsSection() {
+  const body = document.getElementById('tags-sidebar-body');
+  const arrow = document.getElementById('tags-sidebar-arrow');
+  if (!body) return;
+  body.hidden = !body.hidden;
+  if (arrow) arrow.textContent = body.hidden ? '▸' : '▾';
+}
 
 function _nlToggleListsSection(e) {
   if (e) e.stopPropagation();
@@ -4060,13 +4073,27 @@ function _nlToggleListsSection(e) {
   if (arrow) arrow.textContent = body.hidden ? '▸' : '▾';
 }
 
-function _nlToggleSidebarItem(itemId) {
+async function _nlToggleSidebarItem(itemId) {
   const safeId = _nlSafeId(itemId);
   const body = document.getElementById(`nl-body-${safeId}`);
   const toggle = document.getElementById(`nl-toggle-${safeId}`);
   if (!body) return;
   body.hidden = !body.hidden;
   if (toggle) toggle.textContent = body.hidden ? '▸' : '▾';
+  if (!body.hidden && itemId !== 'contacts' && !body._loaded) {
+    body._loaded = true;
+    body.innerHTML = `<div style="color:var(--text-dim);font-size:0.8rem;padding:0.15rem 0.5rem">Loading…</div>`;
+    try {
+      const r = await apiFetch(`/node-lists/${encodeURIComponent(itemId)}`);
+      if (r.ok) {
+        const list = await r.json();
+        const members = list.members || [];
+        body.innerHTML = members.length
+          ? members.map(m => `<div style="font-size:0.82rem;color:var(--text-2);padding:0.12rem 0.5rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(m.display_name || m.node_id)}</div>`).join('')
+          : `<div style="color:var(--text-dim);font-size:0.8rem;padding:0.15rem 0.5rem">No members</div>`;
+      }
+    } catch { body.innerHTML = ''; }
+  }
 }
 
 function _nlSafeId(id) {
