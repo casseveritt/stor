@@ -4110,11 +4110,11 @@ function _nlRenderSidebar() {
     const typeTag = l.expression ? ' <span style="color:var(--text-dim);font-size:0.7rem">expr</span>' : '';
     return `<div class="nl-sidebar-item">
       <div style="display:flex;align-items:center;gap:0.2rem;padding:0.1rem 0">
-        <button onclick="_nlToggleSidebarItem(${JSON.stringify(l.id)})" id="nl-toggle-${sid}" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:0.65rem;padding:0.1rem 0.2rem;line-height:1;flex-shrink:0">▸</button>
-        <button class="server-btn${isActive ? ' active' : ''}" id="nl-select-${sid}" onclick="setActiveList(${JSON.stringify(l.id)})" style="flex:1;text-align:left;padding:0.25rem 0.35rem;font-size:0.88rem">
+        <button onclick="_nlToggleSidebarItem('${l.id}')" id="nl-toggle-${sid}" style="background:none;border:none;cursor:pointer;color:var(--text-dim);font-size:0.65rem;padding:0.1rem 0.2rem;line-height:1;flex-shrink:0">▸</button>
+        <button class="server-btn${isActive ? ' active' : ''}" id="nl-select-${sid}" onclick="setActiveList('${l.id}')" style="flex:1;text-align:left;padding:0.25rem 0.35rem;font-size:0.88rem">
           ${_esc(l.name)}${typeTag} <span style="color:var(--text-dim);font-size:0.72rem">(${l.member_count})</span>
         </button>
-        <button class="btn btn-muted btn-sm" onclick="openNodeLists(${JSON.stringify(l.id)})" style="font-size:0.65rem;padding:0.1rem 0.35rem;flex-shrink:0">Edit</button>
+        <button class="btn btn-muted btn-sm" onclick="openNodeLists('${l.id}')" style="font-size:0.65rem;padding:0.1rem 0.35rem;flex-shrink:0">Edit</button>
       </div>
       <div id="nl-body-${sid}" hidden style="padding-left:1.1rem;display:flex;flex-direction:column;gap:0.15rem"></div>
     </div>`;
@@ -4202,7 +4202,7 @@ function _nlRenderListBody() {
       <span style="flex:1;font-size:0.9rem;color:var(--text-1);font-weight:500">${_esc(l.name)}</span>
       <span style="font-size:0.75rem;color:var(--text-dim)">${typeLabel}</span>
       <span style="font-size:0.75rem;color:var(--text-3)">${l.member_count} members${staleTag}</span>
-      <button class="btn btn-muted btn-sm" style="font-size:0.75rem;padding:0.15rem 0.5rem" onclick="nlEditList(${JSON.stringify(l.id)})">Edit</button>
+      <button class="btn btn-muted btn-sm" style="font-size:0.75rem;padding:0.15rem 0.5rem" onclick="nlEditList('${l.id}')">Edit</button>
     </div>`;
   }).join('');
 }
