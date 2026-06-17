@@ -1,4 +1,5 @@
 """Named node lists with optional boolean-expression definitions."""
+import hashlib
 import json
 import uuid
 
@@ -7,6 +8,31 @@ from pydantic import BaseModel
 
 from .auth import InternalOrOwnerDep as OwnerDep
 from .db import now_ns
+
+
+def _content_hash(node_ids: list[str]) -> str:
+    canonical = "\n".join(sorted(set(node_ids)))
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+def _store_snapshot(db, node_ids: list[str]) -> str:
+    """Store an immutable snapshot; return its content-addressed hash."""
+    members = sorted(set(node_ids))
+    h = _content_hash(members)
+    db.execute(
+        "INSERT OR IGNORE INTO node_list_snapshots (hash, node_ids, created_at) VALUES (?, ?, ?)",
+        (h, json.dumps(members), now_ns()),
+    )
+    return h
+
+
+def _update_current_hash(db, list_id: str) -> str:
+    """Recompute snapshot from current node_list_members and update current_hash."""
+    nids = [r[0] for r in db.execute(
+        "SELECT node_id FROM node_list_members WHERE list_id = ?", (list_id,)).fetchall()]
+    h = _store_snapshot(db, nids)
+    db.execute("UPDATE node_lists SET current_hash = ? WHERE id = ?", (h, list_id))
+    return h
 
 router = APIRouter(prefix="/node-lists")
 
@@ -50,7 +76,7 @@ def _evaluate(db, list_id: str, visited: set | None = None) -> set[str]:
 
 
 def _materialize(db, list_id: str) -> list[str]:
-    """Evaluate expression, store flattened result, mark evaluated_at."""
+    """Evaluate expression, store flattened result, mark evaluated_at, update snapshot."""
     members = sorted(_evaluate(db, list_id))
     db.execute("DELETE FROM node_list_members WHERE list_id = ?", (list_id,))
     for node_id in members:
@@ -61,6 +87,8 @@ def _materialize(db, list_id: str) -> list[str]:
     db.execute(
         "UPDATE node_lists SET evaluated_at = ? WHERE id = ?", (now_ns(), list_id)
     )
+    h = _store_snapshot(db, members)
+    db.execute("UPDATE node_lists SET current_hash = ? WHERE id = ?", (h, list_id))
     db.commit()
     return members
 
@@ -116,18 +144,34 @@ def _get_members(db, list_id: str) -> list[dict]:
     return [{"node_id": r[0], "display_name": r[1] or r[0]} for r in rows]
 
 
-def get_list_members_set(db, list_id: str) -> set[str]:
-    """Return the flat member set for a list, evaluating if stale. Used by access checks."""
+def get_list_members_set(db, list_id_or_hash: str) -> set[str]:
+    """Return members for a content-addressed hash or named list UUID."""
+    # Try as content-addressed hash first
+    snap = db.execute(
+        "SELECT node_ids FROM node_list_snapshots WHERE hash = ?", (list_id_or_hash,)
+    ).fetchone()
+    if snap:
+        return set(json.loads(snap[0]))
+    # Try as named list UUID
     row = db.execute(
-        "SELECT expression, evaluated_at FROM node_lists WHERE id = ?", (list_id,)
+        "SELECT expression, evaluated_at, current_hash FROM node_lists WHERE id = ?",
+        (list_id_or_hash,),
     ).fetchone()
     if row is None:
         return set()
-    expression, evaluated_at = row
+    expression, evaluated_at, current_hash = row
     if expression is not None and evaluated_at is None:
-        _materialize(db, list_id)
+        _materialize(db, list_id_or_hash)
+        current_hash = _update_current_hash(db, list_id_or_hash)
+    if current_hash:
+        snap = db.execute(
+            "SELECT node_ids FROM node_list_snapshots WHERE hash = ?", (current_hash,)
+        ).fetchone()
+        if snap:
+            return set(json.loads(snap[0]))
+    # Fallback: read directly from members table
     rows = db.execute(
-        "SELECT node_id FROM node_list_members WHERE list_id = ?", (list_id,)
+        "SELECT node_id FROM node_list_members WHERE list_id = ?", (list_id_or_hash,)
     ).fetchall()
     return {r[0] for r in rows}
 
@@ -181,6 +225,8 @@ def create_node_list(payload: _CreateListBody, request: Request, identity: Owner
     db.commit()
     if expr_json:
         _materialize(db, list_id)
+    _update_current_hash(db, list_id)
+    db.commit()
     return {
         "id": list_id,
         "name": payload.name.strip(),
@@ -286,6 +332,9 @@ def update_node_list(
 
     if set_expression:
         _materialize(db, list_id)
+    if members_changed or set_expression or payload.clear_expression:
+        _update_current_hash(db, list_id)
+        db.commit()
 
     row = db.execute(
         "SELECT id, name, expression, evaluated_at FROM node_lists WHERE id = ?", (list_id,)

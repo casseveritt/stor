@@ -511,6 +511,44 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             PRIMARY KEY (list_id, node_id)
         )
     """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS node_list_snapshots (
+            hash        TEXT PRIMARY KEY,
+            node_ids    TEXT NOT NULL,
+            created_at  INTEGER NOT NULL
+        )
+    """)
+    con.commit()
+
+    # Add current_hash column to node_lists if missing
+    try:
+        con.execute("ALTER TABLE node_lists ADD COLUMN current_hash TEXT")
+        con.commit()
+    except Exception:
+        pass
+
+    # Backfill current_hash for existing named lists
+    import hashlib as _hl, json as _json
+    def _snap_hash(node_ids):
+        return _hl.sha256("\n".join(sorted(set(node_ids))).encode()).hexdigest()
+    for (lid,) in con.execute("SELECT id FROM node_lists WHERE current_hash IS NULL").fetchall():
+        nids = [r[0] for r in con.execute(
+            "SELECT node_id FROM node_list_members WHERE list_id = ?", (lid,)).fetchall()]
+        h = _snap_hash(nids)
+        con.execute("INSERT OR IGNORE INTO node_list_snapshots (hash, node_ids, created_at) VALUES (?, ?, ?)",
+                    (h, _json.dumps(sorted(set(nids))), now_ns()))
+        con.execute("UPDATE node_lists SET current_hash = ? WHERE id = ?", (h, lid))
+    con.commit()
+
+    # Resolve UUID visibility_list_ids on existing posts to their current_hash
+    for (post_id, vlid) in con.execute(
+        "SELECT id, visibility_list_id FROM posts WHERE visibility_list_id IS NOT NULL"
+    ).fetchall():
+        if len(vlid) == 64 and all(c in '0123456789abcdef' for c in vlid):
+            continue  # already a content-addressed hash
+        row = con.execute("SELECT current_hash FROM node_lists WHERE id = ?", (vlid,)).fetchone()
+        if row and row[0]:
+            con.execute("UPDATE posts SET visibility_list_id = ? WHERE id = ?", (row[0], post_id))
     con.commit()
 
     # Purge anonymous reactions — only attributed reactions are kept.

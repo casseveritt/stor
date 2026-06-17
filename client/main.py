@@ -905,11 +905,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                 file_tuples.append((key, (value.filename or key, content, value.content_type or "application/octet-stream")))
             else:
                 fields[key] = value
-        # inject visibility_list_id for contacts-visibility top-level posts
-        if fields.get("visibility", "contacts") == "contacts" and not fields.get("parent_id"):
-            node_ids = [c.node_id for c in config.contacts if c.node_id]
-            if node_ids:
-                fields["visibility_list_id"] = store_node_list(_client_db, node_ids)
+        # visibility_list_id is resolved server-side to a content-addressed snapshot
         async with httpx.AsyncClient() as hc:
             r = await hc.post(
                 _server + "/posts",

@@ -342,6 +342,28 @@ async def create_post(
         if parent_row:
             visibility_list_id = parent_row[0]
 
+    # Resolve visibility_list_id to a content-addressed hash
+    if visibility_list_id:
+        _is_hash = len(visibility_list_id) == 64 and all(c in '0123456789abcdef' for c in visibility_list_id)
+        if not _is_hash:
+            # It's a named list UUID — resolve to current_hash
+            from .node_lists import _update_current_hash
+            _row = db.execute("SELECT current_hash FROM node_lists WHERE id = ?", (visibility_list_id,)).fetchone()
+            if _row and _row[0]:
+                visibility_list_id = _row[0]
+            else:
+                # No snapshot yet — build one now
+                visibility_list_id = _update_current_hash(db, visibility_list_id)
+                db.commit()
+    elif visibility == "contacts" and not parent_id:
+        # Auto-snapshot the current contacts list for contacts-visibility top-level posts
+        from .node_lists import _store_snapshot
+        _contact_nids = [r[0] for r in db.execute(
+            "SELECT node_id FROM users WHERE node_id IS NOT NULL").fetchall()]
+        if _contact_nids:
+            visibility_list_id = _store_snapshot(db, _contact_nids)
+            db.commit()
+
     # compute content-addressable post ID after body is finalized
     nonce = secrets.token_hex(16)
     post_id = hashlib.sha256(
@@ -500,10 +522,12 @@ async def get_posts(
             conditions.append(
                 "(p.visibility = 'public' OR "
                 "EXISTS (SELECT 1 FROM post_acl WHERE post_id = p.id AND node_id = ?) OR "
-                "(p.visibility_list_id IS NOT NULL AND "
-                " EXISTS (SELECT 1 FROM node_list_members WHERE list_id = p.visibility_list_id AND node_id = ?)))"
+                "(p.visibility_list_id IS NOT NULL AND ("
+                " EXISTS (SELECT 1 FROM node_list_snapshots s, json_each(s.node_ids) j"
+                "         WHERE s.hash = p.visibility_list_id AND j.value = ?) OR"
+                " EXISTS (SELECT 1 FROM node_list_members WHERE list_id = p.visibility_list_id AND node_id = ?))))"
             )
-            params.extend([identity.node_id, identity.node_id])
+            params.extend([identity.node_id, identity.node_id, identity.node_id])
         elif is_contact:
             conditions.append("p.visibility IN ('contacts', 'authenticated', 'public')")
         elif getattr(request.state, 'sig_verified', False):
