@@ -819,6 +819,7 @@ def create_app(config_path: str | Path) -> FastAPI:
                     for p in own_posts:
                         p["_server_url"] = config.own_server
                         p["_server_name"] = name
+                        p["_server_node_id"] = own_poll_id
                     _cache_posts(own_key, own_posts)
                     all_posts.extend(own_posts)
             except Exception:
@@ -838,9 +839,7 @@ def create_app(config_path: str | Path) -> FastAPI:
             all_posts = [p for p in all_posts if tag_set.intersection(p.get("tags") or [])]
         if node_ids:
             _nid_set = set(node_ids.split(","))
-            _url_set = {c.url for c in config.contacts if c.node_id in _nid_set}
-            _url_set.add(config.own_server)  # always include own posts
-            all_posts = [p for p in all_posts if p.get("_server_url") in _url_set]
+            all_posts = [p for p in all_posts if p.get("_server_node_id") in _nid_set]
 
         seen_ids: set[str] = set()
         deduped: list[dict] = []
