@@ -4066,6 +4066,12 @@ async function _nlLoadLists() {
         _listMemberSets.set('__self__', new Set([CFG.own_node_id]));
         continue;
       }
+      if (id === 'contacts') {
+        _listMemberSets.set('contacts', new Set(
+          (CFG.contacts || []).map(c => c.node_id).filter(Boolean)
+        ));
+        continue;
+      }
       try {
         const r2 = await apiFetch(`/node-lists/${encodeURIComponent(id)}`);
         if (r2.ok) {
@@ -4156,6 +4162,8 @@ function _nlRenderSidebar() {
 
 // Called by renderServerList after re-rendering
 function _nlUpdateActiveState() {
+  const contactsBtn = document.getElementById('nl-select-contacts');
+  if (contactsBtn) contactsBtn.classList.toggle('active', activeListIds.has('contacts'));
   for (const l of _nlAllLists) {
     const sid = _nlSafeId(l.id);
     const btn = document.getElementById(`nl-select-${sid}`);
@@ -4181,13 +4189,19 @@ async function setActiveList(id) {
   } else {
     activeListIds.add(id);
     if (!_listMemberSets.has(id)) {
-      try {
-        const r = await apiFetch(`/node-lists/${encodeURIComponent(id)}`);
-        if (r.ok) {
-          const list = await r.json();
-          _listMemberSets.set(id, new Set((list.members || []).map(m => m.node_id)));
-        }
-      } catch {}
+      if (id === 'contacts') {
+        _listMemberSets.set('contacts', new Set(
+          (CFG.contacts || []).map(c => c.node_id).filter(Boolean)
+        ));
+      } else {
+        try {
+          const r = await apiFetch(`/node-lists/${encodeURIComponent(id)}`);
+          if (r.ok) {
+            const list = await r.json();
+            _listMemberSets.set(id, new Set((list.members || []).map(m => m.node_id)));
+          }
+        } catch {}
+      }
     }
   }
   _recomputeActiveNodeIds();
