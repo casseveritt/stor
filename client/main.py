@@ -797,10 +797,10 @@ def create_app(config_path: str | Path) -> FastAPI:
 
         # aggregate all servers — serve from cache, fire background refreshes for visible nodes
         own_poll_id = config.own_node_id or hashlib.sha256(config.own_server.encode()).hexdigest()[:16]
-        node_ids = [own_poll_id] + _all_contact_node_ids()
+        _poll_ids = [own_poll_id] + _all_contact_node_ids()
 
         all_posts: list[dict] = []
-        for nid in node_ids:
+        for nid in _poll_ids:
             cached = _read_cached_posts(nid) or _read_cached_posts(nid, allow_expired=True)
             all_posts.extend(cached)
 
@@ -823,12 +823,6 @@ def create_app(config_path: str | Path) -> FastAPI:
                     all_posts.extend(own_posts)
             except Exception:
                 pass
-
-        if node_ids:
-            _nid_set = set(node_ids.split(","))
-            _url_set = {c.url for c in config.contacts if c.node_id in _nid_set}
-            _url_set.add(config.own_server)  # always include own posts
-            all_posts = [p for p in all_posts if p.get("_server_url") in _url_set]
 
         if cursor:
             try:
@@ -860,11 +854,11 @@ def create_app(config_path: str | Path) -> FastAPI:
         visible_node_ids = {p.get("_server_node_id") for p in merged if p.get("_server_node_id")}
         # Always refresh all nodes when nothing is visible (empty cache); otherwise
         # only refresh nodes whose posts are currently shown.
-        for nid in (visible_node_ids or node_ids):
+        for nid in (visible_node_ids or _poll_ids):
             if nid:
                 asyncio.create_task(_background_fetch_one(nid))
 
-        server_status = {nid: _contact_status.get(nid, "unknown") for nid in node_ids}
+        server_status = {nid: _contact_status.get(nid, "unknown") for nid in _poll_ids}
         next_cursor = str(merged[-1]["created_at"]) if len(merged) == limit else None
         return {"posts": merged, "server_status": server_status, "next_cursor": next_cursor}
 
