@@ -4087,7 +4087,8 @@ async function _nlToggleSidebarItem(itemId) {
       const r = await apiFetch(`/node-lists/${encodeURIComponent(itemId)}`);
       if (r.ok) {
         const list = await r.json();
-        const members = list.members || [];
+        const members = (list.members || []).slice().sort((a, b) =>
+          (a.display_name || a.node_id).localeCompare(b.display_name || b.node_id));
         body.innerHTML = members.length
           ? members.map(m => `<div style="font-size:0.82rem;color:var(--text-2);padding:0.12rem 0.5rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(m.display_name || m.node_id)}</div>`).join('')
           : `<div style="color:var(--text-dim);font-size:0.8rem;padding:0.15rem 0.5rem">No members</div>`;
