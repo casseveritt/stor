@@ -2591,6 +2591,24 @@ function _editKeydownHandler(e) {
   }
   onComposeKeydown(e);
 }
+function _populateVisibilityLists(selectEl, currentHash) {
+  selectEl.querySelectorAll('option[data-list]').forEach(o => o.remove());
+  if (!_nlAllLists.length) return;
+  const sep = document.createElement('option');
+  sep.disabled = true;
+  sep.textContent = '──────────';
+  sep.setAttribute('data-list', 'sep');
+  selectEl.appendChild(sep);
+  for (const l of _nlAllLists) {
+    const opt = document.createElement('option');
+    opt.value = 'list:' + l.id;
+    opt.textContent = l.name;
+    opt.setAttribute('data-list', l.id);
+    if (currentHash && l.current_hash === currentHash) opt.selected = true;
+    selectEl.appendChild(opt);
+  }
+}
+
 function openCompose() {
   _mentionCtx = COMPOSE_CTX;
   pendingFiles = [];
@@ -2599,7 +2617,9 @@ function openCompose() {
   document.getElementById("compose-body").value = draft?.body || "";
   _updateHighlight();
   document.getElementById("compose-tags").value = draft?.tags || "";
-  document.getElementById("compose-visibility").value = draft?.visibility || "contacts";
+  const sel = document.getElementById("compose-visibility");
+  _populateVisibilityLists(sel, null);
+  sel.value = draft?.visibility || "contacts";
   document.getElementById("compose-progress").innerHTML = draft?.body
     ? '<div style="font-size:0.78rem;color:#888">Draft restored.</div>' : "";
   document.getElementById("compose-submit").disabled = false;
@@ -2769,7 +2789,12 @@ async function submitPost() {
   const fd = new FormData();
   fd.append("body", _expandMentions(bodyText));
   fd.append("tags", JSON.stringify(tags));
-  fd.append("visibility", document.getElementById("compose-visibility").value);
+  let _vis = document.getElementById("compose-visibility").value;
+  if (_vis.startsWith("list:")) {
+    fd.append("visibility_list_id", _vis.slice(5));
+    _vis = "contacts";
+  }
+  fd.append("visibility", _vis);
   const parentId = document.getElementById("compose-parent-id").value;
   const parentServer = document.getElementById("compose-parent-server").value;
   if (parentId) {
@@ -2871,7 +2896,10 @@ function openEdit(idx) {
   document.getElementById("edit-body").value = _collapseMentions(post.body || "");
   _updateHighlight();
   document.getElementById("edit-tags").value = (post.tags || []).join(" ");
-  document.getElementById("edit-visibility").value = post.visibility || "contacts";
+  const editSel = document.getElementById("edit-visibility");
+  _populateVisibilityLists(editSel, post.visibility_list_id || null);
+  const matchedList = post.visibility_list_id && _nlAllLists.find(l => l.current_hash === post.visibility_list_id);
+  editSel.value = matchedList ? ('list:' + matchedList.id) : (post.visibility || "contacts");
   document.getElementById("edit-status").innerHTML = "";
   document.getElementById("edit-submit").disabled = false;
   document.getElementById("edit-overlay").hidden = false;
@@ -2889,14 +2917,19 @@ async function submitEdit() {
   const post = allPosts[editingIdx];
   const body = _expandMentions(document.getElementById("edit-body").value);
   const tags = document.getElementById("edit-tags").value.trim().split(/\s+/).filter(Boolean);
-  const visibility = document.getElementById("edit-visibility").value;
+  let visibility = document.getElementById("edit-visibility").value;
+  let visibility_list_id = null;
+  if (visibility.startsWith("list:")) {
+    visibility_list_id = visibility.slice(5);
+    visibility = "contacts";
+  }
   document.getElementById("edit-submit").disabled = true;
   document.getElementById("edit-status").innerHTML = '<span style="color:#aaa">Saving…</span>';
 
   const r = await apiFetch("/api/posts/" + post.id, {
     method: "PATCH",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({body, tags, visibility}),
+    body: JSON.stringify({body, tags, visibility, ...(visibility_list_id ? {visibility_list_id} : {})}),
   });
   if (r.ok) {
     const updated = await r.json();

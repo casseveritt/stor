@@ -182,7 +182,8 @@ def get_list_members_set(db, list_id_or_hash: str) -> set[str]:
 def list_node_lists(request: Request, identity: OwnerDep):
     db = request.app.state.db
     rows = db.execute("""
-        SELECT nl.id, nl.name, nl.expression, nl.evaluated_at, COUNT(m.node_id) AS member_count
+        SELECT nl.id, nl.name, nl.expression, nl.evaluated_at, COUNT(m.node_id) AS member_count,
+               nl.current_hash
         FROM node_lists nl LEFT JOIN node_list_members m ON m.list_id = nl.id
         GROUP BY nl.id
         ORDER BY nl.name
@@ -194,6 +195,7 @@ def list_node_lists(request: Request, identity: OwnerDep):
             "expression": json.loads(r[2]) if r[2] else None,
             "stale": r[2] is not None and r[3] is None,
             "member_count": r[4],
+            "current_hash": r[5],
         }
         for r in rows
     ]}

@@ -611,6 +611,7 @@ class _UpdatePostBody(BaseModel):
     tags: list[str] | None = None
     public: bool | None = None             # legacy shim
     visibility: str | None = None
+    visibility_list_id: str | None = None
 
 
 @router.patch("/posts/{post_id}")
@@ -637,6 +638,15 @@ def update_post(post_id: str, payload: _UpdatePostBody, request: Request, identi
         updates.append("is_public = ?")
         params.append(payload.visibility)
         params.append(int(payload.visibility == "public"))
+    if payload.visibility_list_id is not None:
+        from .node_lists import _update_current_hash, _store_snapshot
+        vlid = payload.visibility_list_id
+        _is_hash = len(vlid) == 64 and all(c in '0123456789abcdef' for c in vlid)
+        if not _is_hash:
+            row = db.execute("SELECT current_hash FROM node_lists WHERE id = ?", (vlid,)).fetchone()
+            vlid = row[0] if (row and row[0]) else _update_current_hash(db, vlid)
+        updates.append("visibility_list_id = ?")
+        params.append(vlid)
     if not updates:
         raise HTTPException(status_code=422, detail="No fields to update")
 
