@@ -4081,10 +4081,13 @@ let activeListIds = new Set();   // selected list ids (empty = no filter = show 
 let _activeListNodeIds = null;   // union of member node_ids for selected lists
 let _listMemberSets = new Map(); // cache: list id → Set of node_ids
 
-async function _nlLoadLists() {
+async function _nlLoadLists(attempt = 0) {
   try {
     const r = await apiFetch("/node-lists");
-    if (!r.ok) return;
+    if (!r.ok) {
+      if (attempt < 3) setTimeout(() => _nlLoadLists(attempt + 1), 2000 * (attempt + 1));
+      return;
+    }
     const d = await r.json();
     _nlAllLists = d.lists || [];
     _listMemberSets = new Map(); // invalidate member cache
