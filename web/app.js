@@ -2829,7 +2829,6 @@ async function submitPost() {
       loadTagSidebar();
       document.getElementById("compose-body").value = "";
       document.getElementById("compose-tags").value = "";
-      _savePref("compose_visibility", document.getElementById("compose-visibility").value);
       _clearDraft();
       prog.innerHTML = '<div class="progress-item progress-ok">&#x2713; Posted</div>';
       pendingFiles = [];
