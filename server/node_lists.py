@@ -363,6 +363,20 @@ def delete_node_list(list_id: str, request: Request, identity: OwnerDep):
     db.commit()
 
 
+@router.get("/snapshot/{hash}")
+def get_snapshot(hash: str, request: Request, identity: OwnerDep):
+    db = request.app.state.db
+    snap = db.execute("SELECT node_ids FROM node_list_snapshots WHERE hash = ?", (hash,)).fetchone()
+    if snap is None:
+        raise HTTPException(404, "Snapshot not found")
+    node_ids = json.loads(snap[0])
+    members = []
+    for nid in node_ids:
+        row = db.execute("SELECT name FROM users WHERE node_id = ?", (nid,)).fetchone()
+        members.append({"node_id": nid, "display_name": row[0] if row else nid})
+    return {"members": members}
+
+
 @router.post("/{list_id}/evaluate")
 def force_evaluate(list_id: str, request: Request, identity: OwnerDep):
     db = request.app.state.db

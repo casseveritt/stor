@@ -1640,6 +1640,123 @@ function _levelIconHtml(level, title) {
   return `<span title="${esc(title || level)}" style="font-size:0.82rem;opacity:0.65;display:inline-flex;align-items:center;flex-shrink:0">${icon}</span>`;
 }
 
+const _snapCache = new Map(); // hash → {members, ts}
+
+async function _fetchSnapshot(hash) {
+  const cached = _snapCache.get(hash);
+  if (cached) return cached.members;
+  try {
+    const r = await apiFetch('/node-lists/snapshot/' + hash);
+    if (!r.ok) return null;
+    const { members } = await r.json();
+    _snapCache.set(hash, { members, ts: Date.now() });
+    return members;
+  } catch { return null; }
+}
+
+function _namedListForHash(hash) {
+  return _nlAllLists.find(l => l.current_hash === hash) || null;
+}
+
+function _openVisListOverlay(title, members) {
+  document.getElementById('vis-list-overlay-title').textContent = 'Visible to: ' + title;
+  const body = document.getElementById('vis-list-overlay-body');
+  body.innerHTML = '';
+  for (const m of members) {
+    const row = document.createElement('div');
+    row.style.cssText = 'font-size:0.9rem;padding:0.2rem 0';
+    row.textContent = m.display_name;
+    body.appendChild(row);
+  }
+  document.getElementById('vis-list-overlay').hidden = false;
+}
+
+function _makeVisibilityWidget(post) {
+  const level = post.visibility || 'contacts';
+  const hash = post.visibility_list_id || null;
+
+  // Public and authenticated: plain icon, no list
+  if (level === 'public' || level === 'authenticated') {
+    const el = document.createElement('span');
+    el.innerHTML = _levelIconHtml(level, level);
+    return el;
+  }
+
+  const wrap = document.createElement('span');
+  wrap.style.cssText = 'font-size:0.82rem;opacity:0.65;display:inline-flex;align-items:center;gap:0.2rem;flex-shrink:0;cursor:default;position:relative';
+
+  const iconSpan = document.createElement('span');
+  iconSpan.style.cssText = 'display:inline-flex;align-items:center';
+  iconSpan.innerHTML = _levelIcon(level) || '👥';
+  wrap.appendChild(iconSpan);
+
+  if (!hash) {
+    // No snapshot — just show icon with title
+    wrap.title = level;
+    return wrap;
+  }
+
+  let _tooltip = null;
+  let _members = null;
+  const PREVIEW = 10;
+
+  const _showTooltip = (members) => {
+    if (_tooltip) return;
+    const named = _namedListForHash(hash);
+    const label = named ? named.name : (level === 'private' ? 'Private' : 'Contacts');
+    _tooltip = document.createElement('div');
+    _tooltip.style.cssText = 'position:absolute;top:100%;right:0;z-index:200;background:var(--surface-2);'
+      + 'border:1px solid var(--border);border-radius:6px;padding:0.5rem 0.75rem;min-width:140px;'
+      + 'max-width:220px;box-shadow:0 4px 12px rgba(0,0,0,0.35);font-size:0.82rem;white-space:nowrap;'
+      + 'pointer-events:auto';
+    const titleEl = document.createElement('div');
+    titleEl.style.cssText = 'font-weight:600;margin-bottom:0.35rem;color:var(--text-1)';
+    titleEl.textContent = label;
+    _tooltip.appendChild(titleEl);
+    const preview = members.slice(0, PREVIEW);
+    for (const m of preview) {
+      const row = document.createElement('div');
+      row.style.cssText = 'color:var(--text-2);padding:0.1rem 0';
+      row.textContent = m.display_name;
+      _tooltip.appendChild(row);
+    }
+    if (members.length > PREVIEW) {
+      const more = document.createElement('button');
+      more.className = 'btn btn-muted btn-sm';
+      more.style.cssText = 'margin-top:0.4rem;font-size:0.78rem;pointer-events:auto';
+      more.textContent = '+ ' + (members.length - PREVIEW) + ' others';
+      more.addEventListener('click', e => {
+        e.stopPropagation();
+        const named = _namedListForHash(hash);
+        _openVisListOverlay(named ? named.name : label, members);
+      });
+      _tooltip.appendChild(more);
+    }
+    wrap.appendChild(_tooltip);
+  };
+
+  const _hideTooltip = () => {
+    if (_tooltip) { _tooltip.remove(); _tooltip = null; }
+  };
+
+  wrap.addEventListener('mouseenter', async () => {
+    if (!_members) _members = await _fetchSnapshot(hash);
+    if (_members) _showTooltip(_members);
+  });
+  wrap.addEventListener('mouseleave', () => _hideTooltip());
+
+  // Show list name inline if we already know it
+  const named = _namedListForHash(hash);
+  if (named) {
+    const nameLabel = document.createElement('span');
+    nameLabel.style.cssText = 'font-size:0.78rem;max-width:80px;overflow:hidden;text-overflow:ellipsis';
+    nameLabel.textContent = named.name;
+    wrap.appendChild(nameLabel);
+  }
+
+  return wrap;
+}
+
 // ── post card ──────────────────────────────────────────────────────────────
 function _isPostCached(post) {
   if (post._server_url === CFG?.own_server) return false;
@@ -1699,11 +1816,18 @@ function makePostCard(post, idx) {
   const rightGroup = document.createElement("span");
   rightGroup.style.cssText = "display:inline-flex;align-items:center;gap:0.35rem;flex-shrink:0";
   rightGroup.className = "post-author-right";
-  rightGroup.innerHTML = (dateFmt ? `<span class="post-date" title="${esc(dateFull)}">${dateFmt}</span>` : '')
-    + _levelIconHtml(post.visibility, post.visibility)
-    + `<span style="position:relative;display:inline-flex;align-items:center">`
-    + `<button class="post-menu-btn" title="More options" onclick="openPostMenu(event,${idx},'${esc(post.id)}','${esc(post._server_url||'')}')">…</button>`
-    + `</span>`;
+  if (dateFmt) {
+    const dateEl = document.createElement('span');
+    dateEl.className = 'post-date';
+    dateEl.title = dateFull;
+    dateEl.textContent = dateFmt;
+    rightGroup.appendChild(dateEl);
+  }
+  rightGroup.appendChild(_makeVisibilityWidget(post));
+  const menuWrap = document.createElement('span');
+  menuWrap.style.cssText = 'position:relative;display:inline-flex;align-items:center';
+  menuWrap.innerHTML = `<button class="post-menu-btn" title="More options" onclick="openPostMenu(event,${idx},'${esc(post.id)}','${esc(post._server_url||'')}')">…</button>`;
+  rightGroup.appendChild(menuWrap);
   author.appendChild(rightGroup);
   div.appendChild(author);
 

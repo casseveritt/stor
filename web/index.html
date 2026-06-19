@@ -491,6 +491,15 @@
   <div id="emoji-preview-names" hidden style="font-size:0.72rem;color:var(--text-3);margin-top:0.2rem;white-space:pre-line;text-align:left;line-height:1.5"></div>
 </div>
 
+<!-- ── visibility list overlay ───────────────────────────────────────────── -->
+<div id="vis-list-overlay" class="overlay" hidden onclick="maybeClose('vis-list-overlay',event)">
+  <div class="modal" style="min-width:min(90vw,360px);max-width:420px;max-height:70vh;display:flex;flex-direction:column;gap:0.75rem">
+    <button class="modal-close" onclick="document.getElementById('vis-list-overlay').hidden=true">&#x2715;</button>
+    <h3 id="vis-list-overlay-title" style="margin:0;font-size:1rem">Visible to</h3>
+    <div id="vis-list-overlay-body" style="overflow-y:auto;display:flex;flex-direction:column;gap:0.35rem"></div>
+  </div>
+</div>
+
 <!-- ── lightbox ───────────────────────────────────────────────────────────── -->
 <div id="lightbox" class="overlay" hidden onclick="closeLightbox()">
   <img id="lightbox-img" src="" alt="">
@@ -677,6 +686,6 @@
 
   <script src="/marked.min.js?v=2"></script>
   <script src="/purify.min.js?v=2"></script>
-  <script src="/app.js?v=702515c-41"></script>
+  <script src="/app.js?v=702515c-42"></script>
 </body>
 </html>
