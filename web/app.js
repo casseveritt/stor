@@ -1769,6 +1769,7 @@ function makePostCard(post, idx) {
   div.dataset.idx = idx;
   div.dataset.postId = post.id;
   div.dataset.serverUrl = post._server_url || '';
+  div._postRef = post; // for edit/menu when idx=-1 and post not in allPosts
   div.dataset.visibility = post.visibility || 'contacts';
 
   if (post.parent_id) {
@@ -2995,6 +2996,8 @@ function closeAllPostMenus() {
   document.querySelectorAll('.post-menu-popup').forEach(m => m.remove());
 }
 
+let _pendingEditPost = null; // post object for edit when idx=-1
+
 function openPostMenu(e, idx, postId, serverUrl) {
   // data-idx is kept current by prependPost/hidePost; the baked-in idx can be stale.
   const card = e.currentTarget.closest('.post-card');
@@ -3004,6 +3007,8 @@ function openPostMenu(e, idx, postId, serverUrl) {
     const found = allPosts.findIndex(p => p.id === postId);
     if (found >= 0) idx = found;
   }
+  // For injected reply cards not in allPosts (still idx=-1), use _postRef on the card element.
+  const cardPost = (idx === -1 && card?._postRef) ? card._postRef : null;
   const _norm = u => (u || '').replace(/\/+$/, '');
   const isOwn = IS_OWNER && _norm(serverUrl) === _norm(CFG?.own_server);
   e.stopPropagation();
@@ -3013,9 +3018,15 @@ function openPostMenu(e, idx, postId, serverUrl) {
   const popup = document.createElement('div');
   popup.className = 'post-menu-popup';
   if (isOwn) {
-    popup.innerHTML =
-      `<button onclick="closeAllPostMenus();openEdit(${idx})">Edit</button>`
-      + `<button class="danger" onclick="closeAllPostMenus();confirmDelete(${idx})">Delete</button>`;
+    const editBtn = document.createElement('button');
+    editBtn.textContent = 'Edit';
+    editBtn.onclick = () => { closeAllPostMenus(); _pendingEditPost = cardPost; openEdit(idx); };
+    const delBtn = document.createElement('button');
+    delBtn.className = 'danger';
+    delBtn.textContent = 'Delete';
+    delBtn.onclick = () => { closeAllPostMenus(); confirmDelete(idx, cardPost); };
+    popup.appendChild(editBtn);
+    popup.appendChild(delBtn);
   } else {
     popup.innerHTML =
       `<button onclick="closeAllPostMenus();hidePost('${esc(postId)}',${idx})">Hide</button>`;
@@ -3041,11 +3052,15 @@ async function hidePost(postId, idx) {
 
 // ── edit / delete ──────────────────────────────────────────────────────────
 let editingIdx = -1;
+let _editingPost = null; // the post being edited (valid even when editingIdx === -1)
 
 function openEdit(idx) {
   _mentionCtx = EDIT_CTX;
   editingIdx = idx;
-  const post = allPosts[idx];
+  const post = allPosts[idx] || _pendingEditPost;
+  _pendingEditPost = null;
+  if (!post) return;
+  _editingPost = post;
   document.getElementById("edit-body").value = _collapseMentions(post.body || "");
   _updateHighlight();
   document.getElementById("edit-tags").value = (post.tags || []).join(" ");
@@ -3067,7 +3082,7 @@ function closeEdit() {
 
 async function submitEdit() {
   _commitActiveMentionEdit();
-  const post = allPosts[editingIdx];
+  const post = _editingPost;
   const body = _expandMentions(document.getElementById("edit-body").value);
   const tags = document.getElementById("edit-tags").value.trim().split(/\s+/).filter(Boolean);
   let visibility = document.getElementById("edit-visibility").value;
@@ -3088,9 +3103,12 @@ async function submitEdit() {
     const updated = await r.json();
     updated._server_url = post._server_url;
     updated._server_name = post._server_name;
-    allPosts[editingIdx] = updated;
-    const card = document.querySelector(".post-card[data-idx='" + editingIdx + "']");
-    if (card) card.replaceWith(makePostCard(updated, editingIdx));
+    if (editingIdx >= 0) allPosts[editingIdx] = updated;
+    // Replace any card(s) with this post id (covers both main feed and inline reply panels)
+    document.querySelectorAll(`.post-card[data-post-id="${CSS.escape(updated.id)}"]`).forEach(card => {
+      const cidx = parseInt(card.dataset.idx);
+      card.replaceWith(makePostCard(updated, cidx));
+    });
     closeEdit();
   } else {
     document.getElementById("edit-status").innerHTML = '<span style="color:#e06c6c">Save failed.</span>';
@@ -3098,17 +3116,22 @@ async function submitEdit() {
   }
 }
 
-async function confirmDelete(idx) {
-  const post = allPosts[idx];
+async function confirmDelete(idx, postOverride = null) {
+  const post = postOverride || allPosts[idx];
+  if (!post) return;
   if (!confirm("Delete this post? This cannot be undone.")) return;
   const r = await apiFetch("/api/posts/" + post.id, {method: "DELETE"});
   if (r.ok || r.status === 204) {
-    allPosts.splice(idx, 1);
-    document.querySelectorAll(".post-card[data-idx]").forEach(c => {
-      const i = parseInt(c.dataset.idx);
-      if (i === idx) c.remove();
-      else if (i > idx) c.dataset.idx = i - 1;
-    });
+    if (idx >= 0) {
+      allPosts.splice(idx, 1);
+      document.querySelectorAll(".post-card[data-idx]").forEach(c => {
+        const i = parseInt(c.dataset.idx);
+        if (i === idx) c.remove();
+        else if (i > idx) c.dataset.idx = i - 1;
+      });
+    } else {
+      document.querySelectorAll(`.post-card[data-post-id="${CSS.escape(post.id)}"]`).forEach(c => c.remove());
+    }
     _openPanels.delete(post.id);
     if (_openPanels.size === 0) _stopDetailPoll();
     document.getElementById("empty-msg").hidden = allPosts.length > 0;
