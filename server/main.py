@@ -34,6 +34,7 @@ from . import reactions as reactions_module
 from . import debug as debug_module
 from . import dm as dm_module
 from . import node_lists as node_lists_module
+from . import prefs as prefs_module
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("contacc")
@@ -537,6 +538,7 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
     app.include_router(debug_module.router)
     app.include_router(dm_module.router)
     app.include_router(node_lists_module.router)
+    app.include_router(prefs_module.router)
 
     @app.post("/notifications/mention", status_code=204)
     async def receive_mention(request: Request):

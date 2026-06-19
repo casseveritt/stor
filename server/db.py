@@ -518,6 +518,12 @@ def init_schema(con: sqlcipher3.Connection) -> None:
             created_at  INTEGER NOT NULL
         )
     """)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS prefs (
+            key   TEXT PRIMARY KEY,
+            value TEXT NOT NULL
+        )
+    """)
     con.commit()
 
     # Add current_hash column to node_lists if missing

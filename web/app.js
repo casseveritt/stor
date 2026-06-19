@@ -34,6 +34,7 @@ let pendingFiles = [];  // no longer used for upload — kept for compat
 let _uploadedAssets = []; // {id, title, media_type, markup}
 const DRAFT_KEY = 'contacc_compose_draft';
 const VISIBILITY_PREF_KEY = 'contacc_visibility_pref';
+let _prefs = {};
 
 function _saveDraft() {
   const body = document.getElementById("compose-body")?.value || "";
@@ -46,6 +47,19 @@ function _saveDraft() {
 }
 
 function _clearDraft() { localStorage.removeItem(DRAFT_KEY); }
+
+async function _loadPrefs() {
+  try {
+    const r = await apiFetch("/prefs");
+    if (r.ok) { _prefs = await r.json(); }
+  } catch {}
+}
+
+async function _savePref(key, value) {
+  _prefs[key] = value;
+  localStorage.setItem(VISIBILITY_PREF_KEY, value); // keep local cache warm
+  try { await apiFetch("/prefs", {method: "PATCH", headers: {"Content-Type": "application/json"}, body: JSON.stringify({[key]: value})}); } catch {}
+}
 let IS_OWNER = false;
 let serverStatuses = {};
 let serverOnline = {};  // server_url → boolean, from server_status in feed response
@@ -1062,6 +1076,7 @@ async function loadFeed() {
   loadIdentity();
   loadTagSidebar();
   _nlLoadLists();
+  _loadPrefs();
   fetchServerHandles().then(() => _startBgFetch());
   fetchServerProfiles();
   _openSSE();
@@ -2620,7 +2635,7 @@ function openCompose() {
   document.getElementById("compose-tags").value = draft?.tags || "";
   const sel = document.getElementById("compose-visibility");
   _populateVisibilityLists(sel, null);
-  sel.value = draft?.visibility || localStorage.getItem(VISIBILITY_PREF_KEY) || "contacts";
+  sel.value = draft?.visibility || _prefs.compose_visibility || localStorage.getItem(VISIBILITY_PREF_KEY) || "contacts";
   document.getElementById("compose-progress").innerHTML = draft?.body
     ? '<div style="font-size:0.78rem;color:#888">Draft restored.</div>' : "";
   document.getElementById("compose-submit").disabled = false;
@@ -2814,7 +2829,7 @@ async function submitPost() {
       loadTagSidebar();
       document.getElementById("compose-body").value = "";
       document.getElementById("compose-tags").value = "";
-      localStorage.setItem(VISIBILITY_PREF_KEY, document.getElementById("compose-visibility").value);
+      _savePref("compose_visibility", document.getElementById("compose-visibility").value);
       _clearDraft();
       prog.innerHTML = '<div class="progress-item progress-ok">&#x2713; Posted</div>';
       pendingFiles = [];
