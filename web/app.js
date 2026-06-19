@@ -3064,10 +3064,9 @@ function openEdit(idx) {
   document.getElementById("edit-body").value = _collapseMentions(post.body || "");
   _updateHighlight();
   document.getElementById("edit-tags").value = (post.tags || []).join(" ");
-  const editSel = document.getElementById("edit-visibility");
-  _populateVisibilityLists(editSel, post.visibility_list_id || null);
   const matchedList = post.visibility_list_id && _nlAllLists.find(l => l.current_hash === post.visibility_list_id);
-  editSel.value = matchedList ? ('list:' + matchedList.id) : (post.visibility || "contacts");
+  const visLabel = matchedList ? matchedList.name : (post.visibility || "contacts");
+  document.getElementById("edit-visibility").textContent = visLabel;
   document.getElementById("edit-status").innerHTML = "";
   document.getElementById("edit-submit").disabled = false;
   document.getElementById("edit-overlay").hidden = false;
@@ -3085,19 +3084,13 @@ async function submitEdit() {
   const post = _editingPost;
   const body = _expandMentions(document.getElementById("edit-body").value);
   const tags = document.getElementById("edit-tags").value.trim().split(/\s+/).filter(Boolean);
-  let visibility = document.getElementById("edit-visibility").value;
-  let visibility_list_id = null;
-  if (visibility.startsWith("list:")) {
-    visibility_list_id = visibility.slice(5);
-    visibility = "contacts";
-  }
   document.getElementById("edit-submit").disabled = true;
   document.getElementById("edit-status").innerHTML = '<span style="color:#aaa">Saving…</span>';
 
   const r = await apiFetch("/api/posts/" + post.id, {
     method: "PATCH",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify({body, tags, visibility, ...(visibility_list_id ? {visibility_list_id} : {})}),
+    body: JSON.stringify({body, tags}),
   });
   if (r.ok) {
     const updated = await r.json();

@@ -559,12 +559,7 @@
     <div class="compose-fields">
       <input type="text" id="edit-tags" placeholder="Tags — space-separated">
       <div style="display:flex;gap:0.75rem;align-items:center;flex-wrap:wrap;font-size:0.85rem;color:var(--text-3)">
-        <label>Visible to <select id="edit-visibility" style="background:var(--surface-input);color:var(--text-1);border:1px solid var(--border);border-radius:4px;padding:0.25rem 0.4rem;font-size:0.85rem">
-          <option value="contacts">Contacts</option>
-          <option value="authenticated">Authenticated</option>
-          <option value="public">Public</option>
-          <option value="private">Private</option>
-        </select></label>
+        <span>Visible to <span id="edit-visibility" style="opacity:0.6;font-style:italic"></span> <span style="opacity:0.45;font-size:0.78rem">(not editable)</span></span>
       </div>
     </div>
     <div class="upload-progress" id="edit-status"></div>
@@ -686,6 +681,6 @@
 
   <script src="/marked.min.js?v=2"></script>
   <script src="/purify.min.js?v=2"></script>
-  <script src="/app.js?v=702515c-43"></script>
+  <script src="/app.js?v=702515c-44"></script>
 </body>
 </html>
