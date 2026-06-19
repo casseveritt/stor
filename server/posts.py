@@ -335,9 +335,9 @@ async def create_post(
             parent_node_id = node_id
     supersedes_stored = "1" if is_supersession else None
 
-    # visibility_list_id: replies inherit from parent; top-level posts use what the client provides
+    # visibility_list_id: inherit from parent only when the client didn't provide one explicitly
     visibility_list_id = visibility_list_id or None
-    if parent_id:
+    if parent_id and not visibility_list_id:
         parent_row = db.execute("SELECT visibility_list_id FROM posts WHERE id = ?", (parent_id,)).fetchone()
         if parent_row:
             visibility_list_id = parent_row[0]
