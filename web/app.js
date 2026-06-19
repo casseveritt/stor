@@ -33,6 +33,7 @@ let nextCursor = null, currentSearch = null, searchTimer = null;
 let pendingFiles = [];  // no longer used for upload — kept for compat
 let _uploadedAssets = []; // {id, title, media_type, markup}
 const DRAFT_KEY = 'contacc_compose_draft';
+const VISIBILITY_PREF_KEY = 'contacc_visibility_pref';
 
 function _saveDraft() {
   const body = document.getElementById("compose-body")?.value || "";
@@ -2619,7 +2620,7 @@ function openCompose() {
   document.getElementById("compose-tags").value = draft?.tags || "";
   const sel = document.getElementById("compose-visibility");
   _populateVisibilityLists(sel, null);
-  sel.value = draft?.visibility || "contacts";
+  sel.value = draft?.visibility || localStorage.getItem(VISIBILITY_PREF_KEY) || "contacts";
   document.getElementById("compose-progress").innerHTML = draft?.body
     ? '<div style="font-size:0.78rem;color:#888">Draft restored.</div>' : "";
   document.getElementById("compose-submit").disabled = false;
@@ -2813,6 +2814,7 @@ async function submitPost() {
       loadTagSidebar();
       document.getElementById("compose-body").value = "";
       document.getElementById("compose-tags").value = "";
+      localStorage.setItem(VISIBILITY_PREF_KEY, document.getElementById("compose-visibility").value);
       _clearDraft();
       prog.innerHTML = '<div class="progress-item progress-ok">&#x2713; Posted</div>';
       pendingFiles = [];
