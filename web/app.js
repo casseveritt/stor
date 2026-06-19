@@ -2224,12 +2224,25 @@ async function submitReply(e, parentPostId, parentServerUrl, visibility) {
       }
       if (repliesToggle) repliesToggle.hidden = false;
       panel.hidden = true;
-      // Open (or refresh) the replies panel so the user sees the new reply
+      // Inject the new reply directly — no round-trip needed and works for remote parent posts
       if (cardEl) {
         const repliesPanel = cardEl.querySelector('.replies-panel');
-        if (repliesPanel && !repliesPanel.hidden) repliesPanel.hidden = true;
-        const postRef = { id: parentPostId, _server_url: parentServerUrl || CFG?.own_server };
-        _toggleReplies(postRef, cardEl);
+        if (repliesPanel) {
+          reply._server_url = reply._server_url || CFG?.own_server;
+          const replyCard = makePostCard(reply, -1);
+          replyCard.style.cssText = 'margin-top:0.5rem;border-left:2px solid var(--border-strong);padding-left:0.75rem;cursor:pointer';
+          replyCard.addEventListener('click', ev => {
+            if (ev.target.closest('button, a, input, textarea, .reply-panel, .replies-toggle')) return;
+            if (replyCard.querySelector('.replies-panel')?.contains(ev.target)) return;
+            openPostOverlay(reply.id, reply._server_url);
+          });
+          // Clear "No replies yet" placeholder if present
+          repliesPanel.querySelectorAll('div').forEach(el => { if (el.style.color?.includes('text-5')) el.remove(); });
+          repliesPanel.appendChild(replyCard);
+          repliesPanel.hidden = false;
+          const arrow = repliesToggle?.querySelector('.replies-toggle-arrow');
+          if (arrow) arrow.textContent = '▼';
+        }
       }
     } else {
       if (err) err.textContent = 'Error ' + r.status;
