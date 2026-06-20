@@ -1455,7 +1455,7 @@ function _openReplyFromBar(postId) {
   let card = (!overlay?.hidden && overlay?.querySelector(`.post-card[data-post-id="${esc}"]`)) || null;
   if (!card) card = document.querySelector(`.post-card[data-post-id="${esc}"]`);
   if (!card) return;
-  const post = allPosts.find(p => p.id === postId) || {
+  const post = allPosts.find(p => p.id === postId) || card._postRef || {
     id: postId,
     _server_url: card.dataset.serverUrl || CFG.own_server,
     visibility: card.dataset.visibility || 'contacts',
@@ -2346,9 +2346,21 @@ function openReplyCompose(post, cardEl) {
 
   const visSel = document.getElementById(visId);
   _populateVisibilityLists(visSel, post.visibility_list_id || null);
+  // Explicitly select the matching list if found, otherwise fall back to parent's base visibility
+  const matchedList = post.visibility_list_id && _nlAllLists.find(l => l.current_hash === post.visibility_list_id);
+  if (matchedList) {
+    visSel.value = 'list:' + matchedList.id;
+  } else if (!post.visibility_list_id && post.visibility && post.visibility !== 'contacts') {
+    visSel.value = post.visibility;
+  }
   const subLabel = document.getElementById(subId + '-label');
   const subCb = document.getElementById(subId);
   const warnEl = document.getElementById(warnId);
+  const _syncSubset = () => {
+    const isParent = visSel.value === '_parent';
+    subLabel.style.display = isParent ? 'none' : 'inline-flex';
+  };
+  _syncSubset();
   visSel?.addEventListener('change', () => {
     const isParent = visSel.value === '_parent';
     subLabel.style.display = isParent ? 'none' : 'inline-flex';
