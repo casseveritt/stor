@@ -759,9 +759,10 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
             return JSONResponse({"detail": "Server not ready", "state": state}, status_code=503)
         if app.state.initialized and not is_setup_path and not is_public_path:
             internal_token = getattr(app.state, "internal_token", None)
-            provided = request.headers.get("x-contacc-internal", "")
-            if not internal_token or not secrets.compare_digest(provided, internal_token):
-                return JSONResponse({"detail": "Unauthorized"}, status_code=403)
+            if internal_token:
+                provided = request.headers.get("x-contacc-internal", "")
+                if not secrets.compare_digest(provided, internal_token):
+                    return JSONResponse({"detail": "Unauthorized"}, status_code=403)
         return await call_next(request)
 
     if config_path.exists() and passphrase:

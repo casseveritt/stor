@@ -2346,12 +2346,10 @@ function openReplyCompose(post, cardEl) {
 
   const visSel = document.getElementById(visId);
   _populateVisibilityLists(visSel, post.visibility_list_id || null);
-  // Explicitly select the matching list if found, otherwise fall back to parent's base visibility
+  // Pre-select the matching named list if found; otherwise default to "Parent visibility"
   const matchedList = post.visibility_list_id && _nlAllLists.find(l => l.current_hash === post.visibility_list_id);
   if (matchedList) {
     visSel.value = 'list:' + matchedList.id;
-  } else if (!post.visibility_list_id && post.visibility && post.visibility !== 'contacts') {
-    visSel.value = post.visibility;
   }
   const subLabel = document.getElementById(subId + '-label');
   const subCb = document.getElementById(subId);
