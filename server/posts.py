@@ -590,18 +590,24 @@ async def get_post(post_id: str, request: Request, identity: FederatedOrTokenDep
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
-    visibility, post_type = row[4], row[6]
+    visibility, post_type, visibility_list_id = row[4], row[6], row[11]
     if not identity.is_owner:
         if post_type == "inner_monologue":
             raise HTTPException(status_code=404, detail="Post not found")
         if visibility == "private":
             raise HTTPException(status_code=403, detail="Access denied")
         if visibility in ("contacts", "authenticated"):
-            passes = identity.node_id is not None and (
-                visibility == "authenticated" or identity.is_contact
-            )
-            if not passes and not _check_post_access(db, post_id, identity):
-                raise HTTPException(status_code=403, detail="Access denied")
+            if visibility_list_id:
+                # List-restricted post — list membership (or explicit ACL) is required
+                if not _check_post_access(db, post_id, identity):
+                    raise HTTPException(status_code=403, detail="Access denied")
+            else:
+                # Broad contacts/authenticated — any verified contact/node qualifies
+                passes = identity.node_id is not None and (
+                    visibility == "authenticated" or identity.is_contact
+                )
+                if not passes and not _check_post_access(db, post_id, identity):
+                    raise HTTPException(status_code=403, detail="Access denied")
     viewer = "" if identity.is_owner else (request.headers.get("X-Origin-Server", "") or "__anon__")
     return _post_dict(row, db, viewer)
 

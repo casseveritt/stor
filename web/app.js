@@ -1700,10 +1700,20 @@ function _makeVisibilityWidget(post) {
   let _members = null;
   const PREVIEW = 10;
 
+  const _labelForMembers = (members) => {
+    const named = _namedListForHash(hash);
+    if (named) return named.name;
+    if (level === 'private') return 'Private';
+    // Check if snapshot exactly matches current contacts
+    const memberIds = new Set(members.map(m => m.node_id));
+    const contactIds = new Set((CFG?.contacts || []).map(c => c.node_id).filter(Boolean));
+    const isCurrentContacts = memberIds.size === contactIds.size && [...memberIds].every(id => contactIds.has(id));
+    return isCurrentContacts ? 'Contacts' : 'Visibility list';
+  };
+
   const _showTooltip = (members) => {
     if (_tooltip) return;
-    const named = _namedListForHash(hash);
-    const label = named ? named.name : (level === 'private' ? 'Private' : 'Contacts');
+    const label = _labelForMembers(members);
     _tooltip = document.createElement('div');
     _tooltip.style.cssText = 'position:absolute;top:100%;right:0;z-index:200;background:var(--surface-2);'
       + 'border:1px solid var(--border);border-radius:6px;padding:0.5rem 0.75rem;min-width:140px;'
@@ -1727,8 +1737,7 @@ function _makeVisibilityWidget(post) {
       more.textContent = '+ ' + (members.length - PREVIEW) + ' others';
       more.addEventListener('click', e => {
         e.stopPropagation();
-        const named = _namedListForHash(hash);
-        _openVisListOverlay(named ? named.name : label, members);
+        _openVisListOverlay(label, members);
       });
       _tooltip.appendChild(more);
     }
@@ -1745,13 +1754,27 @@ function _makeVisibilityWidget(post) {
   });
   wrap.addEventListener('mouseleave', () => _hideTooltip());
 
-  // Show list name inline if we already know it
+  // Show list name inline when we can determine it without a fetch
   const named = _namedListForHash(hash);
   if (named) {
     const nameLabel = document.createElement('span');
     nameLabel.style.cssText = 'font-size:0.78rem;max-width:80px;overflow:hidden;text-overflow:ellipsis';
     nameLabel.textContent = named.name;
     wrap.appendChild(nameLabel);
+  } else if (level === 'contacts') {
+    // Check if this is the current contacts snapshot — resolve async, update inline if matched
+    _fetchSnapshot(hash).then(members => {
+      if (!members) return;
+      const memberIds = new Set(members.map(m => m.node_id));
+      const contactIds = new Set((CFG?.contacts || []).map(c => c.node_id).filter(Boolean));
+      if (memberIds.size === contactIds.size && [...memberIds].every(id => contactIds.has(id))) {
+        _members = members;
+        const nameLabel = document.createElement('span');
+        nameLabel.style.cssText = 'font-size:0.78rem;max-width:80px;overflow:hidden;text-overflow:ellipsis';
+        nameLabel.textContent = 'Contacts';
+        wrap.appendChild(nameLabel);
+      }
+    });
   }
 
   return wrap;
