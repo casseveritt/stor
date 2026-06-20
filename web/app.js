@@ -2309,9 +2309,14 @@ function openReplyCompose(post, cardEl) {
   const panel = cardEl.querySelector('.reply-panel');
   if (!panel) return;
   if (!panel.hidden) { panel.hidden = true; return; }
+  panel._parentPost = post;
 
   const taId = 'reply-ta-' + post.id;
   const cbId = 'reply-notify-' + post.id;
+  const visId = 'reply-vis-' + post.id;
+  const subId = 'reply-sub-' + post.id;
+  const warnId = 'reply-vis-warn-' + post.id;
+
   panel.innerHTML =
     `<div style="margin-top:0.5rem">`
     + `<textarea id="${esc(taId)}" class="reply-input" data-post-id="${esc(post.id)}" placeholder="Write a reply…" style="width:100%;box-sizing:border-box;display:block"></textarea>`
@@ -2319,22 +2324,47 @@ function openReplyCompose(post, cardEl) {
     + `<button class="reaction-add" onclick="showInlineEmojiPicker(event,'${esc(taId)}')" title="Insert emoji">😊</button>`
     + `<button class="reaction-add" onclick="openComposeAsReply('${esc(post.id)}','${esc(post._server_url||'')}',document.getElementById('${esc(taId)}'))" title="Full compose panel">⊞</button>`
     + `<button class="reaction-add" onclick="openPostOverlay('${esc(post.id)}','${esc(post._server_url||'')}')" title="View post">⤢</button>`
+    + `<select id="${esc(visId)}" class="reply-vis-select" style="font-size:0.82rem">`
+    + `<option value="_parent">Parent visibility</option>`
+    + `<option value="public">Public</option>`
+    + `<option value="authenticated">Authenticated</option>`
+    + `<option value="contacts">Contacts</option>`
+    + `<option value="private">Private</option>`
+    + `</select>`
+    + `<label id="${esc(subId)}-label" style="display:none;align-items:center;gap:0.3rem;font-size:0.82rem;color:#aaa;cursor:pointer">`
+    + `<input type="checkbox" id="${esc(subId)}" checked> Subset of parent visibility</label>`
+    + `<span id="${esc(warnId)}" style="display:none;color:#e06c6c;font-size:0.82rem">&#9888; May not appear in parent's reply list</span>`
     + `<label style="display:inline-flex;align-items:center;gap:0.3rem;font-size:0.82rem;color:#aaa;cursor:pointer">`
-    + `<input type="checkbox" id="${esc(cbId)}" checked> List in parent's replies</label>`
+    + `<input type="checkbox" id="${esc(cbId)}" checked> Notify parent</label>`
     + `<span style="flex:1"></span>`
-    + `<button class="btn btn-primary btn-sm" onclick="submitReply(event,'${esc(post.id)}','${esc(post._server_url||'')}','${esc(post.visibility||'contacts')}')">Post reply</button>`
+    + `<button class="btn btn-primary btn-sm" onclick="submitReply(event,'${esc(post.id)}','${esc(post._server_url||'')}')">Post reply</button>`
     + `<button class="btn btn-muted btn-sm" onclick="this.closest('.reply-panel').hidden=true">Cancel</button>`
     + `<span class="reply-error" style="color:#e06c6c;font-size:0.82rem"></span>`
     + `</div>`
     + `<div class="reply-list"></div>`
     + `</div>`;
 
+  const visSel = document.getElementById(visId);
+  _populateVisibilityLists(visSel, post.visibility_list_id || null);
+  const subLabel = document.getElementById(subId + '-label');
+  const subCb = document.getElementById(subId);
+  const warnEl = document.getElementById(warnId);
+  visSel?.addEventListener('change', () => {
+    const isParent = visSel.value === '_parent';
+    subLabel.style.display = isParent ? 'none' : 'inline-flex';
+    if (!isParent) subCb.checked = true;
+    warnEl.style.display = 'none';
+  });
+  subCb?.addEventListener('change', () => {
+    warnEl.style.display = subCb.checked ? 'none' : '';
+  });
+
   panel.hidden = false;
   panel.scrollIntoView({block: 'nearest', behavior: 'smooth'});
   document.getElementById(taId)?.focus();
 }
 
-async function submitReply(e, parentPostId, parentServerUrl, visibility) {
+async function submitReply(e, parentPostId, parentServerUrl) {
   e.stopPropagation();
   const panel = document.querySelector(`.reply-panel[data-post-id="${parentPostId}"]`);
   if (!panel) return;
@@ -2342,6 +2372,7 @@ async function submitReply(e, parentPostId, parentServerUrl, visibility) {
   const err = panel.querySelector('.reply-error');
   const btn = panel.querySelector('.btn-primary');
   const notifyCheck = panel.querySelector('input[type="checkbox"]');
+  const visSel = panel.querySelector('.reply-vis-select');
   const bodyText = ta?.value?.trim();
   if (!bodyText) return;
 
@@ -2351,10 +2382,21 @@ async function submitReply(e, parentPostId, parentServerUrl, visibility) {
   const parentNodeId = _nodeIdForServer(parentServerUrl);
   const fd = new FormData();
   fd.append('body', _expandMentions(bodyText));
-  fd.append('visibility', visibility);
   fd.append('parent_id', parentPostId);
   if (parentNodeId) fd.append('parent_node_id', parentNodeId);
   if (parentServerUrl && parentServerUrl !== CFG?.own_server) fd.append('parent_server_url', parentServerUrl);
+
+  const visVal = visSel?.value || '_parent';
+  if (visVal === '_parent') {
+    const parentPost = panel._parentPost;
+    fd.append('visibility', parentPost?.visibility || 'contacts');
+    // omit visibility_list_id — server inherits from parent post
+  } else if (visVal.startsWith('list:')) {
+    fd.append('visibility_list_id', visVal.slice(5));
+    fd.append('visibility', 'contacts');
+  } else {
+    fd.append('visibility', visVal);
+  }
 
   const postUrl = '/api/posts' + (notifyCheck?.checked ? '?notify_parent=1' : '');
   try {
