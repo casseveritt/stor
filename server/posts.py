@@ -260,6 +260,7 @@ async def upload_asset(request: Request, identity: OwnerDep, file: UploadFile = 
 async def create_post(
     request: Request,
     identity: OwnerDep,
+    notify_parent: bool = Query(default=False),
     body: str = Form(default=""),
     tags: str = Form(default="[]"),
     public: str = Form(default=""),        # legacy — ignored if visibility set
@@ -394,11 +395,19 @@ async def create_post(
         f"SELECT {_POST_COLS_NO_ALIAS} FROM posts WHERE id = ?", (post_id,)
     ).fetchone()
     _notify_mentions(body, post_id, request.app)
+    if notify_parent and parent_id and parent_node_id and parent_node_id != node_id:
+        _notify_parent_of_reply(
+            parent_node_id, parent_id, node_id, post_id, request.app,
+            reply_visibility=visibility,
+            reply_visibility_list_id=visibility_list_id,
+        )
     return _post_dict(row, db)
 
 
 def _notify_parent_of_reply(parent_node_id: str, parent_post_id: str,
-                             reply_node_id: str, reply_post_id: str, app) -> None:
+                             reply_node_id: str, reply_post_id: str, app,
+                             reply_visibility: str | None = None,
+                             reply_visibility_list_id: str | None = None) -> None:
     """Best-effort notification to the parent node that a reply exists."""
     import threading
 
@@ -436,7 +445,12 @@ def _notify_parent_of_reply(parent_node_id: str, parent_post_id: str,
             ts = int(_t.time())
             r = _hx.post(
                 url.rstrip("/") + f"/posts/{parent_post_id}/notify-reply",
-                json={"reply_node_id": reply_node_id, "reply_post_id": reply_post_id},
+                json={
+                    "reply_node_id": reply_node_id,
+                    "reply_post_id": reply_post_id,
+                    "reply_visibility": reply_visibility,
+                    "reply_visibility_list_id": reply_visibility_list_id,
+                },
                 headers=_build_headers(ts),
                 timeout=5,
             )
@@ -697,6 +711,8 @@ def delete_post(post_id: str, request: Request, identity: OwnerDep):
 class _ReplyNotification(BaseModel):
     reply_node_id: str
     reply_post_id: str
+    reply_visibility: str | None = None
+    reply_visibility_list_id: str | None = None
 
 
 @router.post("/posts/{post_id}/notify-reply", status_code=204)
@@ -708,9 +724,12 @@ def notify_reply(post_id: str, payload: _ReplyNotification, request: Request,
     if db.execute("SELECT 1 FROM posts WHERE id = ? AND deleted = 0", (post_id,)).fetchone() is None:
         raise HTTPException(status_code=404, detail="Post not found")
     db.execute(
-        "INSERT OR IGNORE INTO reply_refs (reply_post_id, reply_node_id, parent_post_id, received_at)"
-        " VALUES (?, ?, ?, ?)",
-        (payload.reply_post_id, payload.reply_node_id, post_id, now_ns()),
+        "INSERT OR IGNORE INTO reply_refs"
+        " (reply_post_id, reply_node_id, parent_post_id, received_at,"
+        "  reply_visibility, reply_visibility_list_id)"
+        " VALUES (?, ?, ?, ?, ?, ?)",
+        (payload.reply_post_id, payload.reply_node_id, post_id, now_ns(),
+         payload.reply_visibility, payload.reply_visibility_list_id),
     )
     if not identity.is_owner:
         import hashlib as _hl
@@ -734,13 +753,16 @@ def notify_reply(post_id: str, payload: _ReplyNotification, request: Request,
             db.commit()
             if is_new:
                 # Propagate up the ancestor chain — each remote node gets notified once
-                _propagate_reply_up(post_id, payload.reply_post_id, replier_node_id, own_node_id, db, app)
+                _propagate_reply_up(post_id, payload.reply_post_id, replier_node_id, own_node_id, db, app,
+                                    payload.reply_visibility, payload.reply_visibility_list_id)
     else:
         db.commit()
 
 
 def _propagate_reply_up(start_post_id: str, reply_post_id: str, reply_node_id: str,
-                         own_node_id: str, db, app) -> None:
+                         own_node_id: str, db, app,
+                         reply_visibility: str | None = None,
+                         reply_visibility_list_id: str | None = None) -> None:
     """Walk up the local parent chain and notify the first remote ancestor node.
     That node repeats the process, propagating the chain recursively."""
     current_post_id = start_post_id
@@ -760,7 +782,8 @@ def _propagate_reply_up(start_post_id: str, reply_post_id: str, reply_node_id: s
             # Don't notify the replier's node about its own reply; stop propagation
             break
         # Remote ancestor — send notification; that node will propagate further
-        _notify_parent_of_reply(parent_node_id, parent_post_id, reply_node_id, reply_post_id, app)
+        _notify_parent_of_reply(parent_node_id, parent_post_id, reply_node_id, reply_post_id, app,
+                                reply_visibility, reply_visibility_list_id)
         break
 
 
@@ -768,23 +791,44 @@ def _propagate_reply_up(start_post_id: str, reply_post_id: str, reply_node_id: s
 def get_replies(post_id: str, request: Request):
     db = request.app.state.db
     row = db.execute(
-        "SELECT visibility FROM posts WHERE id = ? AND deleted = 0", (post_id,)
+        "SELECT visibility, visibility_list_id FROM posts WHERE id = ? AND deleted = 0", (post_id,)
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=404, detail="Post not found")
 
+    parent_visibility_list_id = row[1]
     own_node_id = getattr(request.app.state, "node_id", "") or ""
 
     # local replies: posts on this node whose parent_id = post_id
-    local_rows = db.execute(
-        "SELECT id FROM posts WHERE parent_id = ? AND deleted = 0", (post_id,)
-    ).fetchall()
+    # When parent is list-restricted, only include replies that are also list-restricted or private
+    if parent_visibility_list_id:
+        local_rows = db.execute(
+            "SELECT id FROM posts WHERE parent_id = ? AND deleted = 0"
+            " AND (visibility_list_id IS NOT NULL OR visibility = 'private')",
+            (post_id,)
+        ).fetchall()
+    else:
+        local_rows = db.execute(
+            "SELECT id FROM posts WHERE parent_id = ? AND deleted = 0", (post_id,)
+        ).fetchall()
     local_refs = [{"reply_post_id": r[0], "reply_node_id": own_node_id} for r in local_rows]
 
     # cached remote reply refs
-    ref_rows = db.execute(
-        "SELECT reply_post_id, reply_node_id FROM reply_refs WHERE parent_post_id = ?", (post_id,)
-    ).fetchall()
+    # When parent is list-restricted, exclude refs whose visibility is known-broader:
+    #   reply_visibility not NULL, not 'private', and reply_visibility_list_id IS NULL
+    # Unknown visibility (reply_visibility IS NULL = old refs) are included for compatibility
+    if parent_visibility_list_id:
+        ref_rows = db.execute(
+            "SELECT reply_post_id, reply_node_id FROM reply_refs WHERE parent_post_id = ?"
+            " AND (reply_visibility IS NULL"
+            "      OR reply_visibility = 'private'"
+            "      OR reply_visibility_list_id IS NOT NULL)",
+            (post_id,)
+        ).fetchall()
+    else:
+        ref_rows = db.execute(
+            "SELECT reply_post_id, reply_node_id FROM reply_refs WHERE parent_post_id = ?", (post_id,)
+        ).fetchall()
     remote_refs = [{"reply_post_id": r[0], "reply_node_id": r[1]} for r in ref_rows]
 
     # merge, dedup by (node_id, post_id)

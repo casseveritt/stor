@@ -526,6 +526,14 @@ def init_schema(con: sqlcipher3.Connection) -> None:
     """)
     con.commit()
 
+    # Add visibility columns to reply_refs for filtering
+    for _col in ["reply_visibility TEXT", "reply_visibility_list_id TEXT"]:
+        try:
+            con.execute(f"ALTER TABLE reply_refs ADD COLUMN {_col}")
+            con.commit()
+        except Exception:
+            pass
+
     # Add current_hash column to node_lists if missing
     try:
         con.execute("ALTER TABLE node_lists ADD COLUMN current_hash TEXT")
