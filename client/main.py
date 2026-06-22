@@ -1936,7 +1936,13 @@ def create_app(config_path: str | Path) -> FastAPI:
     async def proxy_to_server(path: str, request: Request):
         body = await request.body()
         fwd_headers = {k: v for k, v in request.headers.items() if k.lower() not in _STRIP_INBOUND}
-        if config.internal_token:
+        # Only grant owner-level server access when the request carries a valid client
+        # session. External federated requests must not get the internal token — they
+        # would be forwarded to the server as owner and see all private posts.
+        _auth = request.headers.get("Authorization", "")
+        _tok = _auth[7:] if _auth.startswith("Bearer ") else request.query_params.get("client_token", "")
+        _is_owner_request = bool(_tok and _sessions.get(_tok, 0) > time.time_ns())
+        if config.internal_token and _is_owner_request:
             fwd_headers["x-contacc-internal"] = config.internal_token
         client = httpx.AsyncClient()
         try:
