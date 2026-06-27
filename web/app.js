@@ -500,16 +500,16 @@ async function loadProfileAvatar() {
     const avatarImg = document.getElementById("profile-avatar");
     const avatarInit = document.getElementById("profile-avatar-initials");
     const initName = (p.display_name || p.handle || "?")[0].toUpperCase();
+    let blobUrl = null;
     if (p.photo_url) {
-      avatarImg.onerror = () => { avatarImg.hidden = true; avatarInit.textContent = initName; avatarInit.hidden = false; };
-      avatarImg.src = p.photo_url + "?t=" + Date.now();
-      avatarImg.hidden = false;
-      avatarInit.hidden = true;
-    } else {
-      avatarInit.textContent = initName;
-      avatarInit.hidden = false;
-      avatarImg.hidden = true;
+      try {
+        const pr = await apiFetch("/profile/photo");
+        if (pr.ok) blobUrl = URL.createObjectURL(await pr.blob());
+      } catch {}
     }
+    avatarImg.hidden = !blobUrl;
+    avatarInit.hidden = !!blobUrl;
+    if (blobUrl) avatarImg.src = blobUrl; else avatarInit.textContent = initName;
     document.getElementById("profile-display-name").value = p.display_name || "";
     document.getElementById("profile-handle").value = p.handle || "";
     if (p.display_name) {
@@ -525,16 +525,9 @@ async function loadProfileAvatar() {
     }
     const modalImg = document.getElementById("profile-modal-photo");
     const modalInit = document.getElementById("profile-modal-initials");
-    if (p.photo_url) {
-      modalImg.onerror = () => { modalImg.hidden = true; modalInit.textContent = initName; modalInit.hidden = false; };
-      modalImg.src = p.photo_url + "?t=" + Date.now();
-      modalImg.hidden = false;
-      modalInit.hidden = true;
-    } else {
-      modalInit.textContent = initName;
-      modalInit.hidden = false;
-      modalImg.hidden = true;
-    }
+    modalImg.hidden = !blobUrl;
+    modalInit.hidden = !!blobUrl;
+    if (blobUrl) modalImg.src = blobUrl; else modalInit.textContent = initName;
   } catch {}
 }
 
@@ -756,7 +749,16 @@ async function fetchServerProfiles() {
         : await fetch(url + "/profile");
       if (r.ok) {
         const profile = await r.json();
-        if (url !== CFG.own_server) {
+        if (url === CFG.own_server) {
+          // <img> tags don't send auth headers, so use a blob URL obtained via
+          // authenticated fetch instead of the raw /profile/photo URL.
+          if (profile.photo_url) {
+            try {
+              const pr = await apiFetch("/profile/photo");
+              profile.photo_url = pr.ok ? URL.createObjectURL(await pr.blob()) : null;
+            } catch { profile.photo_url = null; }
+          }
+        } else {
           const serverPhotoUrl = profile.photo_url; // save before we may overwrite
           let nid = urlToNodeId[url];
           // Backfill node_id from /node when it isn't stored yet — happens the
