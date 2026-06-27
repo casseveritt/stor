@@ -1930,7 +1930,10 @@ def create_app(config_path: str | Path) -> FastAPI:
         return JSONResponse(content=r.json(), status_code=r.status_code)
 
     # ── catch-all: proxy everything else to the server ────────────────────
-    _STRIP_INBOUND = {"host", "x-contacc-internal", "x-contacc-role", "x-contacc-identity"}
+    # Strip headers that must not reach the server: our own sentinel headers that
+    # callers could spoof, and the client-session Bearer token (a client-only
+    # credential the server would reject as an "Invalid token" 401).
+    _STRIP_INBOUND = {"host", "authorization", "x-contacc-internal", "x-contacc-role", "x-contacc-identity"}
 
     @app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
     async def proxy_to_server(path: str, request: Request):
