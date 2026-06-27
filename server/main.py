@@ -759,7 +759,10 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
             return JSONResponse({"detail": "Server not ready", "state": state}, status_code=503)
         if app.state.initialized and not is_setup_path and not is_public_path:
             internal_token = getattr(app.state, "internal_token", None)
-            if internal_token:
+            # Federated requests carry X-Public-Key; let them through so the
+            # endpoint's FederatedOrTokenDep can verify the signature.
+            is_federated = bool(request.headers.get("X-Public-Key"))
+            if internal_token and not is_federated:
                 provided = request.headers.get("x-contacc-internal", "")
                 if not secrets.compare_digest(provided, internal_token):
                     return JSONResponse({"detail": "Unauthorized"}, status_code=403)
