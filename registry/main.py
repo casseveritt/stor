@@ -431,11 +431,29 @@ def create_app(db_path: str) -> FastAPI:
         callback_url: str = ""   # unused; kept for backward compat
 
     @app.post("/tang/exchange")
-    def tang_exchange(body: TangExchangeBody):
+    def tang_exchange(body: TangExchangeBody, request: Request):
         """Compute S = X25519(t_priv_node, C) and return it synchronously."""
         row = con.execute("SELECT t_priv FROM tang_keys WHERE node_id = ?", (body.node_id,)).fetchone()
         if not row:
             raise HTTPException(404, "No Tang key registered for this node")
+        # Verify the source IP matches the node's registered server_url.
+        # Skip for private/loopback sources (co-located nodes arrive via Docker bridge).
+        node_row = con.execute("SELECT server_url FROM nodes WHERE node_id = ?", (body.node_id,)).fetchone()
+        if node_row:
+            import ipaddress, socket, urllib.parse as _up
+            xff = request.headers.get("X-Forwarded-For", "")
+            client_ip = xff.split(",")[-1].strip() if xff else (request.client.host if request.client else "")
+            try:
+                addr = ipaddress.ip_address(client_ip)
+                if not addr.is_private:
+                    parsed = _up.urlparse(node_row[0])
+                    expected = {r[4][0] for r in socket.getaddrinfo(parsed.hostname, None, type=socket.SOCK_STREAM)}
+                    if client_ip not in expected:
+                        raise HTTPException(403, "Source IP does not match node's registered server URL")
+            except HTTPException:
+                raise
+            except Exception:
+                pass  # DNS failure or unparseable IP: allow
         from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey, X25519PublicKey
         t_priv = X25519PrivateKey.from_private_bytes(row[0])
         try:
