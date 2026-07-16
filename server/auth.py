@@ -239,12 +239,21 @@ async def get_identity_or_federated(
     the key is in the users table and the signature is valid, finds or creates a
     recipient record for that server URL so the comment is attributed correctly.
     """
-    # 1. Try Bearer / query token first.
+    # 1. Try Bearer / query token first.  If the token is present but invalid
+    #    (expired, stale after a node restart, etc.) fall through rather than
+    #    raising immediately — the internal token or a federated signature may
+    #    still grant access.
     if authorization and authorization.startswith("Bearer "):
-        return _identity_from_token(request, authorization.removeprefix("Bearer "))
+        try:
+            return _identity_from_token(request, authorization.removeprefix("Bearer "))
+        except HTTPException:
+            pass
     token = request.query_params.get("token")
     if token:
-        return _identity_from_token(request, token)
+        try:
+            return _identity_from_token(request, token)
+        except HTTPException:
+            pass
 
     # 1b. Internal inter-container token — client proxy calls arrive this way.
     import secrets as _sec

@@ -706,12 +706,10 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
             if await _attempt():
                 return
 
-        # Slow retries: every 60s for up to 30 minutes
-        deadline = time.time() + 30 * 60
-        while time.time() < deadline:
+        # Slow retries: every 60s indefinitely — a locked node has nothing to
+        # lose by continuing to try (e.g. registry was down during startup).
+        while not app.state.initialized:
             await _aio.sleep(60)
-            if app.state.initialized:
-                return
             log.info("Tang slow-retry unlock attempt")
             if await _attempt():
                 return
