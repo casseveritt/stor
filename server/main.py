@@ -657,7 +657,7 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
         _aio.ensure_future(_tang_autounlock_task())
 
     async def _tang_autounlock_task():
-        import asyncio as _aio, secrets as _sec, httpx as _hx
+        import asyncio as _aio, httpx as _hx
         try:
             from .config import NodeConfig as _NC
             _cfg = _NC.load(config_path)
@@ -666,8 +666,7 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
         if not _cfg.tang_enabled or not _cfg.tang_C or not _cfg.tang_E:
             return
         registry_url = (_cfg.tang_url or _cfg.identity_proxy_url or "").rstrip("/")
-        node_address = (os.environ.get("CONTACC_NODE_ADDRESS") or _cfg.node_address or "").rstrip("/")
-        if not registry_url or not node_address:
+        if not registry_url:
             return
         # Try node_id first, fall back to owner_id/user_id (Tang keys may be filed under either)
         _tang_ids = list(dict.fromkeys(filter(None, [
@@ -675,27 +674,34 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
         ])))
 
         async def _attempt() -> bool:
-            """Try Tang exchange for each candidate ID. Returns True if unlock was initiated."""
+            """Try Tang exchange for each candidate ID. Returns True if unlock succeeded."""
             for tang_node_id in _tang_ids:
-                nonce = _sec.token_urlsafe(32)
-                app.state.tang_nonces[nonce] = time.time() + 30
                 try:
                     async with _hx.AsyncClient() as hc:
                         r = await hc.post(f"{registry_url}/tang/exchange", json={
                             "node_id": tang_node_id,
                             "C": _cfg.tang_C,
-                            "nonce": nonce,
-                            "callback_url": f"{node_address}/tang/deliver",
                         }, timeout=15)
                     if r.is_success:
-                        return True  # unlock handled in /tang/deliver
+                        S_b64 = r.json().get("S", "")
+                        if not S_b64:
+                            log.warning("Tang exchange succeeded but no S in response")
+                            return False
+                        from cryptography.hazmat.primitives.kdf.hkdf import HKDF as _HKDF
+                        from cryptography.hazmat.primitives.hashes import SHA256 as _SHA256
+                        from .crypto import decrypt_bytes as _dec
+                        S_bytes = base64.b64decode(S_b64 + "==")
+                        K = _HKDF(_SHA256(), 32, None, b"contacc-tang-unlock").derive(S_bytes)
+                        passphrase = _dec(base64.b64decode(_cfg.tang_E + "=="), K).decode()
+                        app.state.do_initialize(passphrase)
+                        log.info("Node unlocked via Tang (synchronous exchange)")
+                        return True
                     if r.status_code != 404:
                         log.warning("Tang exchange attempt failed (%s), will retry", r.status_code)
                         break  # non-404 errors don't benefit from trying other IDs
                 except Exception as e:
                     log.warning("Tang auto-unlock error: %s", e)
                     break
-                app.state.tang_nonces.pop(nonce, None)
             return False
 
         # Fast retries: at 2s, 7s, 22s after startup
@@ -713,8 +719,6 @@ def create_app(config_path: str | Path, passphrase: str = "") -> FastAPI:
             log.info("Tang slow-retry unlock attempt")
             if await _attempt():
                 return
-
-        log.warning("Tang auto-unlock gave up after 30 minutes")
 
     @app.on_event("startup")
     async def _announce_to_provider():
