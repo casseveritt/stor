@@ -367,9 +367,11 @@ def create_app(config_path: str | Path) -> FastAPI:
 
     def _headers(server_url: str) -> dict:
         if server_url == config.own_server:
-            h = _internal_headers()
-        else:
-            h = {"X-Origin-Server": config.own_server}
+            # Internal token provides owner access; don't also send the Bearer
+            # token — a stale/expired one would be tried first by the server and
+            # raise 401 before the internal token check is reached.
+            return _internal_headers()
+        h = {"X-Origin-Server": config.own_server}
         t = _token(server_url)
         if t:
             h["Authorization"] = f"Bearer {t}"
