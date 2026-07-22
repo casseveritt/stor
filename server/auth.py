@@ -340,10 +340,21 @@ async def get_identity_or_federated(
 FederatedOrTokenDep = Annotated[TokenIdentity, Depends(get_identity_or_federated)]
 
 
-def require_owner(identity: AuthDep) -> TokenIdentity:
-    if not identity.is_owner:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner access required")
-    return identity
+def require_owner(
+    request: Request,
+    authorization: Annotated[str | None, Header()] = None,
+) -> TokenIdentity:
+    import secrets as _sec
+    internal_token = getattr(request.app.state, "internal_token", None)
+    if internal_token:
+        provided = request.headers.get("x-contacc-internal", "")
+        if provided and _sec.compare_digest(provided, internal_token):
+            return TokenIdentity(is_owner=True)
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ")
+        if _verify_owner_token(token):
+            return TokenIdentity(is_owner=True)
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Owner access required")
 
 
 OwnerDep = Annotated[TokenIdentity, Depends(require_owner)]
