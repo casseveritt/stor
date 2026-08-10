@@ -2,6 +2,19 @@
 #   API (them aggregator) external:  8443+N  → node-N:18443+N
 #   web (static files)    external:  6443+N  → /srv/web (served by this Caddy)
 
+# Serve ACME http-01 challenge files for certbot webroot renewal.
+# All other HTTP traffic is redirected to HTTPS.
+:80 {
+    root * /var/www/acme-challenge
+    @acme path /.well-known/acme-challenge/*
+    handle @acme {
+        file_server
+    }
+    handle {
+        redir https://{host}{uri} 308
+    }
+}
+
 (node_web) {
     root * /srv/web
 

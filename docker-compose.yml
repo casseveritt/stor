@@ -536,3 +536,4 @@ services:
       - ${CONTACC_DATA_DIR}/caddy:/data
       - ${CONTACC_DATA_DIR}/caddy-config:/config
       - ./web:/srv/web:ro
+      - /var/www/acme-challenge:/var/www/acme-challenge:ro

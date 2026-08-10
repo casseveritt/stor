@@ -4,6 +4,7 @@ import re
 import os
 import sys
 import sqlite3
+import time
 
 def escape_bash_special_chars(text):
     t2 = re.sub(r"([\$\"])", r"\\\1", text)
@@ -54,10 +55,22 @@ def import2filestore(bkupdir, importdir, relpathprefix):
                 continue
             to_link.append(os.path.join(relpath, f))
 
-    count = len(to_link)            
+    total = len(to_link)
+    count = total
+    start_time = time.time()
+    last_report = start_time
     try:
         for prfp in to_link:
             count -= 1
+
+            now = time.time()
+            if now - last_report >= 10:
+                done = total - count
+                elapsed = now - start_time
+                rate = done / elapsed if elapsed > 0 else 0
+                print(f"[status] {done}/{total} processed, {count} remaining, {rate:.1f} files/s, {elapsed:.0f}s elapsed")
+                last_report = now
+
             rfp = os.path.join(relpathprefix, prfp)
             ifp = os.path.join(importdir, prfp)
             ifpe = escape_bash_special_chars(ifp)
